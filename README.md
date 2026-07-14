@@ -65,8 +65,7 @@ Choose your preferred installation method. All methods below always install the 
 Download and run the installation script. This always fetches the install script attached to the *latest* GitHub release, so the command below stays correct forever — you never need to update a version number in it:
 
 ```bash
-curl -sSL https://github.com/viswajith275/EnvSeal-CLI/releases/latest/download/install.sh | bash
-
+curl -sSfL https://raw.githubusercontent.com/viswajith275/envseal-cli/master/install.sh | bash
 ```
 
 The installer will:
@@ -80,10 +79,10 @@ You can customize the install with flags, passed after `-s --`:
 
 ```bash
 # Install to a custom directory
-curl -sSL https://github.com/viswajith275/EnvSeal-CLI/releases/latest/download/install.sh | bash -s -- --dir /usr/local/bin
+curl -sSfL https://raw.githubusercontent.com/viswajith275/envseal-cli/master/install.sh | bash -s -- --dir /usr/local/bin
 
 # Pin to a specific version instead of latest
-curl -sSL https://github.com/viswajith275/EnvSeal-CLI/releases/latest/download/install.sh | bash -s -- --version v1.0.1
+curl -sSfL https://raw.githubusercontent.com/viswajith275/envseal-cli/master/install.sh | bash -s -- --version v1.0.1
 
 ```
 
