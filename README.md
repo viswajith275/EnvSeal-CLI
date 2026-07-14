@@ -1,4 +1,4 @@
-# envfuse-CLI 🔐
+# envfuse-CLI
 
 A lightweight, encrypted command-line vault for securely managing API keys, secrets, and sensitive environment variables on your local machine.
 
