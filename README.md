@@ -2,7 +2,7 @@
 
 A lightweight, encrypted command-line vault for securely managing API keys, secrets, and sensitive environment variables on your local machine.
 
-**Version:** v1.0.1
+**Version:** see [Releases](https://github.com/viswajith275/envfuse-CLI/releases) for the current version and changelog.
 
 ## Table of Contents
 
@@ -33,12 +33,12 @@ Developers often struggle with securely managing API keys, tokens, and sensitive
 
 **envfuse-CLI** provides:
 
-✅ **AES-256-GCM Encryption**: All sensitive data is encrypted at rest using military-grade encryption  
-✅ **Master Password Protection**: Vault locked behind a single, strong master password  
-✅ **Easy Secret Management**: Simple commands to set, get, and manage secrets  
-✅ **Shell Integration**: Seamlessly load encrypted secrets into your shell environment  
-✅ **Cross-Platform**: Works on Linux (x86_64), macOS (Intel & Apple Silicon)  
-✅ **Password Derivation**: Uses Argon2 for secure password hashing  
+✅ **AES-256-GCM Encryption**: All sensitive data is encrypted at rest using military-grade encryption
+✅ **Master Password Protection**: Vault locked behind a single, strong master password
+✅ **Easy Secret Management**: Simple commands to set, get, and manage secrets
+✅ **Automatic Shell Integration**: The installer wires up a shell function so `envfuse load` "just works" — no manual `eval` needed
+✅ **Cross-Platform**: Works on Linux (x86_64), macOS (Intel & Apple Silicon), with bash, zsh, and fish support
+✅ **Password Derivation**: Uses Argon2 for secure password hashing
 ✅ **Memory Safety**: Built in Rust with automatic memory wiping to prevent secret leaks
 
 ---
@@ -50,7 +50,7 @@ Developers often struggle with securely managing API keys, tokens, and sensitive
 -  **Lightweight Binary**: Single compiled executable, no dependencies required
 -  **Fast**: Written in Rust for blazing-fast performance
 -  **Memory Safe**: Automatic memory wiping prevents sensitive data leaks
--  **Shell Integration**: Load secrets directly into your bash/zsh environment
+-  **Zero-Friction Shell Integration**: Load secrets directly into your bash/zsh/fish environment with a single command — no `eval` boilerplate required
 -  **Simple CLI**: Intuitive commands for managing secrets
 -  **OS-Aware Storage**: Vault stored in standard config directory for your OS
 
@@ -58,35 +58,37 @@ Developers often struggle with securely managing API keys, tokens, and sensitive
 
 ## Installation
 
-Choose your preferred installation method:
+Choose your preferred installation method. All methods below always install the **latest** release unless you pass a specific version — so these commands never need to be edited when a new version ships.
 
 ### Method 1: Automated Installation (Recommended)
 
-Download and run the installation script:
+Download and run the installation script. This always fetches the install script attached to the *latest* GitHub release, so the command below stays correct forever — you never need to update a version number in it:
 
 ```bash
-curl -sSL https://github.com/viswajith275/envfuse-CLI/releases/download/v1.0.1/install.sh | bash
-```
-
-Or with specific options:
-
-```bash
-# Install to a custom directory
-curl -sSL https://github.com/viswajith275/envfuse-CLI/releases/download/v1.0.1/install.sh | bash -s -- --dir /usr/local/bin
-
-# Install a specific version
-curl -sSL https://github.com/viswajith275/envfuse-CLI/releases/download/v1.0.1/install.sh | bash -s -- --version v1.0.1
+curl -sSL https://github.com/viswajith275/envfuse-CLI/releases/latest/download/install.sh | bash
 ```
 
 The installer will:
 - Auto-detect your OS and architecture
-- Download the appropriate pre-compiled binary
+- Download the matching pre-compiled binary (latest release, by default)
 - Add the binary to your PATH
-- Set up shell integration for bash/zsh
+- Set up automatic shell integration for **bash**, **zsh**, and **fish**
+
+You can customize the install with flags, passed after `-s --`:
+
+```bash
+# Install to a custom directory
+curl -sSL https://github.com/viswajith275/envfuse-CLI/releases/latest/download/install.sh | bash -s -- --dir /usr/local/bin
+
+# Pin to a specific version instead of latest
+curl -sSL https://github.com/viswajith275/envfuse-CLI/releases/latest/download/install.sh | bash -s -- --version v1.0.1
+```
+
+> Note: `--version` controls which release of the **binary** is downloaded. The install script itself is always pulled from `releases/latest`, since the script's own logic rarely changes between versions.
 
 ### Method 2: Manual Installation via Release Artifacts
 
-1. **Download the binary** for your platform from [Releases](https://github.com/viswajith275/envfuse-CLI/releases/tag/v1.0.1):
+1. **Download the binary** for your platform from the [latest release](https://github.com/viswajith275/envfuse-CLI/releases/latest):
    - `envfuse-macos-x86_64.tar.gz` (macOS Intel)
    - `envfuse-macos-aarch64.tar.gz` (macOS Apple Silicon M1/M2/M3)
    - `envfuse-linux-musl-x86_64.tar.gz` (Linux x86_64)
@@ -95,23 +97,28 @@ The installer will:
    ```bash
    # Extract the archive
    tar -xzf envfuse-*.tar.gz
-   
+
    # Move to your PATH
    mv envfuse-* ~/.local/bin/envfuse
    chmod +x ~/.local/bin/envfuse
-   
+
    # Ensure ~/.local/bin is in your PATH
    export PATH="$HOME/.local/bin:$PATH"
    ```
 
-3. **Add to your shell** (`.bashrc` or `.zshrc`):
+3. **Add to your shell config** (`.bashrc`, `.zshrc`, or `~/.config/fish/config.fish`):
    ```bash
-   export PATH="$HOME/.local/bin:$PATH"
+   export PATH="$HOME/.local/bin:$PATH"          # bash / zsh
+   # fish_add_path $HOME/.local/bin               # fish
    ```
+
+   With a manual install you'll also miss the automatic `envfuse load` shell wrapper (see [Load Secrets into Your Shell](#4-load-secrets-into-your-shell)). If you want that convenience, use Method 1 or Method 4 instead, or use `eval "$(envfuse load ...)"` directly.
 
 4. **Reload your shell**:
    ```bash
-   source ~/.bashrc  # or source ~/.zshrc
+   source ~/.bashrc                              # bash
+   source ~/.zshrc                                # zsh
+   source ~/.config/fish/config.fish              # fish
    ```
 
 ### Method 3: Build from Source
@@ -128,23 +135,21 @@ cd envfuse-CLI
 # Build the release binary
 cargo build --release
 
-# Install locally
-cp target/release/envfuse ~/.local/bin/
-chmod +x ~/.local/bin/envfuse
-
 # Verify installation
-envfuse --version
+./target/release/envfuse --version
 ```
 
-### Method 4: Using the Installation Script with Local Binary
+To get the automatic shell integration (PATH + the `envfuse load` wrapper function) after building from source, run the install script against your local binary — see Method 4 below.
 
-If you've built the binary locally or have a pre-built binary:
+### Method 4: Using the Installation Script with a Local Binary
+
+If you've built the binary locally or already have a pre-built binary or tarball downloaded, point the installer at it directly. This skips the network download entirely but still sets up your PATH and shell integration:
 
 ```bash
-# Using the install script with a local binary
+# From a locally-built binary
 ./install.sh --file ./target/release/envfuse
 
-# Using the script with a downloaded tarball
+# From a downloaded tarball
 ./install.sh --file ~/Downloads/envfuse-macos-aarch64.tar.gz
 ```
 
@@ -200,11 +205,27 @@ envfuse get GITHUB_TOKEN
 
 ### 4. Load Secrets into Your Shell
 
+If you installed via Method 1 or Method 4, the installer already added an `envfuse()` shell function to your `.bashrc` / `.zshrc` / `fish` config. That function automatically detects the `load` subcommand and applies its output to your current shell — **no `eval` needed**:
+
+```bash
+envfuse load GITHUB_TOKEN DATABASE_URL API_KEY
+```
+
+This prompts for your master password once and exports all specified secrets as environment variables directly into your current shell session.
+
+If you installed manually (Method 2 or Method 3) and skipped shell integration, or you're calling the real binary explicitly (e.g. `command envfuse`), fall back to the manual form:
+
 ```bash
 eval "$(envfuse load GITHUB_TOKEN DATABASE_URL API_KEY)"
 ```
 
-This will prompt for your master password once and load all specified secrets as environment variables in your current shell session.
+**Usage in scripts** (always use the explicit `eval` form here, since scripts may not source your interactive shell config):
+
+```bash
+#!/bin/bash
+eval "$(envfuse load DATABASE_URL API_KEY)"
+echo $DATABASE_URL  # Access loaded secrets
+```
 
 ### 5. List All Stored Secrets
 
@@ -282,7 +303,8 @@ envfuse load GITHUB_TOKEN DATABASE_URL API_KEY
 
 - Prompts for master password (once)
 - Outputs shell export commands
-- Use with `eval` to set environment variables:
+- If you used the automated installer, calling `envfuse load ...` directly in an interactive bash/zsh/fish session already applies the exports — the wrapper function runs `eval` for you.
+- Otherwise, wrap it with `eval` yourself:
 
 ```bash
 eval "$(envfuse load GITHUB_TOKEN DATABASE_URL)"
@@ -354,7 +376,7 @@ envfuse-CLI uses industry-standard encryption:
 3. **Be Careful When Loading Secrets**
    - Only load secrets you need for a specific task
    - Avoid loading secrets into long-running shell sessions unnecessarily
-   - Be cautious with the `eval` command—only use with trusted vault data
+   - The automatic `envfuse load` shell integration only runs `eval` on output from the real `envfuse` binary invoked via `command`, so it can't recurse into itself — but you should still only install envfuse-CLI from sources you trust
 
 4. **Master Password**
    - Never share your master password
@@ -397,8 +419,8 @@ envfuse set GITHUB_TOKEN
 envfuse set OPENAI_API_KEY
 envfuse set DATABASE_URL
 
-# Load them when needed
-eval "$(envfuse load GITHUB_TOKEN OPENAI_API_KEY DATABASE_URL)"
+# Load them when needed (no eval needed with the automated installer)
+envfuse load GITHUB_TOKEN OPENAI_API_KEY DATABASE_URL
 
 # Use in your application
 npm start  # Your app can now access these env vars
@@ -406,10 +428,9 @@ npm start  # Your app can now access these env vars
 
 ### CI/CD Secrets (Local Testing)
 
-Test CI scripts locally with real secrets:
+Test CI scripts locally with real secrets. In non-interactive scripts, always use the explicit `eval` form since the shell wrapper only applies to interactive sessions sourced from your rc file:
 
 ```bash
-# Load secrets for testing
 eval "$(envfuse load DEPLOY_KEY AWS_ACCESS_KEY)"
 ./deploy.sh
 ```
@@ -432,7 +453,7 @@ envfuse set PROD_DATABASE_URL
 envfuse set PROD_API_KEY
 
 # Load environment-specific secrets
-eval "$(envfuse load DEV_DATABASE_URL DEV_API_KEY)"
+envfuse load DEV_DATABASE_URL DEV_API_KEY
 ```
 
 ---
@@ -452,7 +473,7 @@ envfuse init
 
 **Problem**: `envfuse: error: wrong master password`
 
-**Solution**: 
+**Solution**:
 - Ensure you're entering the correct master password
 - Check for CAPS LOCK or other input issues
 - If forgotten, you'll need to reinitialize (data cannot be recovered)
@@ -472,11 +493,26 @@ envfuse init
 
 **Solution**:
 - Verify installation: `which envfuse` or `echo $PATH`
-- Add to PATH in your shell config:
+- Add to PATH manually if needed:
   ```bash
-  export PATH="$HOME/.local/bin:$PATH"
+  export PATH="$HOME/.local/bin:$PATH"          # bash / zsh
+  fish_add_path $HOME/.local/bin                 # fish
   ```
-- Reload shell: `source ~/.bashrc` or `source ~/.zshrc`
+- Reload your shell:
+  ```bash
+  source ~/.bashrc                               # bash
+  source ~/.zshrc                                 # zsh
+  source ~/.config/fish/config.fish                # fish
+  ```
+
+### `envfuse load` isn't setting environment variables in my shell
+
+**Problem**: Running `envfuse load KEY` prints export statements but they don't seem to take effect.
+
+**Solution**: This means the automatic shell wrapper wasn't installed or wasn't loaded into your current session:
+- Confirm the wrapper exists: `type envfuse` should show a shell function, not just a binary path
+- If it only shows the binary path, re-run the installer (Method 1 or Method 4) or restart your shell/terminal
+- As an immediate workaround, use the explicit form: `eval "$(envfuse load KEY)"`
 
 ### Permission Denied
 
@@ -545,6 +581,8 @@ envfuse-CLI uses well-maintained, audited Rust crates:
 | macOS | aarch64 (Apple Silicon) | ✅ Supported |
 | Windows | - | ⏳ Planned |
 
+Shell integration is supported for **bash**, **zsh**, and **fish**.
+
 ---
 
 ## Contributing
@@ -596,12 +634,7 @@ This project is licensed under the MIT License — see the LICENSE file for deta
 
 ## Changelog
 
-### v1.0.1 (Latest)
-- Initial stable release
-- Full AES-256-GCM encryption support
-- Master password protection
-- Cross-platform support (Linux, macOS)
-- Shell integration for bash/zsh
+Full changelog is maintained on the [GitHub Releases page](https://github.com/viswajith275/envfuse-CLI/releases) so it never drifts out of sync with this README.
 
 ---
 
