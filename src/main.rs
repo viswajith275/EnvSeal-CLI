@@ -9,7 +9,7 @@ fn main() -> Result<()>{
     let clis = cli::Cli::try_parse();
     let clis = match clis {
         Ok(cli) => cli,
-        Err(error) => panic!("Invalid command!"),
+        Err(_) => panic!("Invalid command!"),
     };
  
     match clis.command {

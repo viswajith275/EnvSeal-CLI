@@ -42,8 +42,8 @@ jobs:
         
       - name: Rename and compress
         run: |
-          mv target/${{ matrix.target }}/release/envfuse envfuse-${{ matrix.name }}
-          tar -czvf envfuse-${{ matrix.name }}.tar.gz envfuse-${{ matrix.name }}
+          mv target/${{ matrix.target }}/release/envfuse envseal-${{ matrix.name }}
+          tar -czvf envseal-${{ matrix.name }}.tar.gz envseal-${{ matrix.name }}
           
       - name: Release
         uses: softprops/action-gh-release@v2
