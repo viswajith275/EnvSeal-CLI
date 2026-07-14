@@ -66,6 +66,21 @@ while [ $# -gt 0 ]; do
     esac
 done
 
+# Helper: fetch a URL to stdout, using curl if present, falling back to wget.
+# This matters on minimal distros/containers (e.g. slim Alpine images) that
+# ship only one of the two.
+fetch() {
+    local URL="$1"
+    if command -v curl >/dev/null 2>&1; then
+        curl -sL "$URL"
+    elif command -v wget >/dev/null 2>&1; then
+        wget -qO- "$URL"
+    else
+        echo "Error: neither curl nor wget is installed. Please install one and re-run." >&2
+        exit 1
+    fi
+}
+
 echo "Installing $BIN_NAME..."
 mkdir -p "$INSTALL_DIR"
 
@@ -116,14 +131,37 @@ else
     OS="$(uname -s)"
     ARCH="$(uname -m)"
 
-    if [ "$OS" = "Linux" ] && [ "$ARCH" = "x86_64" ]; then
-        # Point all Linux distros (including Fedora) to the static musl binary
-        TARGET="linux-musl-x86_64"
-    elif [ "$OS" = "Darwin" ] && [ "$ARCH" = "x86_64" ]; then
-        TARGET="macos-x86_64"
-    elif [ "$OS" = "Darwin" ] && [ "$ARCH" = "arm64" ]; then
-        TARGET="macos-aarch64"
-    else
+    case "$OS" in
+        Linux)
+            case "$ARCH" in
+                x86_64|amd64)
+                    # Point all Linux distros (including Fedora) to the static musl binary
+                    TARGET="linux-musl-x86_64"
+                    ;;
+                *)
+                    TARGET=""
+                    ;;
+            esac
+            ;;
+        Darwin)
+            case "$ARCH" in
+                x86_64)
+                    TARGET="macos-x86_64"
+                    ;;
+                arm64)
+                    TARGET="macos-aarch64"
+                    ;;
+                *)
+                    TARGET=""
+                    ;;
+            esac
+            ;;
+        *)
+            TARGET=""
+            ;;
+    esac
+
+    if [ -z "$TARGET" ]; then
         echo "Unsupported OS/Arch: $OS/$ARCH"
         echo "You can still install manually with: ./install.sh --file <path-to-binary-or-tarball>"
         exit 1
@@ -136,7 +174,7 @@ else
         RELEASE_API_URL="https://api.github.com/repos/$REPO/releases/tags/$VERSION"
     fi
 
-    RELEASE_URL=$(curl -s "$RELEASE_API_URL" | grep "browser_download_url.*$TARGET.tar.gz" | cut -d '"' -f 4)
+    RELEASE_URL=$(fetch "$RELEASE_API_URL" | grep "browser_download_url.*$TARGET.tar.gz" | cut -d '"' -f 4)
 
     if [ -z "$RELEASE_URL" ]; then
         echo "Could not find a release for $TARGET (version: $VERSION)"
@@ -148,7 +186,7 @@ else
     TMP_DIR=$(mktemp -d)
 
     echo "Downloading from $RELEASE_URL..."
-    curl -sL "$RELEASE_URL" | tar -xz -C "$TMP_DIR"
+    fetch "$RELEASE_URL" | tar -xz -C "$TMP_DIR"
 
     mv "$TMP_DIR/$BIN_NAME-$TARGET" "$INSTALL_DIR/$BIN_NAME"
     chmod +x "$INSTALL_DIR/$BIN_NAME"
@@ -157,20 +195,23 @@ else
     echo "Successfully installed $BIN_NAME to $INSTALL_DIR"
 fi
 
-# 4. Shell integration (bash + zsh)
+# 4. Shell integration (bash, zsh, and fish)
 #
-# We touch both .bashrc and .zshrc regardless of the user's current
-# $SHELL, since people often use one interactively but still source
-# the other (e.g. scripts, su -, tmux, CI, etc).
+# We touch rc files for bash, zsh, AND fish regardless of the user's
+# current $SHELL, since people often use one interactively but still
+# source another (e.g. scripts, su -, tmux, CI, etc). Fish uses its
+# own config location and syntax, so it's handled separately below.
 
 PATH_STR="export PATH=\"$INSTALL_DIR:\$PATH\""
 LOAD_FUNC_MARKER="# >>> $BIN_NAME shell integration >>>"
 LOAD_FUNC_END="# <<< $BIN_NAME shell integration <<<"
 
-update_rc_file() {
+# --- bash / zsh (POSIX-ish, sourced via .bashrc / .zshrc) ---
+update_posix_rc_file() {
     local RC_FILE="$1"
 
     # Create the rc file if it doesn't exist yet
+    mkdir -p "$(dirname "$RC_FILE")"
     touch "$RC_FILE"
 
     # --- PATH setup ---
@@ -211,12 +252,53 @@ update_rc_file() {
     fi
 }
 
-update_rc_file "$HOME/.bashrc"
-update_rc_file "$HOME/.zshrc"
+# --- fish (own syntax, own config location) ---
+update_fish_config() {
+    local RC_FILE="$HOME/.config/fish/config.fish"
+
+    mkdir -p "$(dirname "$RC_FILE")"
+    touch "$RC_FILE"
+
+    # --- PATH setup ---
+    if ! grep -q "$INSTALL_DIR" "$RC_FILE" 2>/dev/null; then
+        {
+            echo ""
+            echo "# Added by $BIN_NAME installer"
+            echo "fish_add_path $INSTALL_DIR"
+        } >> "$RC_FILE"
+        echo "Added $INSTALL_DIR to your PATH in $RC_FILE"
+    else
+        echo "$INSTALL_DIR is already in your PATH in $RC_FILE"
+    fi
+
+    # --- envfuse function (fish syntax) ---
+    if ! grep -qF "$LOAD_FUNC_MARKER" "$RC_FILE" 2>/dev/null; then
+        {
+            echo ""
+            echo "$LOAD_FUNC_MARKER"
+            echo "function $BIN_NAME"
+            echo "    if [ \"\$argv[1]\" = \"load\" ]"
+            echo "        eval (command $BIN_NAME \$argv)"
+            echo "    else"
+            echo "        command $BIN_NAME \$argv"
+            echo "    end"
+            echo "end"
+            echo "$LOAD_FUNC_END"
+        } >> "$RC_FILE"
+        echo "Added $BIN_NAME() shell function to $RC_FILE"
+    else
+        echo "$BIN_NAME() shell function already present in $RC_FILE"
+    fi
+}
+
+update_posix_rc_file "$HOME/.bashrc"
+update_posix_rc_file "$HOME/.zshrc"
+update_fish_config
 
 echo ""
 echo "Installation complete!"
 echo "Run '$BIN_NAME load <KEYS>...' any time — it will automatically apply the output to your current shell."
 echo "Restart your shell, or run one of the following to apply the changes now:"
-echo "  source ~/.bashrc   # if you're using bash"
-echo "  source ~/.zshrc    # if you're using zsh"
+echo "  source ~/.bashrc               # if you're using bash"
+echo "  source ~/.zshrc                # if you're using zsh"
+echo "  source ~/.config/fish/config.fish   # if you're using fish"
