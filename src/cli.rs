@@ -24,4 +24,8 @@ pub enum Commands {
         key: String,
     },
     List,
+    Run {
+        #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
+        cmd_args: Vec<String>,
+    },
 }
