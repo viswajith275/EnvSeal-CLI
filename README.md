@@ -43,10 +43,15 @@ Developers often struggle with securely managing API keys, tokens, and sensitive
 **EnvSeal** provides:
 
 ✅ **Group-Based Management**: Organize secrets into environments (e.g., `dev`, `prod`) and switch seamlessly.
+
 ✅ **Secure Process Injection**: Use `envseal run` to inject secrets only into a specific child process without exposing them to your terminal session.
+
 ✅ **End-to-End Encryption**: All sensitive data is encrypted at rest using military-grade AES-256-GCM.
+
 ✅ **Master Password Protection**: The vault is locked behind a single, strong master password (derived via Argon2).
+
 ✅ **Drop-in `.env` Replacement**: Easily import existing `.env` files or export groups back out.
+
 ✅ **Memory Safety**: Built in Rust with automatic memory wiping to prevent secret leaks.
 
 ---
