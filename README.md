@@ -10,24 +10,25 @@
 ```
 A lightweight, encrypted command-line vault for securely managing API keys, secrets, and sensitive environment variables on your local machine. EnvSeal organizes your secrets into **groups** (like `dev`, `staging`, and `prod`) so you can seamlessly switch environments or inject secrets directly into application processes.
 
-**Version:** see [Releases](https://www.google.com/search?q=https://github.com/viswajith275/EnvSeal-CLI/releases) for the current version and changelog.
+**Version:** see [Releases](https://github.com/viswajith275/EnvSeal-CLI/releases) for the current version and changelog.
 
 ## Table of Contents
 
-* [Problem & Solution](https://www.google.com/search?q=%23problem--solution)
-* [Features](https://www.google.com/search?q=%23features)
-* [Installation](https://www.google.com/search?q=%23installation)
-* [Quick Start](https://www.google.com/search?q=%23quick-start)
-* [Commands](https://www.google.com/search?q=%23commands)
-* [Security](https://www.google.com/search?q=%23security)
-* [Use Cases](https://www.google.com/search?q=%23use-cases)
-* [Troubleshooting](https://www.google.com/search?q=%23troubleshooting)
-* [Contributing](https://www.google.com/search?q=%23contributing)
-* [License](https://www.google.com/search?q=%23license)
+* [Problem and Solution](#problem-and-solution)
+* [Features](#features)
+* [Installation](#installation)
+* [Quick Start](#quick-start)
+* [Commands](#commands)
+* [Security](#security)
+* [Use Cases](#use-cases)
+* [Troubleshooting](#troubleshooting)
+* [Contributing](#contributing)
+* [License](#license)
+
 
 ---
 
-## Problem & Solution
+## Problem and Solution
 
 ### The Problem
 
