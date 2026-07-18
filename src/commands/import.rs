@@ -17,7 +17,7 @@ pub fn cmd_import(group: &Option<String>, tag: &Option<String>, path: &str) -> R
             for item in iter {
                 match item {
                     Ok((key, value)) => {
-                        vault.add_entry(&derived, group_name, &key, &value)?;
+                        vault.set_entry(&derived, group, tag, &key, &value)?;
                     }
                     Err(e) => {
                         eprintln!("Warning: Failed to parse a line: {}", e);
@@ -30,6 +30,6 @@ pub fn cmd_import(group: &Option<String>, tag: &Option<String>, path: &str) -> R
 
     vault.save()?;
 
-    eprintln!("Stored env variables in group '{group_name}'");
+    eprintln!("Stored env variables in group!");
     Ok(())
 }

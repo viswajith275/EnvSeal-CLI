@@ -1,8 +1,8 @@
 use clap::{Parser, Subcommand};
 
 #[derive(Parser)]
-#[command(name = "envseal", about = "Encrypted Enviornment Manager")]
-#[command(version = "v1.2.0")]
+#[command(name = "envseal", about = "Encrypted Environment Manager")]
+#[command(version = "v2.0.0")]
 pub struct Cli {
     #[command(subcommand)]
     pub command: Commands,
@@ -10,13 +10,13 @@ pub struct Cli {
 
 #[derive(Subcommand)]
 pub enum Commands {
-    /// Initialize and create seal encrypted with "Master Password" to store secrets
+    /// Initialize and create a seal encrypted with a "Master Password" to store secrets
     Init,
-    Link {
-        group: String,
-        path: String,
-    },
-    ///[GROUP_NAME] > .env  Retrieve the enviornment variable into a .env file
+
+    /// Link a specific group to current working directory
+    Link { group: String },
+
+    /// Export specified keys into a .env file, optionally scoped by group or tag
     Export {
         #[arg(short, long)]
         group: Option<String>,
@@ -24,7 +24,8 @@ pub enum Commands {
         tag: Option<String>,
         keys: Vec<String>,
     },
-    ///[GROUP_NAME] [PATH_OF_.ENV]  Loads the variables in the .env to the specified group
+
+    /// Import variables from a given .env file path into the specified group or tag
     Import {
         #[arg(short, long)]
         group: Option<String>,
@@ -32,7 +33,8 @@ pub enum Commands {
         tag: Option<String>,
         path: String,
     },
-    ///[GROUP_NAME] [KEY]   Set or Update a value of a given key in a group (Creates the group if it doesnt exists)
+
+    /// Set or update the value of a given key (creates the group/tag if it doesn't exist)
     Set {
         #[arg(short, long)]
         group: Option<String>,
@@ -40,7 +42,8 @@ pub enum Commands {
         tag: Option<String>,
         key: String,
     },
-    ///[GROUP_NAME] [KEY]   Get the value of a given key in a group
+
+    /// Retrieve the stored value for a specific key
     Get {
         #[arg(short, long)]
         group: Option<String>,
@@ -48,7 +51,8 @@ pub enum Commands {
         tag: Option<String>,
         key: String,
     },
-    ///[GROUP_NAME] [KEYS..]    Load the given keys or group (if keys not given) into current terminal enviornment (Use run command for most usecases)
+
+    /// Load specified keys (or an entire group) into the current terminal environment. (Note: 'run' is recommended for most use cases)
     Load {
         #[arg(short, long)]
         group: Option<String>,
@@ -56,7 +60,8 @@ pub enum Commands {
         tag: Option<String>,
         keys: Vec<String>,
     },
-    ///[GROUP_NAME] [KEY]   Removes the given key or group (if key not specified)
+
+    /// Remove a specific key, or an entire group/tag if no key is specified
     Remove {
         #[arg(short, long)]
         group: Option<String>,
@@ -64,14 +69,16 @@ pub enum Commands {
         tag: Option<String>,
         key: Option<String>,
     },
-    ///[GROUP_NAME] List all keys in a group
+
+    /// List all keys, optionally filtered by a specific group or tag
     List {
         #[arg(short, long)]
         group: Option<String>,
         #[arg(short, long)]
         tag: Option<String>,
     },
-    ///[GROUP_NAME] [COMMAND]   Loads the enviornment variables into a child process (not into current terminal session)
+
+    /// Execute a command in a child process with the environment variables loaded (keeps current session clean)
     Run {
         #[arg(short, long)]
         group: Option<String>,

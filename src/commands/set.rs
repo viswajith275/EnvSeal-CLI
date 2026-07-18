@@ -9,9 +9,9 @@ pub fn cmd_set(group: &Option<String>, tag: &Option<String>, key: &str) -> Resul
     let derived = vault.unlock(&password)?;
 
     let secret = Zeroizing::new(prompt_password(&format!("Value for {key}: "))?);
-    vault.add_entry(&derived, group_name, key, &secret)?;
+    vault.set_entry(&derived, group, tag, key, &secret)?;
     vault.save()?;
 
-    eprintln!("Stored {key} in group '{group_name}'");
+    eprintln!("Stored {key} inside group");
     Ok(())
 }

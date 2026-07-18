@@ -28,5 +28,6 @@ fn main() -> Result<()> {
         cli::Commands::Export { group, tag, keys } => {
             commands::export::cmd_export(&group, &tag, &keys)
         }
+        cli::Commands::Link { group } => commands::link::cmd_link(group),
     }
 }
