@@ -1,3 +1,5 @@
+**BETA BRANCH**
+
 ```text
  /$$$$$$$$                       /$$$$$$                      /$$
 | $$_____/                      /$$__  $$                    | $$
@@ -25,6 +27,14 @@ A lightweight, encrypted command-line vault for securely managing API keys, secr
 * [Contributing](#contributing)
 * [License](#license)
 
+
+---
+
+## Upcoming Features
+
+* **Dynamic Tags**: Change crucial variables on the fly. Create local and prod tags to swap out specific values—like localhost vs. a production DB—while the rest of your group settings stay exactly the same.
+
+* **Directory Linking**: Bind a specific group to your current working directory. Once linked, you can run commands in that folder without needing to repeatedly type or remember the group name. (Global access via the group name will still work from any other directory).
 
 ---
 
