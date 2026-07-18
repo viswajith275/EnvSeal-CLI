@@ -5,9 +5,7 @@ use zeroize::Zeroize;
 use crate::utils::vault::Vault;
 
 pub fn cmd_run(args: Vec<String>, group_name: &str) -> Result<()> {
-
-    let (cmd_name, cmd_args) = args.split_first()
-        .context("No command provided to run")?;
+    let (cmd_name, cmd_args) = args.split_first().context("No command provided to run")?;
 
     let vault = Vault::load()?;
     let password: String = rpassword::prompt_password("Master Password: ")?;
@@ -19,24 +17,24 @@ pub fn cmd_run(args: Vec<String>, group_name: &str) -> Result<()> {
     let keys = vault.list_all_keys(group_name);
     let keys = match keys {
         Ok(value) => value,
-        Err(error) => panic!("{error}")
+        Err(error) => panic!("{error}"),
     };
-    for key in  keys{
-
+    for key in keys {
         let value = vault.get_entry(&derived, group_name, &key);
 
         let mut value = match value {
             Ok(value) => value,
-            Err(_) => panic!("Error while loading enviornment variables!")
+            Err(_) => panic!("Error while loading enviornment variables!"),
         };
         child_cmd.env(key, &value);
-        
-        value.zeroize(); 
+
+        value.zeroize();
     }
 
-    let mut child = child_cmd.spawn()
+    let mut child = child_cmd
+        .spawn()
         .with_context(|| format!("Failed to start process '{}'", cmd_name))?;
-        
+
     let status = child.wait().context("Failed to wait on child process")?;
 
     if let Some(code) = status.code() {

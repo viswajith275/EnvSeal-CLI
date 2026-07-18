@@ -1,12 +1,11 @@
 use crate::utils::vault::Vault;
-use zeroize::Zeroizing;
-use rpassword::prompt_password;
 use anyhow::Result;
 use dotenvy::from_path_iter;
+use rpassword::prompt_password;
 use std::path::Path;
+use zeroize::Zeroizing;
 
 pub fn cmd_import(group_name: &str, path: &str) -> Result<()> {
-
     let mut vault = Vault::load()?;
     let password = Zeroizing::new(prompt_password("Master Password: ")?);
     let derived = vault.unlock(&password)?;
@@ -26,11 +25,11 @@ pub fn cmd_import(group_name: &str, path: &str) -> Result<()> {
                 }
             }
         }
-        Err(error) => panic!("Failed to load env variables!: {error}")
+        Err(error) => panic!("Failed to load env variables!: {error}"),
     }
 
     vault.save()?;
- 
+
     eprintln!("Stored env variables in group '{group_name}'");
     Ok(())
 }
