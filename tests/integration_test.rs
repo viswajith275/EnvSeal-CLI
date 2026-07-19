@@ -215,7 +215,7 @@ fn test_vault_persistence_across_reloads() {
     let password = "master_password";
     let group = Some("test_project".to_string());
 
-    // 1. Init, set data, and (presumably) drop/save
+    //Init, set data
     Vault::init(password).unwrap();
     {
         let mut vault = Vault::load().unwrap();

@@ -2,7 +2,7 @@ use clap::{Parser, Subcommand};
 
 #[derive(Parser)]
 #[command(name = "envseal", about = "Encrypted Environment Manager")]
-#[command(version = "v2.0.0")]
+#[command(version = "v2.0.1")]
 pub struct Cli {
     #[command(subcommand)]
     pub command: Commands,
