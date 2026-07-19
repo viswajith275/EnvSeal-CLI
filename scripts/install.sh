@@ -121,7 +121,7 @@ command_exists() {
 # Fetch URL using curl or wget
 fetch() {
     local url="$1"
-    
+
     if command_exists curl; then
         curl -fsSL "$url"
     elif command_exists wget; then
@@ -141,7 +141,7 @@ detect_current_shell() {
 # Get the config file path for the detected shell
 get_shell_config_path() {
     local shell="$1"
-    
+
     case "$shell" in
         bash)
             echo "$HOME/.bashrc"
@@ -173,7 +173,7 @@ validate_install_dir() {
         fi
         log_info "Created install directory: $INSTALL_DIR"
     fi
-    
+
     if [[ ! -w "$INSTALL_DIR" ]]; then
         log_error "Install directory is not writable: $INSTALL_DIR"
         exit 1
@@ -188,7 +188,7 @@ install_from_local() {
     fi
 
     local target_path="$INSTALL_DIR/$BIN_NAME"
-    
+
     case "$LOCAL_FILE" in
         *.tar.gz|*.tgz)
             log_info "Installing from archive: $LOCAL_FILE"
@@ -203,7 +203,7 @@ install_from_local() {
 
             local found_bin
             found_bin=$(find "$tmp_dir" -maxdepth 2 -type f -name "$BIN_NAME*" ! -name "*.txt" ! -name "*.md" 2>/dev/null | head -n 1)
-            
+
             if [[ -z "$found_bin" ]]; then
                 log_error "No '$BIN_NAME' binary found in archive"
                 exit 1
@@ -229,7 +229,7 @@ install_from_local() {
 # Detect OS and architecture
 detect_platform() {
     local os arch target
-    
+
     os="$(uname -s)"
     arch="$(uname -m)"
 
@@ -240,7 +240,7 @@ detect_platform() {
                     target="linux-musl-x86_64"
                     ;;
                 aarch64|arm64)
-                    target="linux-musl-aarch64"
+                    target="linux-aarch64"
                     ;;
                 *)
                     target=""
@@ -277,7 +277,7 @@ detect_platform() {
 # Download and install from GitHub releases
 install_from_release() {
     local target release_url tmp_dir
-    
+
     target=$(detect_platform)
     log_info "Detected platform: $target"
 
@@ -290,7 +290,7 @@ install_from_release() {
     fi
 
     log_info "Fetching release information..."
-    
+
     release_url=$(fetch "$api_url" 2>/dev/null | grep -o "https://github.com/[^\"]*$target\.tar\.gz" | head -n 1 || true)
 
     if [[ -z "$release_url" ]]; then
@@ -300,7 +300,7 @@ install_from_release() {
     fi
 
     log_info "Downloading from: $release_url"
-    
+
     local tmp_dir target_path
     tmp_dir=$(mktemp -d) || exit 1
     trap "rm -rf '$tmp_dir'" EXIT
@@ -313,7 +313,7 @@ install_from_release() {
     # Find the binary in the extracted archive
     local found_bin
     found_bin=$(find "$tmp_dir" -maxdepth 2 -type f -name "$BIN_NAME*" ! -name "*.txt" ! -name "*.md" 2>/dev/null | head -n 1)
-    
+
     if [[ -z "$found_bin" ]]; then
         log_error "No '$BIN_NAME' binary found in release"
         exit 1
@@ -331,7 +331,7 @@ install_from_release() {
 # Update shell configuration
 update_shell_config() {
     local shell config_file
-    
+
     shell=$(detect_current_shell)
     config_file=$(get_shell_config_path "$shell")
 
@@ -455,7 +455,7 @@ update_fish_config() {
 # Verify installation
 verify_installation() {
     local binary_path="$INSTALL_DIR/$BIN_NAME"
-    
+
     # Check if binary exists
     if [[ ! -f "$binary_path" ]]; then
         log_error "Binary not found: $binary_path"
@@ -495,7 +495,7 @@ verify_installation() {
         log_info "Binary verified: $binary_path"
         log_info "Version info: $(echo "$version_output" | head -n 1)"
     fi
-    
+
     return 0
 }
 
@@ -522,14 +522,14 @@ main() {
 
     if [[ "$DRY_RUN" == false ]]; then
         echo ""
-        
+
         # Verify installation (non-fatal if it fails)
         if verify_installation; then
             log_info "Installation successful!"
         else
             log_warn "Could not fully verify installation"
         fi
-        
+
         echo ""
         echo "Next steps:"
         echo "  1. Reload your shell configuration:"
