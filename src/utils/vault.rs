@@ -1,5 +1,5 @@
 use super::crypto;
-use anyhow::{anyhow, Ok, Result};
+use anyhow::{anyhow, Result};
 use base64::Engine;
 use directories::ProjectDirs;
 use serde::{Deserialize, Serialize};
@@ -35,9 +35,11 @@ pub struct Vault {
 impl Vault {
     // find config/data directories acording t os
     pub fn path() -> Result<PathBuf> {
+        if let Ok(override_path) = std::env::var("ENVSEAL_TEST_PATH") {
+            return Ok(PathBuf::from(override_path));
+        }
         let dirs = ProjectDirs::from("dev", "envseal", "envseal")
             .ok_or_else(|| anyhow!("could not determine a config directory for this OS"))?;
-
         Ok(dirs.config_dir().join("seal-encrypted.json"))
     }
 
@@ -48,6 +50,9 @@ impl Vault {
 
     //  Creates and initiates vault
     pub fn init(password: &str) -> Result<()> {
+        if Self::exists() {
+            return Err(anyhow!("Seal already exists! Refusing to overwrite..."));
+        }
         let salt = crypto::generate_salt();
         let key = crypto::derive_key(password, &salt)?;
         let (nonce, ciphertext) = crypto::encrypt(&key, CANARY_PLAINTEXT)?;
@@ -99,17 +104,20 @@ impl Vault {
     }
 
     pub fn link_group(&mut self, group: String) -> Result<()> {
+        // Remove existing links
+        if let Some(existing_group) = self.entries.get(&group) {
+            self.link_index.remove(&existing_group.link);
+        }
         // get current path and create an entry if doesnt exist
         let cur_dir = env::current_dir()?;
-        self.entries.entry(group.to_string()).or_insert(Group {
-            link: PathBuf::new(),
-            base: HashMap::new(),
-            tags: HashMap::new(),
-        });
         let group_entry = self
             .entries
-            .get_mut(&group)
-            .ok_or_else(|| anyhow!("no group named '{group}'"))?;
+            .entry(group.to_string())
+            .or_insert_with(|| Group {
+                link: PathBuf::new(),
+                base: HashMap::new(),
+                tags: HashMap::new(),
+            });
         // update entries link part
         group_entry.link = cur_dir.to_path_buf();
         // reflect it to link index hash_map
@@ -137,17 +145,15 @@ impl Vault {
                 .get(&cur_dir)
                 .ok_or_else(|| anyhow!("no group linked to current directory!"))?,
         };
-        // Creating if the group doesnt exist
-        self.entries.entry(group_name.to_string()).or_insert(Group {
-            link: PathBuf::new(),
-            base: HashMap::new(),
-            tags: HashMap::new(),
-        });
-        // Geting the group entry
+        // Creating and fetching the group if the group doesnt exist
         let group_entry = self
             .entries
-            .get_mut(&group_name.to_string())
-            .ok_or_else(|| anyhow!("no group named '{group_name}'"))?;
+            .entry(group_name.to_string())
+            .or_insert_with(|| Group {
+                link: PathBuf::new(),
+                base: HashMap::new(),
+                tags: HashMap::new(),
+            });
 
         // getting tag (base as default)
         let active_tag = match tag {
@@ -155,10 +161,13 @@ impl Vault {
             None => "base",
         };
         if active_tag == "base" {
-            group_entry.base.entry(name.to_string()).or_insert(Entry {
-                nonce: b64_encode(&nonce),
-                ciphertext: b64_encode(&ciphertext),
-            });
+            group_entry
+                .base
+                .entry(name.to_string())
+                .insert_entry(Entry {
+                    nonce: b64_encode(&nonce),
+                    ciphertext: b64_encode(&ciphertext),
+                });
         } else {
             group_entry
                 .tags
