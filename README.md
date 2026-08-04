@@ -30,6 +30,11 @@ EnvSeal encrypts everything at rest, organizes secrets into groups, and — most
 
 ---
 
+## Upcoming
+
+* **Seal/Unseal**: Easily backup and port your enviornment to anywhere securely
+
+
 ## Installation
 
 **One-liner (recommended):**
