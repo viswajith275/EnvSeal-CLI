@@ -23,10 +23,10 @@ pub fn cmd_init() -> Result<()> {
                                                                    "#
     );
 
-    let password = Zeroizing::new(prompt_password("Set a Master Password: ")?);
+    let password = Zeroizing::new(prompt_password("Set Master Password: ")?);
     let confirm = Zeroizing::new(prompt_password("Confirm Master Password: ")?);
     if *password != *confirm {
-        anyhow::bail!("passwords did not match!");
+        anyhow::bail!("Passwords did not match!");
     }
 
     Vault::init(&password)?;

@@ -5,9 +5,7 @@ use zeroize::Zeroize;
 use crate::utils::vault::Vault;
 
 pub fn cmd_run(group: &Option<String>, tag: &Option<String>, args: &Vec<String>) -> Result<()> {
-    // Assuming `use anyhow::Context;` and `use zeroize::Zeroize;` are at the top
-
-    let (cmd_name, cmd_args) = args.split_first().context("No command provided to run")?;
+    let (cmd_name, cmd_args) = args.split_first().context("No command provided to run!!")?;
 
     let vault = Vault::load()?;
     let password: String = rpassword::prompt_password("Master Password: ")?;
@@ -44,7 +42,7 @@ pub fn cmd_run(group: &Option<String>, tag: &Option<String>, args: &Vec<String>)
         .spawn()
         .with_context(|| format!("Failed to start process '{}'", cmd_name))?;
 
-    let status = child.wait().context("Failed to wait on child process")?;
+    let status = child.wait().context("Failed to wait on child process!!")?;
 
     if let Some(code) = status.code() {
         std::process::exit(code);

@@ -13,7 +13,7 @@ pub fn cmd_export(group: &Option<String>, tag: &Option<String>, keys: &[String])
     let mut merged_env: HashMap<String, String> = HashMap::new();
 
     if !keys.is_empty() {
-        eprintln!("loading selected environment variables...");
+        eprintln!("Loading selected environment variables into the file...");
         for key in keys {
             let value = if tag.is_some() {
                 match vault.get_entry(&derived, group, tag, &key) {
@@ -21,24 +21,24 @@ pub fn cmd_export(group: &Option<String>, tag: &Option<String>, keys: &[String])
                     Err(_) => vault
                         .get_entry(&derived, group, &None, &key)
                         .with_context(|| {
-                            format!("failed to read '{key}' from tag or base group")
+                            format!("Failed to read '{key}' from tag or base group")
                         })?,
                 }
             } else {
                 vault
                     .get_entry(&derived, group, &None, &key)
-                    .with_context(|| format!("failed to read '{key}'"))?
+                    .with_context(|| format!("Failed to read '{key}'"))?
             };
 
             merged_env.insert(key.to_string(), value);
         }
     } else {
-        eprintln!("loading all environment variables...");
+        eprintln!("Loading all environment variables into the file...");
         let group_keys = vault.list_all_keys(group, &None)?;
         for key in group_keys {
             let value = vault
                 .get_entry(&derived, group, &None, &key)
-                .with_context(|| format!("failed to read base key '{key}'"))?;
+                .with_context(|| format!("Failed to read base key '{key}'"))?;
             merged_env.insert(key, value);
         }
 
@@ -47,7 +47,7 @@ pub fn cmd_export(group: &Option<String>, tag: &Option<String>, keys: &[String])
             for key in tag_keys {
                 let value = vault
                     .get_entry(&derived, group, tag, &key)
-                    .with_context(|| format!("failed to read tag key '{key}'"))?;
+                    .with_context(|| format!("Failed to read tag key '{key}'"))?;
                 merged_env.insert(key, value);
             }
         }

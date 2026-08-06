@@ -23,9 +23,9 @@ pub fn cmd_remove(
     if confirmation {
         vault.remove_entry(group, tag, key)?;
         vault.save()?;
-        eprintln!("Deletion successful!");
+        eprintln!("Deletion successful!!");
     } else {
-        eprintln!("Operation canceled by user!");
+        eprintln!("Operation canceled by user!!");
     }
 
     Ok(())

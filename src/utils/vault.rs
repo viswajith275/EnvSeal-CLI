@@ -38,8 +38,9 @@ impl Vault {
         if let Ok(override_path) = std::env::var("ENVSEAL_TEST_PATH") {
             return Ok(PathBuf::from(override_path));
         }
-        let dirs = ProjectDirs::from("dev", "envseal", "envseal")
-            .ok_or_else(|| anyhow!("could not determine a config directory for this OS"))?;
+        let dirs = ProjectDirs::from("dev", "envseal", "envseal").ok_or_else(|| {
+            anyhow!("Could not determine a config directory for this OS!! (Change your OS!!!)")
+        })?;
         Ok(dirs.config_dir().join("seal-encrypted.json"))
     }
 
@@ -72,7 +73,7 @@ impl Vault {
     pub fn load() -> Result<Self> {
         let path = Self::path()?;
         let data = fs::read_to_string(&path)
-            .map_err(|_| anyhow!("no seal found — run `envseal init` first"))?;
+            .map_err(|_| anyhow!("No seal found — run `envseal init` first!!"))?;
         // loads the file into the struct
         Ok(serde_json::from_str(&data)?)
     }
@@ -94,11 +95,11 @@ impl Vault {
         let nonce = b64_decode(&self.canary.nonce)?;
         let ciphertext = b64_decode(&self.canary.ciphertext)?;
         let plaintext = crypto::decrypt(&key, &nonce, &ciphertext)
-            .map_err(|_| anyhow!("wrong Master Password!"))?;
+            .map_err(|_| anyhow!("Wrong Master Password!"))?;
 
         // checking if the password is correct
         if plaintext != CANARY_PLAINTEXT {
-            return Err(anyhow!("wrong Master Password!"));
+            return Err(anyhow!("Wrong Master Password!"));
         }
         Ok(key)
     }
@@ -143,7 +144,7 @@ impl Vault {
             None => self
                 .link_index
                 .get(&cur_dir)
-                .ok_or_else(|| anyhow!("no group linked to current directory!"))?,
+                .ok_or_else(|| anyhow!("No group linked to current directory!"))?,
         };
         // Creating and fetching the group if the group doesnt exist
         let group_entry = self
@@ -199,14 +200,14 @@ impl Vault {
             None => self
                 .link_index
                 .get(&cur_dir)
-                .ok_or_else(|| anyhow!("no group linked to current directory!"))?,
+                .ok_or_else(|| anyhow!("No group linked to current directory!!"))?,
         };
 
         // Geting the group entry
         let group_entry = self
             .entries
             .get(&group_name.to_string())
-            .ok_or_else(|| anyhow!("no group named '{group_name}'"))?;
+            .ok_or_else(|| anyhow!("No group named '{group_name}'!!"))?;
 
         // getting tag (base as default)
         let active_tag = match tag {
@@ -221,15 +222,17 @@ impl Vault {
             entry = group_entry
                 .base
                 .get(name)
-                .ok_or_else(|| anyhow!("no entry named '{name}' in group '{group_name}'"))?;
+                .ok_or_else(|| anyhow!("No entry named '{name}' in group '{group_name}'!!"))?;
         } else {
             entry = group_entry
                 .tags
                 .get(active_tag)
-                .ok_or_else(|| anyhow!("no tag named '{active_tag}' in group '{group_name}'"))?
+                .ok_or_else(|| anyhow!("No tag named '{active_tag}' in group '{group_name}'!!"))?
                 .get(name)
                 .ok_or_else(|| {
-                    anyhow!("no entry named '{name} in tag '{active_tag}' in group '{group_name}'")
+                    anyhow!(
+                        "No entry named '{name} in tag '{active_tag}' in group '{group_name}'!!"
+                    )
                 })?;
         }
 
@@ -253,7 +256,7 @@ impl Vault {
             None => self
                 .link_index
                 .get(&cur_dir)
-                .ok_or_else(|| anyhow!("no group linked to current directory!"))?
+                .ok_or_else(|| anyhow!("No group linked to current directory!!"))?
                 .as_str(),
         };
 
@@ -266,21 +269,21 @@ impl Vault {
                 self.link_index.remove(&removed_group.link);
                 return Ok(());
             } else {
-                return Err(anyhow!("no group named '{group_name}'"));
+                return Err(anyhow!("No group named '{group_name}'!!"));
             }
         }
 
         let group_entry = self
             .entries
             .get_mut(group_name)
-            .ok_or_else(|| anyhow!("no group named '{group_name}'"))?;
+            .ok_or_else(|| anyhow!("No group named '{group_name}'!!"))?;
 
         // Remove tag
         if name.is_empty() && active_tag != "base" {
             group_entry
                 .tags
                 .remove(active_tag)
-                .ok_or_else(|| anyhow!("no tag named '{active_tag}' in group '{group_name}'"))?;
+                .ok_or_else(|| anyhow!("No tag named '{active_tag}' in group '{group_name}'!!"))?;
 
             return Ok(());
         }
@@ -290,10 +293,12 @@ impl Vault {
             group_entry
                 .tags
                 .get_mut(active_tag)
-                .ok_or_else(|| anyhow!("no tag named '{active_tag}' in group '{group_name}'"))?
+                .ok_or_else(|| anyhow!("No tag named '{active_tag}' in group '{group_name}'!!"))?
                 .remove(name)
                 .ok_or_else(|| {
-                    anyhow!("no entry named '{name}' in tag '{active_tag}' in group '{group_name}'")
+                    anyhow!(
+                        "No entry named '{name}' in tag '{active_tag}' in group '{group_name}'!!"
+                    )
                 })?;
 
             return Ok(());
@@ -303,7 +308,7 @@ impl Vault {
         group_entry
             .base
             .remove(name)
-            .ok_or_else(|| anyhow!("no entry named '{name}' in group '{group_name}'"))?;
+            .ok_or_else(|| anyhow!("No entry named '{name}' in group '{group_name}'!!"))?;
 
         Ok(())
     }
@@ -320,14 +325,14 @@ impl Vault {
             None => self
                 .link_index
                 .get(&cur_dir)
-                .ok_or_else(|| anyhow!("no group linked to current directory!"))?,
+                .ok_or_else(|| anyhow!("No group linked to current directory!!"))?,
         };
 
         // Geting the group entry
         let group_entry = self
             .entries
             .get(&group_name.to_string())
-            .ok_or_else(|| anyhow!("no group named '{group_name}'"))?;
+            .ok_or_else(|| anyhow!("No group named '{group_name}'!!"))?;
 
         // getting tag (base as default)
         let active_tag = match tag {
@@ -344,7 +349,7 @@ impl Vault {
             keys = group_entry
                 .tags
                 .get(active_tag)
-                .ok_or_else(|| anyhow!("no tag named '{active_tag}' in group '{group_name}'"))?
+                .ok_or_else(|| anyhow!("No tag named '{active_tag}' in group '{group_name}'!!"))?
                 .keys()
                 .cloned()
                 .collect();

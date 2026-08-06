@@ -21,7 +21,7 @@ pub fn derive_key(password: &str, salt: &[u8]) -> Result<Zeroizing<[u8; KEY_LEN]
     let mut key = Zeroizing::new([0u8; KEY_LEN]);
     Argon2::default()
         .hash_password_into(password.as_bytes(), salt, &mut *key)
-        .map_err(|e| anyhow!("key derivation failed: {e}"))?;
+        .map_err(|e| anyhow!("Key derivation failed: {e}"))?;
     Ok(key)
 }
 
@@ -36,7 +36,7 @@ pub fn encrypt(key: &[u8; KEY_LEN], plaintext: &str) -> Result<(Vec<u8>, Vec<u8>
 
     let ciphertext = cipher
         .encrypt(&nonce, plaintext.as_bytes())
-        .map_err(|e| anyhow!("encryption failed: {e}"))?;
+        .map_err(|e| anyhow!("Encryption failed: {e}"))?;
 
     Ok((nonce_bytes.to_vec(), ciphertext))
 }
@@ -46,13 +46,13 @@ pub fn decrypt(key: &[u8; KEY_LEN], nonce_bytes: &[u8], ciphertext: &[u8]) -> Re
     let cipher = Aes256Gcm::new(key.into());
 
     if nonce_bytes.len() != NONCE_LEN {
-        return Err(anyhow!("invalid nonce length: corrupted data"));
+        return Err(anyhow!("Invalid nonce length: corrupted data!!!"));
     }
     let nonce = Nonce::try_from(nonce_bytes)?;
 
     let plaintext = cipher
         .decrypt(&nonce, ciphertext)
-        .map_err(|_| anyhow!("decryption failed: wrong password or corrupted data"))?;
+        .map_err(|_| anyhow!("Decryption failed: wrong password or corrupted data!!!"))?;
 
-    String::from_utf8(plaintext).map_err(|e| anyhow!("decrypted data was not valid utf8: {e}"))
+    String::from_utf8(plaintext).map_err(|e| anyhow!("Decrypted data was not valid utf8: {e}"))
 }
