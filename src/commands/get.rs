@@ -9,7 +9,7 @@ pub fn cmd_get(group: &Option<String>, tag: &Option<String>, key: &str) -> Resul
     let derived = vault.unlock(&password)?;
 
     let value = vault
-        .get_entry(&derived, group, tag, key)
+        .get_entry(&derived.enc_key, group, tag, key)
         .with_context(|| format!("Failed to read '{key}'"))?;
 
     println!("{value}");

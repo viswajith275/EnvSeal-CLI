@@ -3,13 +3,21 @@ use anyhow::{anyhow, Result};
 use base64::Engine;
 use directories::ProjectDirs;
 use serde::{Deserialize, Serialize};
+use std::collections::BTreeMap;
 use std::collections::HashMap;
 use std::env;
 use std::fs;
 use std::path::PathBuf;
 use zeroize::Zeroizing;
+use zeroize::{Zeroize, ZeroizeOnDrop};
 
 const CANARY_PLAINTEXT: &str = "envseal-Encrypted";
+
+#[derive(Zeroize, ZeroizeOnDrop)]
+pub struct VaultKeys {
+    pub enc_key: Zeroizing<[u8; crypto::KEY_LEN]>,
+    pub hmac_key: Zeroizing<[u8; crypto::HMAC_KEY_LEN]>,
+}
 
 #[derive(Serialize, Deserialize)]
 pub struct Entry {
@@ -28,12 +36,128 @@ pub struct Group {
 pub struct Vault {
     salt: String,
     canary: Entry,
-    link_index: HashMap<PathBuf, String>, // used for fetching group
+    link_index: HashMap<PathBuf, String>,
+    // used for fetching group
     entries: HashMap<String, Group>,
+    #[serde(default)]
+    hmac: Option<String>,
+    // legacy vaults and new have none
+}
+
+// Canonical data structures used for hmac
+#[derive(Serialize)]
+struct CanonicalEntry<'a> {
+    nonce: &'a str,
+    ciphertext: &'a str,
+}
+
+#[derive(Serialize)]
+struct CanonicalGroup<'a> {
+    link: &'a PathBuf,
+    base: BTreeMap<&'a str, CanonicalEntry<'a>>,
+    tags: BTreeMap<&'a str, BTreeMap<&'a str, CanonicalEntry<'a>>>,
+}
+
+#[derive(Serialize)]
+struct CanonicalVault<'a> {
+    salt: &'a str,
+    canary: CanonicalEntry<'a>,
+    link_index: BTreeMap<&'a PathBuf, &'a str>,
+    entries: BTreeMap<&'a str, CanonicalGroup<'a>>,
 }
 
 impl Vault {
-    // find config/data directories acording t os
+    // Turns the canonical vault into signable bytes
+    fn signable_bytes(&self) -> Result<Vec<u8>> {
+        // Reads the vault into canonical structure
+        let entries: BTreeMap<&str, CanonicalGroup> = self
+            .entries
+            .iter()
+            .map(|(name, group)| {
+                let base: BTreeMap<&str, CanonicalEntry> = group
+                    .base
+                    .iter()
+                    .map(|(k, e)| {
+                        (
+                            k.as_str(),
+                            CanonicalEntry {
+                                nonce: &e.nonce,
+                                ciphertext: &e.ciphertext,
+                            },
+                        )
+                    })
+                    .collect();
+                let tags: BTreeMap<&str, BTreeMap<&str, CanonicalEntry>> = group
+                    .tags
+                    .iter()
+                    .map(|(tag, inner)| {
+                        let inner_map: BTreeMap<&str, CanonicalEntry> = inner
+                            .iter()
+                            .map(|(k, e)| {
+                                (
+                                    k.as_str(),
+                                    CanonicalEntry {
+                                        nonce: &e.nonce,
+                                        ciphertext: &e.ciphertext,
+                                    },
+                                )
+                            })
+                            .collect();
+                        (tag.as_str(), inner_map)
+                    })
+                    .collect();
+                (
+                    name.as_str(),
+                    CanonicalGroup {
+                        link: &group.link,
+                        base,
+                        tags,
+                    },
+                )
+            })
+            .collect();
+
+        let link_index: BTreeMap<&PathBuf, &str> = self
+            .link_index
+            .iter()
+            .map(|(k, v)| (k, v.as_str()))
+            .collect();
+
+        let canon = CanonicalVault {
+            salt: &self.salt,
+            canary: CanonicalEntry {
+                nonce: &self.canary.nonce,
+                ciphertext: &self.canary.ciphertext,
+            },
+            link_index,
+            entries,
+        };
+        Ok(serde_json::to_vec(&canon)?)
+    }
+
+    // computes and updated hmac
+    pub fn seal_integrity(&mut self, hmac_key: &[u8; crypto::HMAC_KEY_LEN]) -> Result<()> {
+        let bytes = self.signable_bytes()?;
+        let tag = crypto::compute_hmac(hmac_key, &bytes);
+        self.hmac = Some(b64_encode(&tag));
+        Ok(())
+    }
+
+    // verifies if the seal has been tampered with by checking hmac
+    pub fn verify_integrity(&self, hmac_key: &[u8; crypto::HMAC_KEY_LEN]) -> Result<()> {
+        let stored = self
+            .hmac
+            .as_ref()
+            .ok_or_else(|| anyhow!("SEAL has no integrity tag — re-seal it"))?;
+        let bytes = self.signable_bytes()?;
+        let tag = b64_decode(stored)?;
+        if !crypto::verify_hmac(hmac_key, &bytes, &tag) {
+            return Err(anyhow!("SEAL TAMPERED: HMAC verification failed!"));
+        }
+        Ok(())
+    }
+
+    // find config/data directories acording to os
     pub fn path() -> Result<PathBuf> {
         if let Ok(override_path) = std::env::var("ENVSEAL_TEST_PATH") {
             return Ok(PathBuf::from(override_path));
@@ -55,10 +179,10 @@ impl Vault {
             return Err(anyhow!("Seal already exists! Refusing to overwrite..."));
         }
         let salt = crypto::generate_salt();
-        let key = crypto::derive_key(password, &salt)?;
-        let (nonce, ciphertext) = crypto::encrypt(&key, CANARY_PLAINTEXT)?;
+        let (enc_key, hmac_key) = crypto::derive_keys(password, &salt)?;
+        let (nonce, ciphertext) = crypto::encrypt(&enc_key, CANARY_PLAINTEXT)?;
 
-        let vault = Vault {
+        let mut vault = Vault {
             salt: b64_encode(&salt),
             canary: Entry {
                 nonce: b64_encode(&nonce),
@@ -66,7 +190,10 @@ impl Vault {
             },
             link_index: HashMap::new(),
             entries: HashMap::new(),
+            hmac: None,
         };
+
+        vault.seal_integrity(&hmac_key)?;
         vault.save()
     }
 
@@ -88,23 +215,39 @@ impl Vault {
         Ok(())
     }
 
-    pub fn unlock(&self, password: &str) -> Result<Zeroizing<[u8; crypto::KEY_LEN]>> {
+    pub fn unlock(&self, password: &str) -> Result<VaultKeys> {
         let salt = b64_decode(&self.salt)?;
-        let key = crypto::derive_key(password, &salt)?;
+        let (enc_key, hmac_key) = crypto::derive_keys(password, &salt)?;
 
         let nonce = b64_decode(&self.canary.nonce)?;
         let ciphertext = b64_decode(&self.canary.ciphertext)?;
-        let plaintext = crypto::decrypt(&key, &nonce, &ciphertext)
+        let plaintext = crypto::decrypt(&enc_key, &nonce, &ciphertext)
             .map_err(|_| anyhow!("Wrong Master Password!"))?;
 
         // checking if the password is correct
         if plaintext != CANARY_PLAINTEXT {
             return Err(anyhow!("Wrong Master Password!"));
         }
-        Ok(key)
+
+        match self.hmac {
+            Some(_) => {
+                self.verify_integrity(&hmac_key)?;
+            }
+            None => {
+                // vault created in prev versions
+            }
+        }
+        Ok(VaultKeys {
+            enc_key: enc_key,
+            hmac_key: hmac_key,
+        })
     }
 
-    pub fn link_group(&mut self, group: String) -> Result<()> {
+    pub fn link_group(
+        &mut self,
+        hmac_key: &[u8; crypto::HMAC_KEY_LEN],
+        group: String,
+    ) -> Result<()> {
         // Remove existing links
         if let Some(existing_group) = self.entries.get(&group) {
             self.link_index.remove(&existing_group.link);
@@ -124,12 +267,13 @@ impl Vault {
         // reflect it to link index hash_map
         self.link_index.insert(cur_dir.to_path_buf(), group);
 
+        self.seal_integrity(hmac_key)?;
         Ok(())
     }
 
     pub fn set_entry(
         &mut self,
-        key: &[u8; crypto::KEY_LEN],
+        keys: &VaultKeys,
         group: &Option<String>,
         tag: &Option<String>,
         name: &str,
@@ -137,7 +281,7 @@ impl Vault {
     ) -> Result<()> {
         // fetching current directory and encrypting password
         let cur_dir = env::current_dir()?;
-        let (nonce, ciphertext) = crypto::encrypt(key, value)?;
+        let (nonce, ciphertext) = crypto::encrypt(&keys.enc_key, value)?;
 
         let group_name = match group {
             Some(name) => name,
@@ -183,6 +327,7 @@ impl Vault {
                 );
         }
 
+        self.seal_integrity(&keys.hmac_key)?; // re sealing it after every set command
         Ok(())
     }
 
@@ -245,6 +390,7 @@ impl Vault {
 
     pub fn remove_entry(
         &mut self,
+        hmac_key: &[u8; crypto::HMAC_KEY_LEN],
         group: &Option<String>,
         tag: &Option<String>,
         name: &Option<String>,
@@ -309,6 +455,8 @@ impl Vault {
             .base
             .remove(name)
             .ok_or_else(|| anyhow!("No entry named '{name}' in group '{group_name}'!!"))?;
+
+        self.seal_integrity(hmac_key)?;
 
         Ok(())
     }

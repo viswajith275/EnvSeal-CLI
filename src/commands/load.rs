@@ -15,17 +15,17 @@ pub fn cmd_load(group: &Option<String>, tag: &Option<String>, keys: &[String]) -
         eprintln!("Loading selected environment variables...");
         for key in keys {
             let value = if tag.is_some() {
-                match vault.get_entry(&derived, group, tag, &key) {
+                match vault.get_entry(&derived.enc_key, group, tag, &key) {
                     Ok(val) => val,
                     Err(_) => vault
-                        .get_entry(&derived, group, &None, &key)
+                        .get_entry(&derived.enc_key, group, &None, &key)
                         .with_context(|| {
                             format!("Failed to read '{key}' from tag or base group")
                         })?,
                 }
             } else {
                 vault
-                    .get_entry(&derived, group, &None, &key)
+                    .get_entry(&derived.enc_key, group, &None, &key)
                     .with_context(|| format!("Failed to read '{key}'"))?
             };
 
@@ -36,7 +36,7 @@ pub fn cmd_load(group: &Option<String>, tag: &Option<String>, keys: &[String]) -
         let group_keys = vault.list_all_keys(group, &None)?;
         for key in group_keys {
             let value = vault
-                .get_entry(&derived, group, &None, &key)
+                .get_entry(&derived.enc_key, group, &None, &key)
                 .with_context(|| format!("Failed to read base key '{key}'"))?;
             merged_env.insert(key, value);
         }
@@ -45,7 +45,7 @@ pub fn cmd_load(group: &Option<String>, tag: &Option<String>, keys: &[String]) -
             let tag_keys = vault.list_all_keys(group, tag)?;
             for key in tag_keys {
                 let value = vault
-                    .get_entry(&derived, group, tag, &key)
+                    .get_entry(&derived.enc_key, group, tag, &key)
                     .with_context(|| format!("Failed to read tag key '{key}'"))?;
                 merged_env.insert(key, value);
             }

@@ -11,7 +11,7 @@ pub fn cmd_remove(
 ) -> Result<()> {
     let mut vault = Vault::load()?;
     let password = Zeroizing::new(prompt_password("Master Password: ")?);
-    let _ = vault.unlock(&password)?;
+    let derived = vault.unlock(&password)?;
 
     let prompt = format!("Are you sure you want to delete these variables?");
 
@@ -21,7 +21,7 @@ pub fn cmd_remove(
         .interact()
         .unwrap();
     if confirmation {
-        vault.remove_entry(group, tag, key)?;
+        vault.remove_entry(&derived.hmac_key, group, tag, key)?;
         vault.save()?;
         eprintln!("Deletion successful!!");
     } else {

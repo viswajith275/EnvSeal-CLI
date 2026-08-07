@@ -5,7 +5,7 @@ use zeroize::Zeroizing;
 
 pub fn cmd_init() -> Result<()> {
     if Vault::exists() {
-        anyhow::bail!("vault already exists at {}", Vault::path()?.display());
+        anyhow::bail!("Seal already exists at {}", Vault::path()?.display());
     }
 
     eprintln!(

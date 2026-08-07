@@ -17,7 +17,7 @@ pub fn cmd_run(group: &Option<String>, tag: &Option<String>, args: &Vec<String>)
     let base_keys = vault.list_all_keys(group, &None)?;
     for key in base_keys {
         let mut value = vault
-            .get_entry(&derived, group, &None, &key)
+            .get_entry(&derived.enc_key, group, &None, &key)
             .with_context(|| format!("Failed to read base key '{key}'"))?;
 
         child_cmd.env(&key, &value);
@@ -29,7 +29,7 @@ pub fn cmd_run(group: &Option<String>, tag: &Option<String>, args: &Vec<String>)
         let tag_keys = vault.list_all_keys(group, tag)?;
         for key in tag_keys {
             let mut value = vault
-                .get_entry(&derived, group, tag, &key)
+                .get_entry(&derived.enc_key, group, tag, &key)
                 .with_context(|| format!("Failed to read tag key '{key}'"))?;
 
             child_cmd.env(&key, &value);
