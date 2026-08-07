@@ -35,6 +35,7 @@ EnvSeal encrypts everything at rest, organizes secrets into groups, and — most
 * **Seal/Unseal**: Easily backup and port your enviornment to anywhere securely
 * **HMAC**: Check for tampered config files by hashing ✅
 * **Session management**: User can unlock and relock the cli for sometime so that you dont need to type the long password every time
+* **Seperate Passwords for tags**: So that your production keys wont leak even if the master password leaks ✅
 
 
 ## Installation

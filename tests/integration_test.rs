@@ -22,13 +22,9 @@ fn test_crypto_flow() {
     let (enc_key, hmac_key) = crypto::derive_keys(password, &salt).expect("Failed to derive key");
     let plaintext = "secret_api_key";
 
-    // Encrypt
     let (nonce, ciphertext) = crypto::encrypt(&enc_key, plaintext).expect("Encryption failed");
-
-    // Decrypt
     let decrypted = crypto::decrypt(&enc_key, &nonce, &ciphertext).expect("Decryption failed");
 
-    // Assert
     assert_eq!(decrypted, plaintext);
 }
 
@@ -38,20 +34,15 @@ fn test_vault_init_and_unlock() {
     let _temp_dir = setup_test_vault();
     let password = "master_password";
 
-    // Initialize the vault (this will now succeed because the file doesn't exist yet)
     Vault::init(password).expect("Failed to init vault");
-
-    // Load the vault from the filesystem
     let vault = Vault::load().expect("Failed to load vault");
 
-    // Attempt to unlock it with the correct password
     let keys = vault
         .unlock(password)
         .expect("Failed to unlock vault with correct password");
     assert_eq!(keys.enc_key.len(), crypto::KEY_LEN);
     assert_eq!(keys.hmac_key.len(), crypto::HMAC_KEY_LEN);
 
-    // Attempt to unlock with a wrong password
     let bad_unlock = vault.unlock("wrong_password");
     assert!(bad_unlock.is_err());
 }
@@ -62,10 +53,7 @@ fn test_vault_init_prevents_overwrite() {
     let _temp_dir = setup_test_vault();
     let password = "master_password";
 
-    // First init should succeed
     Vault::init(password).expect("First init failed");
-
-    // Second init on the same path should return an Error
     let second_init = Vault::init(password);
     assert!(
         second_init.is_err(),
@@ -83,26 +71,32 @@ fn test_vault_set_and_get_entry() {
     let mut vault = Vault::load().expect("Failed to load vault");
     let keys = vault.unlock(password).expect("Failed to unlock vault");
 
-    // Link a group
-    let group_name = "test_project".to_string();
+    let group_name = "test_project";
     vault
-        .link_group(&keys.hmac_key, group_name.clone())
+        .link_group(&keys.hmac_key, group_name.to_string())
         .expect("Failed to link group");
 
-    // Set an entry in the "base" tag (None)
     vault
         .set_entry(
             &keys,
-            &Some(group_name.clone()),
-            &None,
+            Some(group_name),
+            None,
+            false,
             "DB_HOST",
             "localhost",
+            None,
         )
         .expect("Failed to set entry");
 
-    // Retrieve the entry
     let retrieved_value = vault
-        .get_entry(&keys.enc_key, &Some(group_name.clone()), &None, "DB_HOST")
+        .get_entry(
+            &keys.enc_key,
+            Some(group_name),
+            None,
+            "DB_HOST",
+            false,
+            None,
+        )
         .expect("Failed to get entry");
 
     assert_eq!(retrieved_value, "localhost");
@@ -118,23 +112,23 @@ fn test_vault_overwrite_entry() {
     let mut vault = Vault::load().unwrap();
     let keys = vault.unlock(password).unwrap();
 
-    let group = Some("test_project".to_string());
+    let group_name = "test_project";
     vault
-        .link_group(&keys.hmac_key, "test_project".to_string())
+        .link_group(&keys.hmac_key, group_name.to_string())
         .unwrap();
 
     // Set initial value
     vault
-        .set_entry(&keys, &group, &None, "PORT", "8080")
+        .set_entry(&keys, Some(group_name), None, false, "PORT", "8080", None)
         .unwrap();
 
     // Overwrite with new value
     vault
-        .set_entry(&keys, &group, &None, "PORT", "9090")
+        .set_entry(&keys, Some(group_name), None, false, "PORT", "9090", None)
         .unwrap();
 
     let retrieved = vault
-        .get_entry(&keys.enc_key, &group, &None, "PORT")
+        .get_entry(&keys.enc_key, Some(group_name), None, "PORT", false, None)
         .unwrap();
     assert_eq!(retrieved, "9090", "Vault should overwrite existing keys");
 }
@@ -143,23 +137,22 @@ fn test_vault_overwrite_entry() {
 fn test_crypto_tampering_fails_decryption() {
     let password = "super_secure_password";
     let salt = crypto::generate_salt();
-    let (enc_key, hmac_key) = crypto::derive_keys(password, &salt).unwrap();
+    let (enc_key, _hmac_key) = crypto::derive_keys(password, &salt).unwrap();
     let plaintext = "secret_api_key";
 
     let (nonce, mut ciphertext) = crypto::encrypt(&enc_key, plaintext).unwrap();
 
-    // Flip a single bit in the ciphertext to simulate tampering or corruption
     if let Some(first_byte) = ciphertext.first_mut() {
         *first_byte ^= 1;
     }
 
-    // Decryption should now fail
     let decrypted = crypto::decrypt(&enc_key, &nonce, &ciphertext);
     assert!(
         decrypted.is_err(),
         "Decryption must fail if the ciphertext has been modified"
     );
 }
+
 #[test]
 #[serial]
 fn test_vault_with_tags() {
@@ -170,27 +163,54 @@ fn test_vault_with_tags() {
     let mut vault = Vault::load().unwrap();
     let keys = vault.unlock(password).unwrap();
 
-    let group = Some("test_project".to_string());
+    let group_name = "test_project";
     vault
-        .link_group(&keys.hmac_key, "test_project".to_string())
+        .link_group(&keys.hmac_key, group_name.to_string())
         .unwrap();
-
-    let dev_tag = Some("development".to_string());
-    let prod_tag = Some("production".to_string());
 
     // Set same key with different tags
     vault
-        .set_entry(&keys, &group, &dev_tag, "API_KEY", "dev_123")
+        .set_entry(
+            &keys,
+            Some(group_name),
+            Some("development"),
+            false,
+            "API_KEY",
+            "dev_123",
+            None,
+        )
         .unwrap();
     vault
-        .set_entry(&keys, &group, &prod_tag, "API_KEY", "prod_999")
+        .set_entry(
+            &keys,
+            Some(group_name),
+            Some("production"),
+            false,
+            "API_KEY",
+            "prod_999",
+            None,
+        )
         .unwrap();
 
     let dev_val = vault
-        .get_entry(&keys.enc_key, &group, &dev_tag, "API_KEY")
+        .get_entry(
+            &keys.enc_key,
+            Some(group_name),
+            Some("development"),
+            "API_KEY",
+            false,
+            None,
+        )
         .unwrap();
     let prod_val = vault
-        .get_entry(&keys.enc_key, &group, &prod_tag, "API_KEY")
+        .get_entry(
+            &keys.enc_key,
+            Some(group_name),
+            Some("production"),
+            "API_KEY",
+            false,
+            None,
+        )
         .unwrap();
 
     assert_eq!(dev_val, "dev_123");
@@ -207,14 +227,19 @@ fn test_vault_get_missing_entry() {
     let mut vault = Vault::load().unwrap();
     let keys = vault.unlock(password).unwrap();
 
-    let group = Some("test_project".to_string());
+    let group_name = "test_project";
     vault
-        .link_group(&keys.hmac_key, "test_project".to_string())
+        .link_group(&keys.hmac_key, group_name.to_string())
         .unwrap();
 
-    // Attempt to get a key that doesn't exist
-    let result = vault.get_entry(&keys.enc_key, &group, &None, "NON_EXISTENT");
-
+    let result = vault.get_entry(
+        &keys.enc_key,
+        Some(group_name),
+        None,
+        "NON_EXISTENT",
+        false,
+        None,
+    );
     assert!(
         result.is_err(),
         "Fetching a missing key should return an error"
@@ -226,29 +251,34 @@ fn test_vault_get_missing_entry() {
 fn test_vault_persistence_across_reloads() {
     let _temp_dir = setup_test_vault();
     let password = "master_password";
-    let group = Some("test_project".to_string());
+    let group_name = "test_project";
 
-    //Init, set data
     Vault::init(password).unwrap();
     {
         let mut vault = Vault::load().unwrap();
         let keys = vault.unlock(password).unwrap();
         vault
-            .link_group(&keys.hmac_key, "test_project".to_string())
+            .link_group(&keys.hmac_key, group_name.to_string())
             .unwrap();
         vault
-            .set_entry(&keys, &group, &None, "DB_URL", "postgres://localhost")
+            .set_entry(
+                &keys,
+                Some(group_name),
+                None,
+                false,
+                "DB_URL",
+                "postgres://localhost",
+                None,
+            )
             .unwrap();
         vault.save().unwrap();
     }
 
-    //Completely reload the vault from disk in a new scope
     let vault = Vault::load().unwrap();
     let keys = vault.unlock(password).unwrap();
 
-    // Verify the data persisted
     let retrieved = vault
-        .get_entry(&keys.enc_key, &group, &None, "DB_URL")
+        .get_entry(&keys.enc_key, Some(group_name), None, "DB_URL", false, None)
         .unwrap();
     assert_eq!(retrieved, "postgres://localhost");
 }

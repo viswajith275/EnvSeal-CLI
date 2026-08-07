@@ -2,10 +2,10 @@ use crate::utils::vault::Vault;
 use anyhow::{Ok, Result};
 use std::collections::HashSet;
 
-pub fn cmd_list(group: &Option<String>, tag: &Option<String>) -> Result<()> {
+pub fn cmd_list(group: Option<&str>, tag: Option<&str>) -> Result<()> {
     let vault = Vault::load()?;
 
-    let group_keys = vault.list_all_keys(group, &None)?;
+    let group_keys = vault.list_all_keys(group, None)?;
     let tag_keys = vault.list_all_keys(group, tag)?;
 
     let mut unique_keys: HashSet<String> = HashSet::new();

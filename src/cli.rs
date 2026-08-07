@@ -2,7 +2,7 @@ use clap::{Parser, Subcommand};
 
 #[derive(Parser)]
 #[command(name = "envseal", about = "Encrypted Environment Manager")]
-#[command(version = "v2.0.1")]
+#[command(version = "v2.1.0")]
 pub struct Cli {
     #[command(subcommand)]
     pub command: Commands,
@@ -15,6 +15,13 @@ pub enum Commands {
 
     /// Link a specific group to current working directory
     Link { group: String },
+
+    /// Create protected tags
+    Protag {
+        #[arg(short, long)]
+        group: Option<String>,
+        tag: String,
+    },
 
     /// Export specified keys into a .env file, optionally scoped by group or tag
     Export {

@@ -3,7 +3,7 @@ use anyhow::{Ok, Result};
 use rpassword::prompt_password;
 use zeroize::Zeroizing;
 
-pub fn cmd_link(group: String) -> Result<()> {
+pub fn cmd_link(group: &str) -> Result<()> {
     let mut vault = Vault::load()?;
     let password = Zeroizing::new(prompt_password("Master Password: ")?);
     let derived = vault.unlock(&password)?;

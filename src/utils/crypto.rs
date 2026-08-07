@@ -57,16 +57,6 @@ pub fn derive_keys(
     Ok((enc_key, hmac_key))
 }
 
-/// Derive a SEPARATE key for HMAC using a different context/info string.
-/// Only for compatability
-pub fn derive_hmac_key(password: &str, salt: &[u8]) -> Result<Zeroizing<[u8; HMAC_KEY_LEN]>> {
-    let mut okm = Zeroizing::new([0u8; HMAC_KEY_LEN]);
-    let mut hmac_salt = salt.to_vec();
-    hmac_salt.extend_from_slice(b"envseal-hmac-v1");
-    derive_key_raw(password, &hmac_salt, &mut *okm)?;
-    Ok(okm)
-}
-
 pub fn compute_hmac(key: &[u8; HMAC_KEY_LEN], data: &[u8]) -> Vec<u8> {
     let mut mac = HmacSha256::new_from_slice(key).expect("HMAC accepts any key length");
     mac.update(data);

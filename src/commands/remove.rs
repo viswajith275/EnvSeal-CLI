@@ -4,14 +4,16 @@ use dialoguer::Confirm;
 use rpassword::prompt_password;
 use zeroize::Zeroizing;
 
-pub fn cmd_remove(
-    group: &Option<String>,
-    tag: &Option<String>,
-    key: &Option<String>,
-) -> Result<()> {
+pub fn cmd_remove(group: Option<&str>, tag: Option<&str>, key: Option<&str>) -> Result<()> {
     let mut vault = Vault::load()?;
     let password = Zeroizing::new(prompt_password("Master Password: ")?);
     let derived = vault.unlock(&password)?;
+
+    let mut tag_password: Option<Zeroizing<String>> = None;
+
+    if vault.is_tag_protected(group, tag)? {
+        tag_password = Some(Zeroizing::new(prompt_password("Tag Password: ")?));
+    }
 
     let prompt = format!("Are you sure you want to delete these variables?");
 
@@ -21,7 +23,13 @@ pub fn cmd_remove(
         .interact()
         .unwrap();
     if confirmation {
-        vault.remove_entry(&derived.hmac_key, group, tag, key)?;
+        vault.remove_entry(
+            &derived.hmac_key,
+            group,
+            tag,
+            key,
+            tag_password.as_ref().map(|s| s.as_str()),
+        )?;
         vault.save()?;
         eprintln!("Deletion successful!!");
     } else {
