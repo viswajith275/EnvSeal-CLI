@@ -32,7 +32,8 @@ EnvSeal encrypts everything at rest, organizes secrets into groups, and — most
 
 ## Upcoming
 
-* **.envseal**: Local .envseal Project Storage: Introducing git-committable .envseal files that automatically bind to your project directory to deliver seamless local environment variable management with tag-based team scoping. Warning: Do not use this feature for production secrets, as sharing project passwords among team members significantly increases the risk of password and credential leaks. ✅
+* **Local .envseal & Multi-Profile Storage:** Introducing git-committable .envseal project files with multi-environment profile support (e.g., .prod.envseal), path-bound keyring session isolation, and non-interactive CI/CD automation via ENVSEAL_PASSPHRASE.
+Warning: Do not commit production credentials or share master/tag passphrases across team members, as sharing vault passphrases significantly increases the risk of credential leaks across shared project environments. ✅
 * **HMAC**: Check for tampered config files by hashing ✅
 * **Session management**: User can unlock and relock the cli for sometime so that you dont need to type the long password every time ✅
 * **Seperate Passwords for tags**: So that your production keys wont leak even if the master password leaks ✅
