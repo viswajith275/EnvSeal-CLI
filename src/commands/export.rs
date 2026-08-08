@@ -1,15 +1,17 @@
-use std::collections::HashMap;
-
 use crate::utils::{unlock, vault::Vault};
 use anyhow::{anyhow, Context, Result};
+use std::collections::BTreeMap;
+use std::fs;
 
 pub fn cmd_export(
     group: Option<&str>,
     tag: Option<&str>,
     keys: Vec<&str>,
     global: bool,
+    pref: Option<&str>,
+    output_path: Option<&str>,
 ) -> Result<()> {
-    let vault = Vault::load(global)?;
+    let vault = Vault::load(global, pref)?;
     let group_name = vault.resolve_group_name(group)?;
     let derived = unlock::sudo_unlock(&vault)?;
 
@@ -24,7 +26,7 @@ pub fn cmd_export(
         }
     }
 
-    let mut merged_env: HashMap<String, String> = HashMap::new();
+    let mut merged_env: BTreeMap<String, String> = BTreeMap::new();
 
     let location_label = if vault.is_local() { "local" } else { "global" };
     let message = if !keys.is_empty() && tag.is_some() {
@@ -90,9 +92,43 @@ pub fn cmd_export(
         }
     }
 
-    for (key, value) in merged_env {
-        println!("{key}={value}");
+    let mut buffer = String::new();
+    for (key, value) in &merged_env {
+        buffer.push_str(&format!("{key}={}\n", format_env_value(value)));
     }
 
+    // Default target file to .env if not specified
+    let target_file = output_path.unwrap_or(".env");
+
+    // Write file natively to disk
+    fs::write(target_file, buffer).with_context(|| {
+        format!("Failed to write exported environment variables to '{target_file}'")
+    })?;
+
+    eprintln!(
+        "successfully exported {} variable(s) to '{}'",
+        merged_env.len(),
+        target_file
+    );
+
     Ok(())
+}
+
+fn format_env_value(value: &str) -> String {
+    if value.contains('\n')
+        || value.contains(' ')
+        || value.contains('"')
+        || value.contains('#')
+        || value.contains('$')
+    {
+        format!(
+            "\"{}\"",
+            value
+                .replace('\\', "\\\\")
+                .replace('"', "\\\"")
+                .replace('\n', "\\n")
+        )
+    } else {
+        value.to_string()
+    }
 }

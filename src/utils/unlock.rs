@@ -2,28 +2,38 @@ use crate::utils::crypto::KEY_LEN;
 use crate::utils::session::SessionManager;
 use crate::utils::vault::{Vault, VaultKeys};
 use anyhow::{anyhow, Result};
+use std::env;
 use zeroize::Zeroizing;
-
-pub const MASTER_SCOPE: &str = "master";
 
 /// unlock master password
 pub fn sudo_unlock(vault: &Vault) -> Result<VaultKeys> {
-    if let Some(password) = SessionManager::get_active_password(MASTER_SCOPE)? {
+    let scope = vault.master_scope();
+    if let Some(password) = SessionManager::get_active_password(&scope)? {
         if let Ok(keys) = vault.unlock(&password) {
-            SessionManager::cache_password(MASTER_SCOPE, &password)?;
+            SessionManager::cache_password(&scope, &password)?;
             return Ok(keys);
         } else {
-            SessionManager::clear_session(MASTER_SCOPE)?;
+            SessionManager::clear_session(&scope)?;
         }
     }
 
-    let password = Zeroizing::new(rpassword::prompt_password(
-        "[sudo] master password for envseal: ",
-    )?);
+    let password = if let Ok(env_pass) = env::var("ENVSEAL_PASSWORD") {
+        if !env_pass.is_empty() {
+            Zeroizing::new(env_pass)
+        } else {
+            Zeroizing::new(rpassword::prompt_password(
+                "[sudo] master password for envseal: ",
+            )?)
+        }
+    } else {
+        Zeroizing::new(rpassword::prompt_password(
+            "[sudo] master password for envseal: ",
+        )?)
+    };
 
     let keys = vault.unlock(password.as_str())?;
 
-    SessionManager::cache_password(MASTER_SCOPE, password.as_str())?;
+    SessionManager::cache_password(&scope, password.as_str())?;
 
     Ok(keys)
 }
@@ -36,7 +46,7 @@ pub fn sudo_unlock_tag(
 ) -> Result<Zeroizing<[u8; KEY_LEN]>> {
     let group_name = vault.resolve_group_name(group)?;
 
-    let scope = format!("group_{}_tag_{}", group_name, tag);
+    let scope = vault.tag_scope(group, tag)?;
 
     if let Some(pw) = SessionManager::get_active_password(&scope)? {
         if let Ok(tag_key) = vault.unlock_tag(group, tag, &pw) {
@@ -47,10 +57,26 @@ pub fn sudo_unlock_tag(
         }
     }
 
-    let tag_password = Zeroizing::new(rpassword::prompt_password(format!(
-        "[sudo] password for tag '{}' in group '{}': ",
-        tag, group_name
-    ))?);
+    let env_tag_var = format!(
+        "ENVSEAL_TAG_PASSWORD_{}",
+        tag.to_uppercase().replace('-', "_")
+    );
+    let tag_password =
+        if let Ok(pass) = env::var(&env_tag_var).or_else(|_| env::var("ENVSEAL_TAG_PASSWORD")) {
+            if !pass.is_empty() {
+                Zeroizing::new(pass)
+            } else {
+                Zeroizing::new(rpassword::prompt_password(format!(
+                    "[sudo] password for tag '{}' in group '{}': ",
+                    tag, group_name
+                ))?)
+            }
+        } else {
+            Zeroizing::new(rpassword::prompt_password(format!(
+                "[sudo] password for tag '{}' in group '{}': ",
+                tag, group_name
+            ))?)
+        };
 
     let tag_key = vault
         .unlock_tag(group, tag, &tag_password)

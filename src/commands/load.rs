@@ -7,8 +7,9 @@ pub fn cmd_load(
     tag: Option<&str>,
     keys: &[String],
     global: bool,
+    pref: Option<&str>,
 ) -> Result<()> {
-    let vault = Vault::load(global)?;
+    let vault = Vault::load(global, pref)?;
     let group_name = vault.resolve_group_name(group)?;
     let derived = unlock::sudo_unlock(&vault)?;
 

@@ -5,8 +5,15 @@ use clap::{Parser, Subcommand};
 #[command(version = "v4.0.0b")]
 #[command(propagate_version = true)]
 pub struct Cli {
-    #[arg(long, global = true)]
+    /// Target a specific local environment profile (e.g., 'prod' targets '.prod.envseal')
+    #[arg(short, long, global = true)]
+    pub env: Option<String>,
+
+    /// Force operations on the global system vault, bypassing any local .envseal files
+    #[arg(short = 'G', long, global = true)]
     pub global: bool,
+
+    /// The subcommand to execute
     #[command(subcommand)]
     pub command: Commands,
 }
@@ -18,6 +25,7 @@ pub enum Commands {
     /// Creates a new secure seal in the default location, encrypted by a master password.
     /// NOTE: This must be run before using any other envseal commands.
     Init {
+        /// To initialise a local enviornment (e.g, '.envseal' file in current directory)
         #[arg(short, long)]
         local: bool,
     },
@@ -63,6 +71,10 @@ pub enum Commands {
         /// The tag to export from
         #[arg(short, long)]
         tag: Option<String>,
+
+        /// Output path of .env file defaults to .env in current directory
+        #[arg(short, long)]
+        output_path: Option<String>,
 
         /// Specific keys to export (exports all if empty)
         keys: Vec<String>,
@@ -122,8 +134,8 @@ pub enum Commands {
     /// Source variables directly into your current shell session
     ///
     /// Decrypts variables and outputs shell-compatible export commands. To use this,
-    /// evaluate it in your shell (e.g., `eval $(envseal load)`).
-    /// Note: For isolated execution, `envseal run` is highly recommended instead.
+    /// evaluate it in your shell (e.g., `eval $(envseal load)`) normally automatically done by a shell function.
+    /// Warning!!: For isolated execution, `envseal run` is highly recommended instead.
     Load {
         /// The group to load variables from (uses linked group if omitted)
         #[arg(short, long)]

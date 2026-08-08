@@ -2,8 +2,13 @@ use crate::utils::vault::Vault;
 use anyhow::Result;
 use std::collections::BTreeSet;
 
-pub fn cmd_list(group: Option<&str>, tag: Option<&str>, global: bool) -> Result<()> {
-    let vault = Vault::load(global)?;
+pub fn cmd_list(
+    group: Option<&str>,
+    tag: Option<&str>,
+    global: bool,
+    pref: Option<&str>,
+) -> Result<()> {
+    let vault = Vault::load(global, pref)?;
     let group_name = vault.resolve_group_name(group)?;
 
     let group_keys = vault.list_all_keys(group, None)?;

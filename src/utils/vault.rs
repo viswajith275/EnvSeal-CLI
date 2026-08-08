@@ -1,12 +1,18 @@
 use super::crypto;
-use anyhow::{anyhow, Result};
+use anyhow::{anyhow, Context, Result};
 use base64::Engine;
 use directories::ProjectDirs;
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, HashMap};
 use std::env;
 use std::fs;
+use std::hash::DefaultHasher;
+use std::hash::Hash;
+use std::hash::Hasher;
+use std::io::Write;
+use std::path::Path;
 use std::path::PathBuf;
+use tempfile::NamedTempFile;
 use zeroize::{Zeroize, ZeroizeOnDrop, Zeroizing};
 
 const CANARY_PLAINTEXT: &str = "envseal-Encrypted";
@@ -45,7 +51,7 @@ impl Default for Tag {
 pub struct Group {
     link: PathBuf,
     base: HashMap<String, Entry>,
-    tags: HashMap<String, Tag>,
+    pub tags: HashMap<String, Tag>,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -54,7 +60,7 @@ pub struct Vault {
     canary: Entry,
     link_index: HashMap<PathBuf, String>,
     // used for fetching group
-    entries: HashMap<String, Group>,
+    pub entries: HashMap<String, Group>,
     #[serde(default)]
     hmac: String,
     #[serde(skip)]
@@ -194,11 +200,37 @@ impl Vault {
         Ok(())
     }
 
+    /// Generates a unique session cache scope string derived from the vault's path
+    pub fn master_scope(&self) -> String {
+        if let Some(path) = &self.file_path {
+            let path_str = std::fs::canonicalize(path)
+                .unwrap_or_else(|_| path.clone())
+                .to_string_lossy()
+                .to_string();
+
+            let mut hasher = DefaultHasher::new();
+            path_str.hash(&mut hasher);
+            return format!("master_{:x}", hasher.finish());
+        }
+        "master_global".to_string()
+    }
+
+    /// Generates a unique session cache scope for a specific tag within this vault
+    pub fn tag_scope(&self, group: Option<&str>, tag: &str) -> Result<String> {
+        let group_name = self.resolve_group_name(group)?;
+        Ok(format!(
+            "{}_group_{}_tag_{}",
+            self.master_scope(),
+            group_name,
+            tag
+        ))
+    }
+
     /// recursively search for .envseal file upwards
-    fn find_local_seal() -> Option<PathBuf> {
+    fn find_local_seal(env_name: &str) -> Option<PathBuf> {
         let mut current_dir = env::current_dir().ok()?;
         loop {
-            let candidate = current_dir.join(".envseal");
+            let candidate = current_dir.join(env_name);
             if candidate.exists() {
                 return Some(candidate);
             }
@@ -210,17 +242,26 @@ impl Vault {
     }
 
     /// find config/data directories acording to os
-    pub fn resolve_path(force_local: bool, force_global: bool) -> Result<PathBuf> {
+    pub fn resolve_path(
+        force_local: bool,
+        force_global: bool,
+        pref: Option<&str>,
+    ) -> Result<PathBuf> {
         if let Ok(override_path) = std::env::var("ENVSEAL_TEST_PATH") {
             return Ok(PathBuf::from(override_path));
         }
 
+        let filename = match pref {
+            Some(name) => format!(".{}.envseal", name),
+            None => ".envseal".to_string(),
+        };
+
         if force_local {
-            return Ok(env::current_dir()?.join(".envseal"));
+            return Ok(env::current_dir()?.join(filename));
         }
 
         if !force_global {
-            if let Some(local_path) = Self::find_local_seal() {
+            if let Some(local_path) = Self::find_local_seal(&filename) {
                 return Ok(local_path);
             }
         }
@@ -233,14 +274,15 @@ impl Vault {
 
     /// checks if current vault is local or global
     pub fn is_local(&self) -> bool {
-        self.file_path
-            .as_ref()
-            .map_or(false, |p| p.file_name().unwrap_or_default() == ".envseal")
+        self.file_path.as_ref().map_or(false, |p| {
+            let name = p.file_name().unwrap_or_default().to_string_lossy();
+            name == ".envseal" || name.ends_with(".envseal")
+        })
     }
 
     /// creates and initiates vault
-    pub fn init(password: &str, local: bool, global: bool) -> Result<()> {
-        let path = Self::resolve_path(local, global)?;
+    pub fn init(password: &str, local: bool, global: bool, pref: Option<&str>) -> Result<()> {
+        let path = Self::resolve_path(local, global, pref)?;
         if path.exists() {
             return Err(anyhow!(
                 "Seal already exists at {:?}! Refusing to overwrite...",
@@ -283,8 +325,8 @@ impl Vault {
     }
 
     /// loads json to structures
-    pub fn load(force_global: bool) -> Result<Self> {
-        let path = Self::resolve_path(false, force_global)?;
+    pub fn load(force_global: bool, pref: Option<&str>) -> Result<Self> {
+        let path = Self::resolve_path(false, force_global, pref)?;
         let data = fs::read_to_string(&path)
             .map_err(|_| anyhow!("No seal found run 'envseal init' first!!"))?;
 
@@ -295,17 +337,41 @@ impl Vault {
         Ok(vault)
     }
 
-    /// saves the changed structure into json
+    /// atomically saves the changed structure into json
     pub fn save(&self) -> Result<()> {
         let path = self
             .file_path
             .as_ref()
             .ok_or_else(|| anyhow!("Vault path is not set!!"))?;
-        if let Some(parent) = path.parent() {
-            fs::create_dir_all(parent)?;
-        }
-        // writes the changes in the struct to json file
-        fs::write(path, serde_json::to_string_pretty(self)?)?;
+
+        let parent_dir = path.parent().unwrap_or_else(|| Path::new("."));
+
+        fs::create_dir_all(parent_dir).with_context(|| {
+            format!(
+                "Failed to create directory structure for '{}'",
+                parent_dir.display()
+            )
+        })?;
+
+        let mut temp_file = NamedTempFile::new_in(parent_dir).with_context(|| {
+            format!(
+                "Failed to create temporary file in '{}'",
+                parent_dir.display()
+            )
+        })?;
+
+        let json_data = serde_json::to_string_pretty(self)?;
+        temp_file.write_all(json_data.as_bytes())?;
+        temp_file.flush()?;
+
+        temp_file.persist(path).map_err(|e| {
+            anyhow!(
+                "Failed to atomically write vault file to '{}': {}",
+                path.display(),
+                e.error
+            )
+        })?;
+
         Ok(())
     }
 

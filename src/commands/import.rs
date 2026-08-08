@@ -3,8 +3,14 @@ use anyhow::{anyhow, Context, Result};
 use dotenvy::from_path_iter;
 use std::path::Path;
 
-pub fn cmd_import(group: Option<&str>, tag: Option<&str>, path: &str, global: bool) -> Result<()> {
-    let mut vault = Vault::load(global)?;
+pub fn cmd_import(
+    group: Option<&str>,
+    tag: Option<&str>,
+    path: &str,
+    global: bool,
+    pref: Option<&str>,
+) -> Result<()> {
+    let mut vault = Vault::load(global, pref)?;
     let group_name = vault.resolve_group_name(group)?;
     let derived = unlock::sudo_unlock(&vault)?;
 

@@ -7,8 +7,9 @@ pub fn cmd_remove(
     tag: Option<&str>,
     key: Option<&str>,
     global: bool,
+    pref: Option<&str>,
 ) -> Result<()> {
-    let mut vault = Vault::load(global)?;
+    let mut vault = Vault::load(global, pref)?;
     let derived = unlock::sudo_unlock(&vault)?;
 
     let mut tag_key = None;

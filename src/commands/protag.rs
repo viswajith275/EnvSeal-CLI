@@ -2,8 +2,8 @@ use crate::utils::{unlock, vault::Vault};
 use anyhow::{bail, Result};
 use rpassword::prompt_password;
 use zeroize::Zeroizing;
-pub fn cmd_protag(group: Option<&str>, tag: &str, global: bool) -> Result<()> {
-    let mut vault = Vault::load(global)?;
+pub fn cmd_protag(group: Option<&str>, tag: &str, global: bool, pref: Option<&str>) -> Result<()> {
+    let mut vault = Vault::load(global, pref)?;
     let group_name = vault.resolve_group_name(group)?;
     let derived = unlock::sudo_unlock(&vault)?;
 

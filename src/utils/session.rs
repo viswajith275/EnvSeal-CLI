@@ -1,11 +1,11 @@
-use anyhow::{anyhow, Result};
+use anyhow::Result;
 use keyring::Entry;
 use serde::{Deserialize, Serialize};
 use std::time::{SystemTime, UNIX_EPOCH};
 use zeroize::Zeroize;
 
 const SERVICE_NAME: &str = "envseal";
-const SESSION_TIMEOUT_SEC: u64 = 900; // 15 minutes
+const SESSION_TIMEOUT_SEC: u64 = 600; // 10 minutes
 
 #[derive(Serialize, Deserialize, Zeroize)]
 #[zeroize(drop)]
@@ -45,17 +45,25 @@ impl SessionManager {
 
     /// Retrieves the password if it hasn't expired
     pub fn get_active_password(scope: &str) -> Result<Option<String>> {
-        let entry = Self::get_entry(scope)?;
+        let entry = match Self::get_entry(scope) {
+            Ok(e) => e,
+            Err(_) => return Ok(None), // no keyring
+        };
+
         let serialized = match entry.get_password() {
             Ok(pw) => pw,
             Err(keyring::Error::NoEntry) => return Ok(None),
-            Err(e) => return Err(anyhow::anyhow!("Keyring error: {}", e)),
+            Err(_) => return Ok(None),
         };
 
-        let session: SessionData =
-            serde_json::from_str(&serialized).map_err(|_| anyhow!("Corrupted session data!!"))?;
+        let session: SessionData = match serde_json::from_str(&serialized) {
+            Ok(s) => s,
+            Err(_) => {
+                let _ = Self::clear_session(scope);
+                return Ok(None);
+            }
+        };
 
-        // Check expiry
         let now = SystemTime::now().duration_since(UNIX_EPOCH)?.as_secs();
 
         if now > session.expires_at {

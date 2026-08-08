@@ -2,8 +2,8 @@ use crate::utils::{unlock, vault::Vault};
 use anyhow::Result;
 use std::env;
 
-pub fn cmd_link(group: &str, global: bool) -> Result<()> {
-    let mut vault = Vault::load(global)?;
+pub fn cmd_link(group: &str, global: bool, pref: Option<&str>) -> Result<()> {
+    let mut vault = Vault::load(global, pref)?;
     let derived = unlock::sudo_unlock(&vault)?;
 
     vault.link_group(&derived.hmac_key, group)?;

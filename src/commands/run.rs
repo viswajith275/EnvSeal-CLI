@@ -8,10 +8,11 @@ pub fn cmd_run(
     tag: Option<&str>,
     args: Vec<&str>,
     global: bool,
+    pref: Option<&str>,
 ) -> Result<()> {
     let (cmd_name, cmd_args) = args.split_first().context("No command provided to run!!")?;
 
-    let vault = Vault::load(global)?;
+    let vault = Vault::load(global, pref)?;
     let derived = unlock::sudo_unlock(&vault)?;
 
     let mut tag_key = None;

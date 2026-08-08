@@ -1,8 +1,14 @@
 use crate::utils::{unlock, vault::Vault};
 use anyhow::{anyhow, Context, Ok, Result};
 
-pub fn cmd_get(group: Option<&str>, tag: Option<&str>, key: &str, global: bool) -> Result<()> {
-    let vault = Vault::load(global)?;
+pub fn cmd_get(
+    group: Option<&str>,
+    tag: Option<&str>,
+    key: &str,
+    global: bool,
+    pref: Option<&str>,
+) -> Result<()> {
+    let vault = Vault::load(global, pref)?;
     let derived = unlock::sudo_unlock(&vault)?;
 
     let mut tag_key = None;
