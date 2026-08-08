@@ -194,6 +194,7 @@ impl Vault {
         Ok(())
     }
 
+    /// recursively search for .envseal file upwards
     fn find_local_seal() -> Option<PathBuf> {
         let mut current_dir = env::current_dir().ok()?;
         loop {
@@ -230,6 +231,7 @@ impl Vault {
         Ok(dirs.config_dir().join("seal-encrypted.json"))
     }
 
+    /// checks if current vault is local or global
     pub fn is_local(&self) -> bool {
         self.file_path
             .as_ref()
