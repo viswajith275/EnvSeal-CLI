@@ -3,8 +3,9 @@ use anyhow::{anyhow, Result};
 use rpassword::prompt_password;
 use zeroize::Zeroizing;
 
-pub fn cmd_set(group: Option<&str>, tag: Option<&str>, key: &str) -> Result<()> {
-    let mut vault = Vault::load()?;
+pub fn cmd_set(group: Option<&str>, tag: Option<&str>, key: &str, global: bool) -> Result<()> {
+    let mut vault = Vault::load(global)?;
+
     let group_name = vault.resolve_group_name(group)?;
     let derived = unlock::sudo_unlock(&vault)?;
 
@@ -22,19 +23,16 @@ pub fn cmd_set(group: Option<&str>, tag: Option<&str>, key: &str) -> Result<()> 
     let secret = Zeroizing::new(prompt_password(&format!("value for {key}: "))?);
 
     vault.set_entry(&derived, group, tag, key, &secret, tag_key.as_deref())?;
-
     vault.save()?;
-    let message = if tag.is_some() {
-        format!(
-            "sealed '{}' in tag '{}' inside group '{}'",
-            key,
-            tag.unwrap(),
-            group_name
-        )
-    } else {
-        format!("sealed '{}' inside group '{}'", key, group_name)
+
+    let location_label = if vault.is_local() { "local" } else { "global" };
+    let message = match tag {
+        Some(t) => format!(
+            "sealed '{key}' in tag '{t}' inside group '{group_name}' ({location_label} seal)"
+        ),
+        None => format!("sealed '{key}' inside group '{group_name}' ({location_label} seal)"),
     };
 
-    eprintln!("{}", message);
+    eprintln!("{message}");
     Ok(())
 }

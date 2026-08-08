@@ -2,8 +2,13 @@ use crate::utils::{unlock, vault::Vault};
 use anyhow::{anyhow, Context, Result};
 use std::collections::HashMap;
 
-pub fn cmd_load(group: Option<&str>, tag: Option<&str>, keys: &[String]) -> Result<()> {
-    let vault = Vault::load()?;
+pub fn cmd_load(
+    group: Option<&str>,
+    tag: Option<&str>,
+    keys: &[String],
+    global: bool,
+) -> Result<()> {
+    let vault = Vault::load(global)?;
     let group_name = vault.resolve_group_name(group)?;
     let derived = unlock::sudo_unlock(&vault)?;
 
@@ -19,21 +24,27 @@ pub fn cmd_load(group: Option<&str>, tag: Option<&str>, keys: &[String]) -> Resu
     }
     let mut merged_env: HashMap<String, String> = HashMap::new();
 
+    let location_label = if vault.is_local() { "local" } else { "global" };
     let message = if !keys.is_empty() && tag.is_some() {
         format!(
-            "loading envs '{:?}' from tag '{}' inside group '{}'!",
+            "loading envs '{:?}' from tag '{}' inside group '{}' {} seal!",
             keys,
             tag.unwrap(),
-            group_name
+            group_name,
+            location_label
         )
     } else if tag.is_some() {
         format!(
-            "loading envs from tag '{}' inside group '{}'!",
+            "loading envs from tag '{}' inside group '{}' {} seal!",
             tag.unwrap(),
-            group_name
+            group_name,
+            location_label
         )
     } else {
-        format!("loading envs from group '{}'!", group_name)
+        format!(
+            "loading envs from group '{}' {} seal!",
+            group_name, location_label
+        )
     };
 
     eprintln!("{}", message);

@@ -3,8 +3,8 @@ use anyhow::{anyhow, Context, Result};
 use dotenvy::from_path_iter;
 use std::path::Path;
 
-pub fn cmd_import(group: Option<&str>, tag: Option<&str>, path: &str) -> Result<()> {
-    let mut vault = Vault::load()?;
+pub fn cmd_import(group: Option<&str>, tag: Option<&str>, path: &str, global: bool) -> Result<()> {
+    let mut vault = Vault::load(global)?;
     let group_name = vault.resolve_group_name(group)?;
     let derived = unlock::sudo_unlock(&vault)?;
 
@@ -36,14 +36,19 @@ pub fn cmd_import(group: Option<&str>, tag: Option<&str>, path: &str) -> Result<
     }
 
     vault.save()?;
+    let location_label = if vault.is_local() { "local" } else { "global" };
     let message = if tag.is_some() {
         format!(
-            "sealed env in tag '{}' inside group '{}'",
+            "sealed env in tag '{}' inside group '{}' {} seal",
             tag.unwrap(),
-            group_name
+            group_name,
+            location_label
         )
     } else {
-        format!("sealed env inside group '{}'", group_name)
+        format!(
+            "sealed env inside group '{}' {} seal",
+            group_name, location_label
+        )
     };
 
     eprintln!("{}", message);

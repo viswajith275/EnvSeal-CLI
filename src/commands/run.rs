@@ -3,10 +3,15 @@ use anyhow::{anyhow, Context, Result};
 use std::process::Command;
 use zeroize::Zeroize;
 
-pub fn cmd_run(group: Option<&str>, tag: Option<&str>, args: Vec<&str>) -> Result<()> {
+pub fn cmd_run(
+    group: Option<&str>,
+    tag: Option<&str>,
+    args: Vec<&str>,
+    global: bool,
+) -> Result<()> {
     let (cmd_name, cmd_args) = args.split_first().context("No command provided to run!!")?;
 
-    let vault = Vault::load()?;
+    let vault = Vault::load(global)?;
     let derived = unlock::sudo_unlock(&vault)?;
 
     let mut tag_key = None;

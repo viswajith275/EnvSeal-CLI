@@ -11,6 +11,7 @@ use zeroize::{Zeroize, ZeroizeOnDrop, Zeroizing};
 
 const CANARY_PLAINTEXT: &str = "envseal-Encrypted";
 const BASE_TAG: &str = "base";
+const LOCAL_GROUP_NAME: &str = "project";
 
 #[derive(Zeroize, ZeroizeOnDrop)]
 pub struct VaultKeys {
@@ -56,6 +57,8 @@ pub struct Vault {
     entries: HashMap<String, Group>,
     #[serde(default)]
     hmac: String,
+    #[serde(skip)]
+    file_path: Option<PathBuf>,
 }
 
 // Canonical data structures used for hmac
@@ -191,30 +194,75 @@ impl Vault {
         Ok(())
     }
 
+    fn find_local_seal() -> Option<PathBuf> {
+        let mut current_dir = env::current_dir().ok()?;
+        loop {
+            let candidate = current_dir.join(".envseal");
+            if candidate.exists() {
+                return Some(candidate);
+            }
+            if !current_dir.pop() {
+                break;
+            }
+        }
+        None
+    }
+
     /// find config/data directories acording to os
-    pub fn path() -> Result<PathBuf> {
+    pub fn resolve_path(force_local: bool, force_global: bool) -> Result<PathBuf> {
         if let Ok(override_path) = std::env::var("ENVSEAL_TEST_PATH") {
             return Ok(PathBuf::from(override_path));
         }
+
+        if force_local {
+            return Ok(env::current_dir()?.join(".envseal"));
+        }
+
+        if !force_global {
+            if let Some(local_path) = Self::find_local_seal() {
+                return Ok(local_path);
+            }
+        }
+
         let dirs = ProjectDirs::from("dev", "envseal", "envseal").ok_or_else(|| {
             anyhow!("Could not determine a config directory for this OS!! (Change your OS!!!)")
         })?;
         Ok(dirs.config_dir().join("seal-encrypted.json"))
     }
 
-    /// check if it directory already exists or not
-    pub fn exists() -> bool {
-        Self::path().map(|p| p.exists()).unwrap_or(false)
+    pub fn is_local(&self) -> bool {
+        self.file_path
+            .as_ref()
+            .map_or(false, |p| p.file_name().unwrap_or_default() == ".envseal")
     }
 
     /// creates and initiates vault
-    pub fn init(password: &str) -> Result<()> {
-        if Self::exists() {
-            return Err(anyhow!("Seal already exists! Refusing to overwrite..."));
+    pub fn init(password: &str, local: bool, global: bool) -> Result<()> {
+        let path = Self::resolve_path(local, global)?;
+        if path.exists() {
+            return Err(anyhow!(
+                "Seal already exists at {:?}! Refusing to overwrite...",
+                path
+            ));
         }
+
         let salt = crypto::generate_salt();
         let (enc_key, hmac_key) = crypto::derive_keys(password, &salt)?;
         let (nonce, ciphertext) = crypto::encrypt(&enc_key, CANARY_PLAINTEXT)?;
+
+        let mut entries = HashMap::new();
+
+        // If local, automatically instantiate the root project group
+        if local {
+            entries.insert(
+                LOCAL_GROUP_NAME.to_string(),
+                Group {
+                    link: PathBuf::new(),
+                    base: HashMap::new(),
+                    tags: HashMap::new(),
+                },
+            );
+        }
 
         let mut vault = Vault {
             salt: b64_encode(&salt),
@@ -223,8 +271,9 @@ impl Vault {
                 ciphertext: b64_encode(&ciphertext),
             },
             link_index: HashMap::new(),
-            entries: HashMap::new(),
+            entries,
             hmac: String::new(),
+            file_path: Some(path),
         };
 
         vault.seal_integrity(&hmac_key)?;
@@ -232,17 +281,24 @@ impl Vault {
     }
 
     /// loads json to structures
-    pub fn load() -> Result<Self> {
-        let path = Self::path()?;
+    pub fn load(force_global: bool) -> Result<Self> {
+        let path = Self::resolve_path(false, force_global)?;
         let data = fs::read_to_string(&path)
-            .map_err(|_| anyhow!("No seal found run `envseal init` first!!"))?;
-        // loads the file into the struct
-        Ok(serde_json::from_str(&data)?)
+            .map_err(|_| anyhow!("No seal found run 'envseal init' first!!"))?;
+
+        let mut vault: Vault = serde_json::from_str(&data)?;
+
+        vault.file_path = Some(path);
+
+        Ok(vault)
     }
 
     /// saves the changed structure into json
     pub fn save(&self) -> Result<()> {
-        let path = Self::path()?;
+        let path = self
+            .file_path
+            .as_ref()
+            .ok_or_else(|| anyhow!("Vault path is not set!!"))?;
         if let Some(parent) = path.parent() {
             fs::create_dir_all(parent)?;
         }
@@ -253,14 +309,24 @@ impl Vault {
 
     /// resolves the group name from explicit value or link
     pub fn resolve_group_name(&self, group: Option<&str>) -> Result<String> {
+        if self.is_local() {
+            if group.is_some() {
+                return Err(anyhow!(
+                        "Local .envseal vaults do not support multiple groups! Please omit the --group flag."
+                    ));
+            }
+            return Ok(LOCAL_GROUP_NAME.to_string());
+        }
+
         if let Some(name) = group {
             Ok(name.to_string())
         } else {
             let cur_dir = env::current_dir()?;
             let name = self
-                .link_index
-                .get(&cur_dir)
-                .ok_or_else(|| anyhow!("No group linked to current directory!!"))?;
+                    .link_index
+                    .get(&cur_dir)
+                    .ok_or_else(|| anyhow!("No group linked to current directory!! Run `envseal link <group>` or use --group."))?;
+
             Ok(name.to_string())
         }
     }
@@ -338,6 +404,10 @@ impl Vault {
 
     /// link group to current directory
     pub fn link_group(&mut self, hmac_key: &[u8; crypto::HMAC_KEY_LEN], group: &str) -> Result<()> {
+        if self.is_local() {
+            return Err(anyhow!("Local .envseal vaults are automatically bound to their directory. Linking is only used for the global vault!!"));
+        }
+
         // Remove existing links
         if let Some(existing_group) = self.entries.get(group) {
             self.link_index.remove(&existing_group.link);
@@ -352,9 +422,8 @@ impl Vault {
                 base: HashMap::new(),
                 tags: HashMap::new(),
             });
-        // update entries link part
+
         group_entry.link = cur_dir.to_path_buf();
-        // reflect it to link index hash_map
         self.link_index
             .insert(cur_dir.to_path_buf(), group.to_string());
 

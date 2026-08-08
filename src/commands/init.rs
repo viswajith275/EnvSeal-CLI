@@ -3,9 +3,15 @@ use anyhow::Result;
 use rpassword::prompt_password;
 use zeroize::Zeroizing;
 
-pub fn cmd_init() -> Result<()> {
-    if Vault::exists() {
-        anyhow::bail!("Seal already exists at {}", Vault::path()?.display());
+pub fn cmd_init(local: bool, global: bool) -> Result<()> {
+    if local && global {
+        anyhow::bail!("Cannot specify both --local and --global flags!");
+    }
+
+    let target_path = Vault::resolve_path(local, global)?;
+
+    if target_path.exists() {
+        anyhow::bail!("Seal already exists at {}", target_path.display());
     }
 
     eprintln!(
@@ -29,7 +35,7 @@ pub fn cmd_init() -> Result<()> {
         anyhow::bail!("Passwords did not match!!");
     }
 
-    Vault::init(&password)?;
-    eprintln!("seal created at {}", Vault::path()?.display());
+    Vault::init(&password, local, global)?;
+    eprintln!("seal created at {}", target_path.display());
     Ok(())
 }

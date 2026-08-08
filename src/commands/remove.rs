@@ -2,8 +2,13 @@ use crate::utils::{unlock, vault::Vault};
 use anyhow::{anyhow, Result};
 use dialoguer::Confirm;
 
-pub fn cmd_remove(group: Option<&str>, tag: Option<&str>, key: Option<&str>) -> Result<()> {
-    let mut vault = Vault::load()?;
+pub fn cmd_remove(
+    group: Option<&str>,
+    tag: Option<&str>,
+    key: Option<&str>,
+    global: bool,
+) -> Result<()> {
+    let mut vault = Vault::load(global)?;
     let derived = unlock::sudo_unlock(&vault)?;
 
     let mut tag_key = None;
@@ -17,7 +22,7 @@ pub fn cmd_remove(group: Option<&str>, tag: Option<&str>, key: Option<&str>) -> 
         }
     }
 
-    let prompt = format!("Are you sure you want to delete these variables?");
+    let prompt = format!("do you want to delete these variables?");
 
     let confirmation = Confirm::new()
         .with_prompt(prompt)
@@ -27,9 +32,9 @@ pub fn cmd_remove(group: Option<&str>, tag: Option<&str>, key: Option<&str>) -> 
     if confirmation {
         vault.remove_entry(&derived.hmac_key, group, tag, key, tag_key.as_deref())?;
         vault.save()?;
-        eprintln!("Deletion successful!!");
+        eprintln!("deletion successful!!");
     } else {
-        eprintln!("Operation canceled by user!!");
+        eprintln!("operation canceled by user!!");
     }
 
     Ok(())

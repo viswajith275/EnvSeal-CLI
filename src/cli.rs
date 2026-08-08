@@ -2,9 +2,11 @@ use clap::{Parser, Subcommand};
 
 #[derive(Parser)]
 #[command(name = "envseal", about = "Encrypted Environment Manager")]
-#[command(version = "v3.0.0b")]
+#[command(version = "v4.0.0b")]
 #[command(propagate_version = true)]
 pub struct Cli {
+    #[arg(long, global = true)]
+    pub global: bool,
     #[command(subcommand)]
     pub command: Commands,
 }
@@ -15,7 +17,10 @@ pub enum Commands {
     ///
     /// Creates a new secure seal in the default location, encrypted by a master password.
     /// NOTE: This must be run before using any other envseal commands.
-    Init,
+    Init {
+        #[arg(short, long)]
+        local: bool,
+    },
 
     /// Clear the Master Password from the local session cache
     ///
