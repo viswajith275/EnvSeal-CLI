@@ -7,7 +7,6 @@ use clap::Parser;
 
 fn main() -> Result<()> {
     let clis = cli::Cli::parse();
-
     match clis.command {
         cli::Commands::Init => commands::init::cmd_init(),
         cli::Commands::Set { group, tag, key } => {
@@ -47,5 +46,6 @@ fn main() -> Result<()> {
         cli::Commands::Protag { group, tag } => {
             commands::protag::cmd_protag(group.as_deref(), &tag)
         }
+        cli::Commands::Clear => commands::clear::cmd_clear(),
     }
 }

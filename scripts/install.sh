@@ -2,23 +2,44 @@
 set -euo pipefail
 
 # =============================================================================
-# envseal-cli installer
-# Downloads and installs the envseal binary, or installs from a local file.
+# envseal-cli Installer
+#
+# This script downloads and installs the envseal binary from GitHub Releases,
+# or installs it from a local file/archive.
+#
+# Supported Environments:
+#   - Linux (x86_64, aarch64)
+#   - macOS (x86_64, arm64)
+#   - Windows (via Git Bash, MSYS2, Cygwin)
+#
+# Key Features:
+#   - Auto-detects OS and Architecture.
+#   - Automatically adds the install directory to the user's PATH.
+#   - Injects a shell wrapper function to allow `envseal load` to modify
+#     the parent shell's environment variables using `eval`.
 # =============================================================================
 
-# Configuration defaults
+# --- Configuration Defaults ---
 readonly REPO="viswajith275/envseal-cli"
 readonly BIN_NAME="envseal"
 readonly DEFAULT_INSTALL_DIR="$HOME/.local/bin"
 readonly VERSION_DEFAULT="latest"
 
-# Script variables
+# --- Mutable Script State ---
 INSTALL_DIR="$DEFAULT_INSTALL_DIR"
 VERSION="$VERSION_DEFAULT"
 LOCAL_FILE=""
 DRY_RUN=false
 
-# Colors for output (only if terminal)
+# --- Dynamic Platform Variables ---
+# These are populated during OS detection to handle platform-specific quirks
+# (e.g., Windows requiring .exe extensions and .zip archives).
+PLATFORM=""
+EXE_EXT=""
+ARCHIVE_EXT=".tar.gz"
+
+# --- UI / Colors ---
+# Enable terminal colors only if the script is running interactively.
 if [[ -t 1 ]]; then
     readonly RED='\033[0;31m'
     readonly GREEN='\033[0;32m'
@@ -31,19 +52,12 @@ else
     readonly NC=''
 fi
 
-# Logging functions
-log_info() {
-    echo -e "${GREEN}✓${NC} $*" >&2
-}
+# --- Logging Utilities ---
+log_info() { echo -e "${GREEN}✓${NC} $*" >&2; }
+log_warn() { echo -e "${YELLOW}⚠${NC} $*" >&2; }
+log_error() { echo -e "${RED}✗${NC} $*" >&2; }
 
-log_warn() {
-    echo -e "${YELLOW}⚠${NC} $*" >&2
-}
-
-log_error() {
-    echo -e "${RED}✗${NC} $*" >&2
-}
-
+# --- Help / Usage Menu ---
 usage() {
     cat <<EOF
 Usage: install.sh [options]
@@ -54,10 +68,10 @@ Updates the current shell's configuration file if it exists.
 Options:
   -d, --dir <path>      Install directory (default: $DEFAULT_INSTALL_DIR)
   -v, --version <tag>   Install a specific release tag (default: latest)
-                         Example: v1.2.3
-  -f, --file <path>     Manual install from local .tar.gz or binary
-  --dry-run              Show what would be done without making changes
-  -h, --help             Show this help message and exit
+                          Example: v1.2.3
+  -f, --file <path>     Manual install from local .tar.gz, .zip or binary
+  --dry-run             Show what would be done without making changes
+  -h, --help            Show this help message and exit
 
 Examples:
   # Normal install (auto-detects OS/arch, downloads latest)
@@ -69,102 +83,110 @@ Examples:
   # Install to a custom directory
   ./install.sh --dir /usr/local/bin
 
-  # Manual install from a downloaded tarball
+  # Manual install from downloaded archives
   ./install.sh --file ~/Downloads/$BIN_NAME-macos-aarch64.tar.gz
-
-  # Manual install from a built binary
-  ./install.sh --file ./target/release/$BIN_NAME
-
-  # Dry run to see what would be done
-  ./install.sh --dry-run
+  ./install.sh --file ~/Downloads/$BIN_NAME-windows-x86_64.zip
 EOF
 }
 
-# Parse command-line arguments
+# --- Argument Parsing ---
 parse_args() {
     while [[ $# -gt 0 ]]; do
         case "$1" in
-            -d|--dir)
-                INSTALL_DIR="$2"
-                shift 2
-                ;;
-            -v|--version)
-                VERSION="$2"
-                shift 2
-                ;;
-            -f|--file)
-                LOCAL_FILE="$2"
-                shift 2
-                ;;
-            --dry-run)
-                DRY_RUN=true
-                shift
-                ;;
-            -h|--help)
-                usage
-                exit 0
-                ;;
-            *)
-                log_error "Unknown option: $1"
-                usage
-                exit 1
-                ;;
+            -d|--dir) INSTALL_DIR="$2"; shift 2 ;;
+            -v|--version) VERSION="$2"; shift 2 ;;
+            -f|--file) LOCAL_FILE="$2"; shift 2 ;;
+            --dry-run) DRY_RUN=true; shift ;;
+            -h|--help) usage; exit 0 ;;
+            *) log_error "Unknown option: $1"; usage; exit 1 ;;
         esac
     done
 }
 
-# Check if a command exists
+# --- Dependency Checkers ---
 command_exists() {
     command -v "$1" >/dev/null 2>&1
 }
 
-# Fetch URL using curl or wget
+# Fetch URL using either curl or wget depending on availability
 fetch() {
     local url="$1"
-
     if command_exists curl; then
         curl -fsSL "$url"
     elif command_exists wget; then
         wget -qO- "$url"
     else
-        log_error "Neither curl nor wget is installed"
+        log_error "Neither curl nor wget is installed. Cannot download files."
         exit 1
     fi
 }
 
-# Detect current shell and return its name (bash, zsh, fish, etc.)
+# --- Platform Detection ---
+# Determines the OS and CPU architecture to map to the correct GitHub release asset.
+# Also configures file extensions for Windows (Git Bash / MSYS2).
+set_platform_vars() {
+    local os arch
+    os="$(uname -s)"
+    arch="$(uname -m)"
+
+    case "$os" in
+        Linux)
+            case "$arch" in
+                x86_64|amd64) PLATFORM="linux-musl-x86_64" ;;
+                aarch64|arm64) PLATFORM="linux-aarch64" ;;
+                *) PLATFORM="" ;;
+            esac
+            ;;
+        Darwin)
+            case "$arch" in
+                x86_64) PLATFORM="macos-x86_64" ;;
+                arm64) PLATFORM="macos-aarch64" ;;
+                *) PLATFORM="" ;;
+            esac
+            ;;
+        # Match typical Windows POSIX environments (Git Bash, MSYS, Cygwin)
+        CYGWIN*|MINGW*|MSYS*|MINGW32*|MINGW64*)
+            EXE_EXT=".exe"
+            ARCHIVE_EXT=".zip"
+            case "$arch" in
+                x86_64|amd64) PLATFORM="windows-x86_64" ;;
+                *) PLATFORM="" ;;
+            esac
+            ;;
+        *) PLATFORM="" ;;
+    esac
+
+    if [[ -z "$PLATFORM" ]]; then
+        log_error "Unsupported platform: $os/$arch"
+        log_error "Install manually with: ./install.sh --file <path-to-binary-or-archive>"
+        exit 1
+    fi
+}
+
+# --- Shell Configuration Helpers ---
+
+# Returns the current shell name (e.g., bash, zsh, fish)
 detect_current_shell() {
     local shell_path="${SHELL:-/bin/bash}"
     basename "$shell_path"
 }
 
-# Get the config file path for the detected shell
+# Maps the detected shell to its corresponding rc/config file
 get_shell_config_path() {
     local shell="$1"
-
     case "$shell" in
-        bash)
-            echo "$HOME/.bashrc"
-            ;;
-        zsh)
-            echo "$HOME/.zshrc"
-            ;;
-        fish)
-            echo "$HOME/.config/fish/config.fish"
-            ;;
-        ksh|mksh)
-            echo "$HOME/.kshrc"
-            ;;
-        tcsh)
-            echo "$HOME/.tcshrc"
-            ;;
-        *)
-            echo ""
-            ;;
+        bash) echo "$HOME/.bashrc" ;;
+        zsh) echo "$HOME/.zshrc" ;;
+        fish) echo "$HOME/.config/fish/config.fish" ;;
+        ksh|mksh) echo "$HOME/.kshrc" ;;
+        tcsh) echo "$HOME/.tcshrc" ;;
+        *) echo "" ;;
     esac
 }
 
-# Validate install directory
+# --- Core Installation Logic ---
+
+# Ensure the destination directory exists and is writable
 validate_install_dir() {
     if [[ ! -d "$INSTALL_DIR" ]]; then
         if ! mkdir -p "$INSTALL_DIR" 2>/dev/null; then
@@ -180,18 +202,18 @@ validate_install_dir() {
     fi
 }
 
-# Install from local file (tarball or binary)
+# Handle installations provided via the --file flag
 install_from_local() {
     if [[ ! -e "$LOCAL_FILE" ]]; then
         log_error "File not found: $LOCAL_FILE"
         exit 1
     fi
 
-    local target_path="$INSTALL_DIR/$BIN_NAME"
+    local target_path="$INSTALL_DIR/${BIN_NAME}${EXE_EXT}"
 
     case "$LOCAL_FILE" in
         *.tar.gz|*.tgz)
-            log_info "Installing from archive: $LOCAL_FILE"
+            log_info "Installing from tar archive: $LOCAL_FILE"
             local tmp_dir
             tmp_dir=$(mktemp -d) || exit 1
             trap "rm -rf '$tmp_dir'" EXIT
@@ -201,8 +223,38 @@ install_from_local() {
                 exit 1
             fi
 
+            # Find the uncompressed binary inside the temp directory
             local found_bin
-            found_bin=$(find "$tmp_dir" -maxdepth 2 -type f -name "$BIN_NAME*" ! -name "*.txt" ! -name "*.md" 2>/dev/null | head -n 1)
+            found_bin=$(find "$tmp_dir" -maxdepth 2 -type f -name "${BIN_NAME}*" ! -name "*.txt" ! -name "*.md" 2>/dev/null | head -n 1)
+
+            if [[ -z "$found_bin" ]]; then
+                log_error "No '$BIN_NAME' binary found in archive"
+                exit 1
+            fi
+
+            if [[ "$DRY_RUN" == false ]]; then
+                cp "$found_bin" "$target_path"
+                chmod +x "$target_path"
+            fi
+            ;;
+        *.zip)
+            log_info "Installing from zip archive: $LOCAL_FILE"
+            local tmp_dir
+            tmp_dir=$(mktemp -d) || exit 1
+            trap "rm -rf '$tmp_dir'" EXIT
+
+            if ! command_exists unzip; then
+                log_error "'unzip' command is required to extract .zip archives. Please install it first."
+                exit 1
+            fi
+
+            if ! unzip -q "$LOCAL_FILE" -d "$tmp_dir" 2>/dev/null; then
+                log_error "Failed to extract archive: $LOCAL_FILE"
+                exit 1
+            fi
+
+            local found_bin
+            found_bin=$(find "$tmp_dir" -maxdepth 2 -type f -name "${BIN_NAME}*" ! -name "*.txt" ! -name "*.md" 2>/dev/null | head -n 1)
 
             if [[ -z "$found_bin" ]]; then
                 log_error "No '$BIN_NAME' binary found in archive"
@@ -215,7 +267,8 @@ install_from_local() {
             fi
             ;;
         *)
-            log_info "Installing from binary: $LOCAL_FILE"
+            # Treat as raw binary file
+            log_info "Installing from raw binary: $LOCAL_FILE"
             if [[ "$DRY_RUN" == false ]]; then
                 cp "$LOCAL_FILE" "$target_path"
                 chmod +x "$target_path"
@@ -226,62 +279,12 @@ install_from_local() {
     log_info "Binary installed to: $target_path"
 }
 
-# Detect OS and architecture
-detect_platform() {
-    local os arch target
-
-    os="$(uname -s)"
-    arch="$(uname -m)"
-
-    case "$os" in
-        Linux)
-            case "$arch" in
-                x86_64|amd64)
-                    target="linux-musl-x86_64"
-                    ;;
-                aarch64|arm64)
-                    target="linux-aarch64"
-                    ;;
-                *)
-                    target=""
-                    ;;
-            esac
-            ;;
-        Darwin)
-            case "$arch" in
-                x86_64)
-                    target="macos-x86_64"
-                    ;;
-                arm64)
-                    target="macos-aarch64"
-                    ;;
-                *)
-                    target=""
-                    ;;
-            esac
-            ;;
-        *)
-            target=""
-            ;;
-    esac
-
-    if [[ -z "$target" ]]; then
-        log_error "Unsupported platform: $os/$arch"
-        log_error "Install manually with: ./install.sh --file <path-to-binary-or-tarball>"
-        exit 1
-    fi
-
-    echo "$target"
-}
-
-# Download and install from GitHub releases
+# Handle installations dynamically from GitHub Releases
 install_from_release() {
-    local target release_url tmp_dir
+    local release_url tmp_dir
+    log_info "Detected platform: $PLATFORM"
 
-    target=$(detect_platform)
-    log_info "Detected platform: $target"
-
-    # Construct GitHub API URL
+    # Construct the GitHub API URL for fetching release metadata
     local api_url
     if [[ "$VERSION" == "latest" ]]; then
         api_url="https://api.github.com/repos/$REPO/releases/latest"
@@ -291,11 +294,12 @@ install_from_release() {
 
     log_info "Fetching release information..."
 
-    release_url=$(fetch "$api_url" 2>/dev/null | grep -o "https://github.com/[^\"]*$target\.tar\.gz" | head -n 1 || true)
+    # Use grep to find the asset URL matching our target platform and required extension (.tar.gz or .zip)
+    release_url=$(fetch "$api_url" 2>/dev/null | grep -o "https://github.com/[^\"]*$PLATFORM$ARCHIVE_EXT" | head -n 1 || true)
 
     if [[ -z "$release_url" ]]; then
-        log_error "Could not find release for $target (version: $VERSION)"
-        log_error "Install manually with: ./install.sh --file <path-to-binary-or-tarball>"
+        log_error "Could not find release asset for $PLATFORM (version: $VERSION)"
+        log_error "Install manually with: ./install.sh --file <path-to-binary-or-archive>"
         exit 1
     fi
 
@@ -305,21 +309,40 @@ install_from_release() {
     tmp_dir=$(mktemp -d) || exit 1
     trap "rm -rf '$tmp_dir'" EXIT
 
-    if ! fetch "$release_url" 2>/dev/null | tar -xz -C "$tmp_dir"; then
-        log_error "Failed to download or extract release"
-        exit 1
+    # Handle extraction securely based on file type
+    if [[ "$ARCHIVE_EXT" == ".zip" ]]; then
+        if ! command_exists unzip; then
+            log_error "'unzip' command is required to extract Windows .zip releases. Please install it first."
+            exit 1
+        fi
+
+        local zip_file="$tmp_dir/release.zip"
+        if ! fetch "$release_url" > "$zip_file"; then
+            log_error "Failed to download release"
+            exit 1
+        fi
+
+        if ! unzip -q "$zip_file" -d "$tmp_dir"; then
+            log_error "Failed to extract zip archive"
+            exit 1
+        fi
+    else
+        if ! fetch "$release_url" 2>/dev/null | tar -xz -C "$tmp_dir"; then
+            log_error "Failed to download or extract release"
+            exit 1
+        fi
     fi
 
-    # Find the binary in the extracted archive
+    # Find the binary in the extracted archive, ignoring text files
     local found_bin
-    found_bin=$(find "$tmp_dir" -maxdepth 2 -type f -name "$BIN_NAME*" ! -name "*.txt" ! -name "*.md" 2>/dev/null | head -n 1)
+    found_bin=$(find "$tmp_dir" -maxdepth 2 -type f -name "${BIN_NAME}*" ! -name "*.txt" ! -name "*.md" 2>/dev/null | head -n 1)
 
     if [[ -z "$found_bin" ]]; then
         log_error "No '$BIN_NAME' binary found in release"
         exit 1
     fi
 
-    target_path="$INSTALL_DIR/$BIN_NAME"
+    target_path="$INSTALL_DIR/${BIN_NAME}${EXE_EXT}"
     if [[ "$DRY_RUN" == false ]]; then
         cp "$found_bin" "$target_path"
         chmod +x "$target_path"
@@ -328,10 +351,10 @@ install_from_release() {
     log_info "Binary installed to: $target_path"
 }
 
-# Update shell configuration
+# --- Shell Integration Engine ---
+
 update_shell_config() {
     local shell config_file
-
     shell=$(detect_current_shell)
     config_file=$(get_shell_config_path "$shell")
 
@@ -340,29 +363,17 @@ update_shell_config() {
         return 0
     fi
 
-    # Only proceed if config file exists
     if [[ ! -f "$config_file" ]]; then
         log_warn "Shell config file not found: $config_file (skipping config update)"
         return 0
     fi
 
     log_info "Detected shell: $shell"
-    update_config_for_shell "$shell" "$config_file"
-}
 
-# Update configuration for a specific shell
-update_config_for_shell() {
-    local shell="$1"
-    local config_file="$2"
     local modified=false
-
     case "$shell" in
-        fish)
-            modified=$(update_fish_config "$config_file")
-            ;;
-        *)
-            modified=$(update_posix_config "$config_file")
-            ;;
+        fish) modified=$(update_fish_config "$config_file") ;;
+        *) modified=$(update_posix_config "$config_file") ;;
     esac
 
     if [[ "$modified" == "true" ]]; then
@@ -372,24 +383,27 @@ update_config_for_shell() {
     fi
 }
 
-# Update POSIX-compatible shell config (bash, zsh, ksh, etc.)
+# Inject PATH and Wrapper Function for Bash/Zsh/etc.
 update_posix_config() {
     local config_file="$1"
     local modified=false
 
-    # Add PATH if not already present
+    # 1. Update PATH safely
     if ! grep -q "$(printf '%s\n' "$INSTALL_DIR" | sed 's/[[\.*^$/]/\\&/g')" "$config_file" 2>/dev/null; then
         if [[ "$DRY_RUN" == false ]]; then
             {
                 echo ""
-                echo "# Added by $BIN_NAME installer"
+                echo "# Added by $BIN_NAME installer - Updates PATH for the CLI"
                 echo "export PATH=\"$INSTALL_DIR:\$PATH\""
             } >> "$config_file"
         fi
         modified=true
     fi
 
-    # Add shell function if not already present
+    # 2. Inject Shell Wrapper Function
+    # Why is this needed? Sub-processes cannot mutate the parent shell's environment variables.
+    # When a user types `envseal load`, we need the generated export commands to execute
+    # IN the current shell context via `eval`. For all other commands, we just pass them through.
     local marker="# >>> $BIN_NAME shell integration >>>"
     if ! grep -qF "$marker" "$config_file" 2>/dev/null; then
         if [[ "$DRY_RUN" == false ]]; then
@@ -398,8 +412,11 @@ update_posix_config() {
                 echo "$marker"
                 echo "$BIN_NAME() {"
                 echo "    if [ \"\$1\" = \"load\" ]; then"
+                echo "        # The load command needs to mutate the current shell environment."
+                echo "        # We capture the output of the binary and eval it in the current context."
                 echo "        eval \"\$(command $BIN_NAME \"\$@\")\""
                 echo "    else"
+                echo "        # Pass all other commands directly to the binary."
                 echo "        command $BIN_NAME \"\$@\""
                 echo "    fi"
                 echo "}"
@@ -412,24 +429,24 @@ update_posix_config() {
     echo "$modified"
 }
 
-# Update fish shell config
+# Inject PATH and Wrapper Function for Fish
 update_fish_config() {
     local config_file="$1"
     local modified=false
 
-    # Add PATH if not already present
+    # 1. Update PATH safely for Fish
     if ! grep -q "$(printf '%s\n' "$INSTALL_DIR" | sed 's/[[\.*^$/]/\\&/g')" "$config_file" 2>/dev/null; then
         if [[ "$DRY_RUN" == false ]]; then
             {
                 echo ""
-                echo "# Added by $BIN_NAME installer"
+                echo "# Added by $BIN_NAME installer - Updates PATH for the CLI"
                 echo "fish_add_path $INSTALL_DIR"
             } >> "$config_file"
         fi
         modified=true
     fi
 
-    # Add function if not already present
+    # 2. Inject Shell Wrapper Function for Fish
     local marker="# >>> $BIN_NAME shell integration >>>"
     if ! grep -qF "$marker" "$config_file" 2>/dev/null; then
         if [[ "$DRY_RUN" == false ]]; then
@@ -438,8 +455,10 @@ update_fish_config() {
                 echo "$marker"
                 echo "function $BIN_NAME"
                 echo "    if [ \"\$argv[1]\" = \"load\" ]"
+                echo "        # Evaluate output to apply environment variables directly"
                 echo "        eval (command $BIN_NAME \$argv)"
                 echo "    else"
+                echo "        # Standard pass-through"
                 echo "        command $BIN_NAME \$argv"
                 echo "    end"
                 echo "end"
@@ -452,23 +471,24 @@ update_fish_config() {
     echo "$modified"
 }
 
-# Verify installation
-verify_installation() {
-    local binary_path="$INSTALL_DIR/$BIN_NAME"
+# --- Post-Install Verification ---
 
-    # Check if binary exists
+verify_installation() {
+    local binary_path="$INSTALL_DIR/${BIN_NAME}${EXE_EXT}"
+
+    # Ensure the file arrived safely
     if [[ ! -f "$binary_path" ]]; then
         log_error "Binary not found: $binary_path"
         return 1
     fi
 
-    # Check if binary is executable
+    # Ensure the permissions are correct
     if [[ ! -x "$binary_path" ]]; then
         log_error "Binary is not executable: $binary_path"
         return 1
     fi
 
-    # Try to execute the binary with common version flags
+    # Attempt to query the version. Try standard flags in fallback order.
     local version_output=""
     if "$binary_path" --version >/dev/null 2>&1; then
         version_output=$("$binary_path" --version 2>&1)
@@ -477,16 +497,16 @@ verify_installation() {
     elif "$binary_path" version >/dev/null 2>&1; then
         version_output=$("$binary_path" version 2>&1)
     elif "$binary_path" --help >/dev/null 2>&1; then
-        # If no version flag works, at least try --help
         version_output=$("$binary_path" --help 2>&1 | head -n 1)
     else
-        # If all else fails, just verify it's in the system
-        if file "$binary_path" | grep -q "ELF\|Mach-O\|executable"; then
+        # Fallback check using the `file` utility if flags fail.
+        # Looks for ELF (Linux), Mach-O (Mac), or PE32 (Windows) magic headers.
+        if file "$binary_path" | grep -iq "ELF\|Mach-O\|executable\|PE32"; then
             log_warn "Binary exists but couldn't verify execution (missing version/help flags)"
             log_info "Binary installed: $binary_path"
             return 0
         else
-            log_error "Binary exists but is not a valid executable"
+            log_error "Binary exists but is not a valid executable file format"
             return 1
         fi
     fi
@@ -499,52 +519,57 @@ verify_installation() {
     return 0
 }
 
-# Main installation flow
+# --- Main Entry Point ---
+
 main() {
     parse_args "$@"
 
     if [[ "$DRY_RUN" == true ]]; then
-        log_warn "DRY RUN MODE - no changes will be made"
+        log_warn "DRY RUN MODE - no files or configs will be modified"
     fi
 
     echo ""
-    log_info "Installing $BIN_NAME..."
+    log_info "Starting installation for $BIN_NAME..."
 
+    # Initialize environment tracking
+    set_platform_vars
     validate_install_dir
 
+    # Download or copy files
     if [[ -n "$LOCAL_FILE" ]]; then
         install_from_local
     else
         install_from_release
     fi
 
+    # Apply configuration modifications
     update_shell_config
 
     if [[ "$DRY_RUN" == false ]]; then
         echo ""
 
-        # Verify installation (non-fatal if it fails)
+        # Verify the binary is intact and working
         if verify_installation; then
             log_info "Installation successful!"
         else
-            log_warn "Could not fully verify installation"
+            log_warn "Could not fully verify the installation."
         fi
 
+        # Provide user guidance
         echo ""
         echo "Next steps:"
-        echo "  1. Reload your shell configuration:"
+        echo "  1. Reload your shell configuration to apply changes:"
         echo "     source $(get_shell_config_path "$(detect_current_shell)")"
         echo ""
         echo "  2. Test the installation:"
         echo "     $BIN_NAME --version"
         echo ""
-        echo "  3. Load environment variables:"
-        echo "     $BIN_NAME load <KEYS>..."
+        echo "  3. Use the CLI to load your environment variables:"
+        echo "     $BIN_NAME load <YOUR_KEYS>..."
     else
         echo ""
-        log_info "Dry run complete - no changes were made"
+        log_info "Dry run complete - no changes were made."
     fi
 }
 
-# Run main function
 main "$@"

@@ -10,6 +10,7 @@ use std::path::PathBuf;
 use zeroize::{Zeroize, ZeroizeOnDrop, Zeroizing};
 
 const CANARY_PLAINTEXT: &str = "envseal-Encrypted";
+const BASE_TAG: &str = "base";
 
 #[derive(Zeroize, ZeroizeOnDrop)]
 pub struct VaultKeys {
@@ -87,7 +88,7 @@ struct CanonicalVault<'a> {
 }
 
 impl Vault {
-    // Turns the canonical vault into signable bytes
+    /// turns the canonical vault into signable bytes
     fn signable_bytes(&self) -> Result<Vec<u8>> {
         // Reads the vault into canonical structure
         let entries: BTreeMap<&str, CanonicalGroup> = self
@@ -171,7 +172,7 @@ impl Vault {
         Ok(serde_json::to_vec(&canon)?)
     }
 
-    // computes and updated hmac
+    /// computes and updated hmac
     pub fn seal_integrity(&mut self, hmac_key: &[u8; crypto::HMAC_KEY_LEN]) -> Result<()> {
         let bytes = self.signable_bytes()?;
         let tag = crypto::compute_hmac(hmac_key, &bytes);
@@ -179,7 +180,7 @@ impl Vault {
         Ok(())
     }
 
-    // verifies if the seal has been tampered with by checking hmac
+    /// verifies if the seal has been tampered with by checking hmac
     pub fn verify_integrity(&self, hmac_key: &[u8; crypto::HMAC_KEY_LEN]) -> Result<()> {
         let stored = self.hmac.as_ref();
         let bytes = self.signable_bytes()?;
@@ -190,7 +191,7 @@ impl Vault {
         Ok(())
     }
 
-    // find config/data directories acording to os
+    /// find config/data directories acording to os
     pub fn path() -> Result<PathBuf> {
         if let Ok(override_path) = std::env::var("ENVSEAL_TEST_PATH") {
             return Ok(PathBuf::from(override_path));
@@ -201,12 +202,12 @@ impl Vault {
         Ok(dirs.config_dir().join("seal-encrypted.json"))
     }
 
-    // check if it directory already exists or not
+    /// check if it directory already exists or not
     pub fn exists() -> bool {
         Self::path().map(|p| p.exists()).unwrap_or(false)
     }
 
-    //  Creates and initiates vault
+    /// creates and initiates vault
     pub fn init(password: &str) -> Result<()> {
         if Self::exists() {
             return Err(anyhow!("Seal already exists! Refusing to overwrite..."));
@@ -230,16 +231,16 @@ impl Vault {
         vault.save()
     }
 
-    // loads json to structures
+    /// loads json to structures
     pub fn load() -> Result<Self> {
         let path = Self::path()?;
         let data = fs::read_to_string(&path)
-            .map_err(|_| anyhow!("No seal found — run `envseal init` first!!"))?;
+            .map_err(|_| anyhow!("No seal found run `envseal init` first!!"))?;
         // loads the file into the struct
         Ok(serde_json::from_str(&data)?)
     }
 
-    // saves the changed structure into json
+    /// saves the changed structure into json
     pub fn save(&self) -> Result<()> {
         let path = Self::path()?;
         if let Some(parent) = path.parent() {
@@ -250,7 +251,8 @@ impl Vault {
         Ok(())
     }
 
-    fn resolve_group_name(&self, group: Option<&str>) -> Result<String> {
+    /// resolves the group name from explicit value or link
+    pub fn resolve_group_name(&self, group: Option<&str>) -> Result<String> {
         if let Some(name) = group {
             Ok(name.to_string())
         } else {
@@ -263,7 +265,7 @@ impl Vault {
         }
     }
 
-    // unloack protected tags
+    /// unlock protected tags
     fn unlock_tag_key(tag: &Tag, password: &str) -> Result<Zeroizing<[u8; crypto::KEY_LEN]>> {
         let salt_str = tag
             .salt
@@ -289,7 +291,29 @@ impl Vault {
         Ok(enc_key)
     }
 
-    // unlock master key and hmac key
+    /// public unlock tag func
+    pub fn unlock_tag(
+        &self,
+        group: Option<&str>,
+        tag: &str,
+        tag_password: &str,
+    ) -> Result<Zeroizing<[u8; crypto::KEY_LEN]>> {
+        let group_name = self.resolve_group_name(group)?;
+
+        let group_entry = self
+            .entries
+            .get(&group_name)
+            .ok_or_else(|| anyhow!("No group named '{group_name}'!!"))?;
+
+        let tag_entry = group_entry
+            .tags
+            .get(tag)
+            .ok_or_else(|| anyhow!("No tag named '{tag}' in group '{group_name}'!!"))?;
+
+        Self::unlock_tag_key(tag_entry, tag_password)
+    }
+
+    /// unlock master key and hmac key
     pub fn unlock(&self, password: &str) -> Result<VaultKeys> {
         let salt = b64_decode(&self.salt)?;
         let (enc_key, hmac_key) = crypto::derive_keys(password, &salt)?;
@@ -312,7 +336,7 @@ impl Vault {
         })
     }
 
-    // link group to current directory
+    /// link group to current directory
     pub fn link_group(&mut self, hmac_key: &[u8; crypto::HMAC_KEY_LEN], group: &str) -> Result<()> {
         // Remove existing links
         if let Some(existing_group) = self.entries.get(group) {
@@ -338,6 +362,7 @@ impl Vault {
         Ok(())
     }
 
+    /// create protected tag inside group
     pub fn create_protected_tag(
         &mut self,
         hmac_key: &[u8; crypto::HMAC_KEY_LEN],
@@ -345,9 +370,9 @@ impl Vault {
         tag: &str,
         tag_password: &str,
     ) -> Result<()> {
-        if tag == "base" {
+        if tag == BASE_TAG {
             return Err(anyhow!(
-                    "Cannot create a tag named 'base'. This is a reserved keyword for the default space!"
+                    "Cannot create a tag named '{BASE_TAG}'. This is a reserved keyword for the default space!"
                 ));
         }
 
@@ -388,13 +413,13 @@ impl Vault {
         Ok(())
     }
 
-    // Check if a tag is protected or not
+    /// check if a tag is protected or not
     pub fn is_tag_protected(&self, group: Option<&str>, tag: Option<&str>) -> Result<bool> {
         let tag = match tag {
             Some(val) => val,
             None => return Ok(false),
         };
-        if tag == "base" {
+        if tag == BASE_TAG {
             return Ok(false);
         }
 
@@ -411,7 +436,7 @@ impl Vault {
         }
     }
 
-    // set entry into group/tag
+    /// set entry into group/tag
     pub fn set_entry(
         &mut self,
         keys: &VaultKeys,
@@ -419,7 +444,7 @@ impl Vault {
         tag: Option<&str>,
         name: &str,
         value: &str,
-        tag_password: Option<&str>,
+        tag_key: Option<&[u8; crypto::KEY_LEN]>,
     ) -> Result<()> {
         let group_name = self.resolve_group_name(group)?;
 
@@ -429,9 +454,9 @@ impl Vault {
             tags: HashMap::new(),
         });
 
-        let active_tag = tag.unwrap_or("base");
+        let active_tag = tag.unwrap_or(BASE_TAG);
 
-        if active_tag == "base" {
+        if active_tag == BASE_TAG {
             // Base group uses master key
             let (nonce, ciphertext) = crypto::encrypt(&keys.enc_key, value)?;
             group_entry.base.insert(
@@ -447,12 +472,11 @@ impl Vault {
             let actually_protected = tag_entry.salt.is_some();
 
             let (nonce, ciphertext) = if actually_protected {
-                let password = tag_password.ok_or_else(|| {
-                    anyhow!("Tag '{active_tag}' is protected! Password required.")
+                let tag_key = tag_key.ok_or_else(|| {
+                    anyhow!("Tag '{active_tag}' is protected! Password required!!")
                 })?;
 
-                let enc_key = Self::unlock_tag_key(tag_entry, password)?;
-                crypto::encrypt(&enc_key, value)?
+                crypto::encrypt(&tag_key, value)?
             } else {
                 crypto::encrypt(&keys.enc_key, value)?
             };
@@ -470,13 +494,14 @@ impl Vault {
         Ok(())
     }
 
+    /// fetches and decrypts an entry from group/tag
     pub fn get_entry(
         &self,
         key: &[u8; crypto::KEY_LEN],
         group: Option<&str>,
         tag: Option<&str>,
         name: &str,
-        tag_password: Option<&str>,
+        tag_key: Option<&[u8; crypto::KEY_LEN]>,
     ) -> Result<Zeroizing<String>> {
         let group_name = self.resolve_group_name(group)?;
 
@@ -487,7 +512,7 @@ impl Vault {
 
         let active_tag = tag.unwrap_or("base");
 
-        if active_tag == "base" {
+        if active_tag == BASE_TAG {
             let entry = group_entry
                 .base
                 .get(name)
@@ -512,9 +537,9 @@ impl Vault {
         })?;
 
         let enc_key = if actually_protected {
-            let password =
-                tag_password.ok_or_else(|| anyhow!("Password required for tag '{active_tag}'!"))?;
-            Self::unlock_tag_key(tag_entry, password)?
+            Zeroizing::new(
+                *tag_key.ok_or_else(|| anyhow!("Password required for tag '{active_tag}'!"))?,
+            )
         } else {
             Zeroizing::new(*key)
         };
@@ -527,17 +552,18 @@ impl Vault {
         Ok(Zeroizing::new(plaintext))
     }
 
+    /// removes an entry from group/tag
     pub fn remove_entry(
         &mut self,
         hmac_key: &[u8; crypto::HMAC_KEY_LEN],
         group: Option<&str>,
         tag: Option<&str>,
         name: Option<&str>,
-        tag_password: Option<&str>,
+        tag_key: Option<&[u8; crypto::KEY_LEN]>,
     ) -> Result<()> {
         let group_name = self.resolve_group_name(group)?;
 
-        let active_tag = tag.as_deref().unwrap_or("base");
+        let active_tag = tag.as_deref().unwrap_or(BASE_TAG);
         let name_str = name.as_deref().unwrap_or("");
 
         // Remove an entire group (when no tag or name is provided)
@@ -557,11 +583,11 @@ impl Vault {
             .ok_or_else(|| anyhow!("No group named '{group_name}'!!"))?;
 
         // Validation checks
-        if active_tag == "base" {
+        if active_tag == BASE_TAG {
             // Reject attempting to remove the whole "base" tag
             if name_str.is_empty() {
                 return Err(anyhow!(
-                        "Cannot remove the reserved 'base' tag entirely. You can only remove individual entries or the entire group!!"
+                        "Cannot remove the reserved '{BASE_TAG}' tag entirely. You can only remove individual entries or the entire group!!"
                     ));
             }
         } else {
@@ -571,23 +597,21 @@ impl Vault {
                 .ok_or_else(|| anyhow!("No tag named '{active_tag}' in group '{group_name}'!!"))?;
 
             if tag_ref.salt.is_some() {
-                let password = tag_password.ok_or_else(|| {
+                let _ = tag_key.ok_or_else(|| {
                     anyhow!("Tag '{active_tag}' is protected! Password required to modify it.")
                 })?;
-
-                let _ = Self::unlock_tag_key(tag_ref, password)?;
             }
         }
 
         // Remove a whole tag from group (excluding 'base')
-        if name_str.is_empty() && active_tag != "base" {
+        if name_str.is_empty() && active_tag != BASE_TAG {
             group_entry.tags.remove(active_tag);
             self.seal_integrity(hmac_key)?;
             return Ok(());
         }
 
         // Remove an entry inside a tag
-        if !name_str.is_empty() && active_tag != "base" {
+        if !name_str.is_empty() && active_tag != BASE_TAG {
             let tag_entry = group_entry.tags.get_mut(active_tag).unwrap();
 
             tag_entry.entries.remove(name_str).ok_or_else(|| {
@@ -601,7 +625,7 @@ impl Vault {
         }
 
         // Remove an entry from the base group
-        if active_tag == "base" && !name_str.is_empty() {
+        if active_tag == BASE_TAG && !name_str.is_empty() {
             group_entry
                 .base
                 .remove(name_str)
@@ -613,6 +637,7 @@ impl Vault {
         Ok(())
     }
 
+    /// list all key names(env var names) in a group/tag
     pub fn list_all_keys(&self, group: Option<&str>, tag: Option<&str>) -> Result<Vec<String>> {
         let group_name = self.resolve_group_name(group)?;
 
@@ -628,7 +653,7 @@ impl Vault {
         let keys: Vec<String>;
 
         // finding entries inside base and tag
-        if active_tag == "base" {
+        if active_tag == BASE_TAG {
             keys = group_entry.base.keys().cloned().collect();
         } else {
             keys = group_entry

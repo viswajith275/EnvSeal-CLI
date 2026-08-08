@@ -1,29 +1,25 @@
-use crate::utils::vault::Vault;
-use anyhow::{Context, Ok, Result};
-use rpassword::prompt_password;
-use zeroize::Zeroizing;
+use crate::utils::{unlock, vault::Vault};
+use anyhow::{anyhow, Context, Ok, Result};
 
 pub fn cmd_get(group: Option<&str>, tag: Option<&str>, key: &str) -> Result<()> {
     let vault = Vault::load()?;
-    let password = Zeroizing::new(prompt_password("Master Password: ")?);
-    let derived = vault.unlock(&password)?;
+    let derived = unlock::sudo_unlock(&vault)?;
 
-    let mut tag_password: Option<Zeroizing<String>> = None;
-
+    let mut tag_key = None;
     if vault.is_tag_protected(group, tag)? {
-        tag_password = Some(Zeroizing::new(prompt_password("Tag Password: ")?));
+        if let Some(t) = tag {
+            tag_key = Some(unlock::sudo_unlock_tag(&vault, group, t)?);
+        } else {
+            return Err(anyhow!(
+                "A tag must be provided if the group's default tag is protected."
+            ));
+        }
     }
 
     let value = vault
-        .get_entry(
-            &derived.enc_key,
-            group,
-            tag,
-            key,
-            tag_password.as_ref().map(|s| s.as_str()),
-        )
+        .get_entry(&derived.enc_key, group, tag, key, tag_key.as_deref())
         .with_context(|| format!("Failed to read '{key}'"))?;
 
-    println!("{}", value.as_str());
+    println!("{}: {}", key, value.as_str());
     Ok(())
 }

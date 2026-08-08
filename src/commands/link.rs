@@ -1,12 +1,9 @@
-use crate::utils::vault::Vault;
-use anyhow::{Ok, Result};
-use rpassword::prompt_password;
-use zeroize::Zeroizing;
+use crate::utils::{unlock, vault::Vault};
+use anyhow::Result;
 
 pub fn cmd_link(group: &str) -> Result<()> {
     let mut vault = Vault::load()?;
-    let password = Zeroizing::new(prompt_password("Master Password: ")?);
-    let derived = vault.unlock(&password)?;
+    let derived = unlock::sudo_unlock(&vault)?;
 
     vault.link_group(&derived.hmac_key, group)?;
     vault.save()?;

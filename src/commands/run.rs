@@ -1,35 +1,32 @@
-use crate::utils::vault::Vault;
-use anyhow::{Context, Result};
-use rpassword::prompt_password;
+use crate::utils::{unlock, vault::Vault};
+use anyhow::{anyhow, Context, Result};
 use std::process::Command;
-use zeroize::{Zeroize, Zeroizing};
+use zeroize::Zeroize;
 
 pub fn cmd_run(group: Option<&str>, tag: Option<&str>, args: Vec<&str>) -> Result<()> {
     let (cmd_name, cmd_args) = args.split_first().context("No command provided to run!!")?;
 
     let vault = Vault::load()?;
-    let password: String = rpassword::prompt_password("Master Password: ")?;
-    let derived = vault.unlock(&password)?;
+    let derived = unlock::sudo_unlock(&vault)?;
+
+    let mut tag_key = None;
+    if vault.is_tag_protected(group, tag)? {
+        if let Some(t) = tag {
+            tag_key = Some(unlock::sudo_unlock_tag(&vault, group, t)?);
+        } else {
+            return Err(anyhow!(
+                "A tag must be provided if the group's default tag is protected."
+            ));
+        }
+    }
 
     let mut child_cmd = Command::new(cmd_name);
     child_cmd.args(cmd_args);
 
-    let mut tag_password: Option<Zeroizing<String>> = None;
-
-    if vault.is_tag_protected(group, tag)? {
-        tag_password = Some(Zeroizing::new(prompt_password("Tag Password: ")?));
-    }
-
     let base_keys = vault.list_all_keys(group, None)?;
     for key in base_keys {
         let mut value = vault
-            .get_entry(
-                &derived.enc_key,
-                group,
-                None,
-                &key,
-                tag_password.as_ref().map(|s| s.as_str()),
-            )
+            .get_entry(&derived.enc_key, group, None, &key, tag_key.as_deref())
             .with_context(|| format!("Failed to read base key '{key}'"))?;
 
         child_cmd.env(&key, &value);
@@ -41,13 +38,7 @@ pub fn cmd_run(group: Option<&str>, tag: Option<&str>, args: Vec<&str>) -> Resul
         let tag_keys = vault.list_all_keys(group, tag)?;
         for key in tag_keys {
             let mut value = vault
-                .get_entry(
-                    &derived.enc_key,
-                    group,
-                    tag,
-                    &key,
-                    tag_password.as_ref().map(|s| s.as_str()),
-                )
+                .get_entry(&derived.enc_key, group, tag, &key, tag_key.as_deref())
                 .with_context(|| format!("Failed to read tag key '{key}'"))?;
 
             child_cmd.env(&key, &value);

@@ -23,13 +23,13 @@ pub fn cmd_init() -> Result<()> {
                                                                    "#
     );
 
-    let password = Zeroizing::new(prompt_password("Set Master Password: ")?);
-    let confirm = Zeroizing::new(prompt_password("Confirm Master Password: ")?);
+    let password = Zeroizing::new(prompt_password("master password for envseal: ")?);
+    let confirm = Zeroizing::new(prompt_password("confirm master password: ")?);
     if *password != *confirm {
-        anyhow::bail!("Passwords did not match!");
+        anyhow::bail!("Passwords did not match!!");
     }
 
     Vault::init(&password)?;
-    eprintln!("Seal created at {}", Vault::path()?.display());
+    eprintln!("seal created at {}", Vault::path()?.display());
     Ok(())
 }

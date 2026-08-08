@@ -28,6 +28,10 @@ jobs:
           - os: macos-latest
             target: aarch64-apple-darwin
             name: macos-aarch64
+          # Windows build
+          - os: windows-latest
+            target: x86_64-pc-windows-msvc
+            name: windows-x86_64
 
     runs-on: ${{ matrix.os }}
     steps:
@@ -52,13 +56,21 @@ jobs:
           CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER: aarch64-linux-gnu-gcc
 
       - name: Rename and compress
+        shell: bash
         run: |
-          mv target/${{ matrix.target }}/release/envseal envseal-${{ matrix.name }}
-          tar -czvf envseal-${{ matrix.name }}.tar.gz envseal-${{ matrix.name }}
+          if [ "${{ runner.os }}" = "Windows" ]; then
+            mv target/${{ matrix.target }}/release/envseal.exe envseal-${{ matrix.name }}.exe
+            zip envseal-${{ matrix.name }}.zip envseal-${{ matrix.name }}.exe
+            echo "ASSET=envseal-${{ matrix.name }}.zip" >> $GITHUB_ENV
+          else
+            mv target/${{ matrix.target }}/release/envseal envseal-${{ matrix.name }}
+            tar -czvf envseal-${{ matrix.name }}.tar.gz envseal-${{ matrix.name }}
+            echo "ASSET=envseal-${{ matrix.name }}.tar.gz" >> $GITHUB_ENV
+          fi
 
       - name: Release
         uses: softprops/action-gh-release@v2
         with:
-          files: envseal-${{ matrix.name }}.tar.gz
+          files: ${{ env.ASSET }}
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

@@ -1,73 +1,69 @@
 use std::collections::HashMap;
 
-use crate::utils::vault::Vault;
-use anyhow::{Context, Result};
-use rpassword::prompt_password;
-use zeroize::Zeroizing;
+use crate::utils::{unlock, vault::Vault};
+use anyhow::{anyhow, Context, Result};
 
 pub fn cmd_export(group: Option<&str>, tag: Option<&str>, keys: Vec<&str>) -> Result<()> {
     let vault = Vault::load()?;
-    let password = Zeroizing::new(prompt_password("Master Password: ")?);
-    let derived = vault.unlock(&password)?;
+    let group_name = vault.resolve_group_name(group)?;
+    let derived = unlock::sudo_unlock(&vault)?;
+
+    let mut tag_key = None;
+    if vault.is_tag_protected(group, tag)? {
+        if let Some(t) = tag {
+            tag_key = Some(unlock::sudo_unlock_tag(&vault, group, t)?);
+        } else {
+            return Err(anyhow!(
+                "A tag must be provided if the group's default tag is protected."
+            ));
+        }
+    }
 
     let mut merged_env: HashMap<String, String> = HashMap::new();
 
-    let mut tag_password: Option<Zeroizing<String>> = None;
+    let message = if !keys.is_empty() && tag.is_some() {
+        format!(
+            "loading envs '{:?}' from tag '{}' inside group '{}'!",
+            keys,
+            tag.unwrap(),
+            group_name
+        )
+    } else if tag.is_some() {
+        format!(
+            "loading envs from tag '{}' inside group '{}'!",
+            tag.unwrap(),
+            group_name
+        )
+    } else {
+        format!("loading envs from group '{}'!", group_name)
+    };
 
-    if vault.is_tag_protected(group, tag)? {
-        tag_password = Some(Zeroizing::new(prompt_password("Tag Password: ")?));
-    }
+    eprintln!("{}", message);
 
     if !keys.is_empty() {
-        eprintln!("Loading selected environment variables into the file...");
         for key in keys {
             let value = if tag.is_some() {
-                match vault.get_entry(
-                    &derived.enc_key,
-                    group,
-                    tag,
-                    &key,
-                    tag_password.as_ref().map(|s| s.as_str()),
-                ) {
+                match vault.get_entry(&derived.enc_key, group, tag, &key, tag_key.as_deref()) {
                     Ok(val) => val,
                     Err(_) => vault
-                        .get_entry(
-                            &derived.enc_key,
-                            group,
-                            None,
-                            &key,
-                            tag_password.as_ref().map(|s| s.as_str()),
-                        )
+                        .get_entry(&derived.enc_key, group, None, &key, tag_key.as_deref())
                         .with_context(|| {
                             format!("Failed to read '{key}' from tag or base group")
                         })?,
                 }
             } else {
                 vault
-                    .get_entry(
-                        &derived.enc_key,
-                        group,
-                        None,
-                        &key,
-                        tag_password.as_ref().map(|s| s.as_str()),
-                    )
+                    .get_entry(&derived.enc_key, group, None, &key, tag_key.as_deref())
                     .with_context(|| format!("Failed to read '{key}'"))?
             };
 
             merged_env.insert(key.to_string(), value.to_string());
         }
     } else {
-        eprintln!("Loading all environment variables into the file...");
         let group_keys = vault.list_all_keys(group, None)?;
         for key in group_keys {
             let value = vault
-                .get_entry(
-                    &derived.enc_key,
-                    group,
-                    None,
-                    &key,
-                    tag_password.as_ref().map(|s| s.as_str()),
-                )
+                .get_entry(&derived.enc_key, group, None, &key, tag_key.as_deref())
                 .with_context(|| format!("Failed to read base key '{key}'"))?;
             merged_env.insert(key, value.to_string());
         }
@@ -76,13 +72,7 @@ pub fn cmd_export(group: Option<&str>, tag: Option<&str>, keys: Vec<&str>) -> Re
             let tag_keys = vault.list_all_keys(group, tag)?;
             for key in tag_keys {
                 let value = vault
-                    .get_entry(
-                        &derived.enc_key,
-                        group,
-                        tag,
-                        &key,
-                        tag_password.as_ref().map(|s| s.as_str()),
-                    )
+                    .get_entry(&derived.enc_key, group, tag, &key, tag_key.as_deref())
                     .with_context(|| format!("Failed to read tag key '{key}'"))?;
                 merged_env.insert(key, value.to_string());
             }

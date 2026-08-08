@@ -1,6 +1,6 @@
 [package]
 name = "envseal"
-version = "0.1.0"
+version = "3.0.0"
 edition = "2021"
 
 [dependencies]
@@ -24,3 +24,4 @@ serial_test = "3.5.0"
 hmac = "0.13.0"
 sha2 = "0.11.0"
 hkdf = "0.13.0"
+keyring = "4.1.6"

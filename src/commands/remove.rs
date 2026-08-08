@@ -1,18 +1,20 @@
-use crate::utils::vault::Vault;
-use anyhow::Result;
+use crate::utils::{unlock, vault::Vault};
+use anyhow::{anyhow, Result};
 use dialoguer::Confirm;
-use rpassword::prompt_password;
-use zeroize::Zeroizing;
 
 pub fn cmd_remove(group: Option<&str>, tag: Option<&str>, key: Option<&str>) -> Result<()> {
     let mut vault = Vault::load()?;
-    let password = Zeroizing::new(prompt_password("Master Password: ")?);
-    let derived = vault.unlock(&password)?;
+    let derived = unlock::sudo_unlock(&vault)?;
 
-    let mut tag_password: Option<Zeroizing<String>> = None;
-
+    let mut tag_key = None;
     if vault.is_tag_protected(group, tag)? {
-        tag_password = Some(Zeroizing::new(prompt_password("Tag Password: ")?));
+        if let Some(t) = tag {
+            tag_key = Some(unlock::sudo_unlock_tag(&vault, group, t)?);
+        } else {
+            return Err(anyhow!(
+                "A tag must be provided if the group's default tag is protected."
+            ));
+        }
     }
 
     let prompt = format!("Are you sure you want to delete these variables?");
@@ -23,13 +25,7 @@ pub fn cmd_remove(group: Option<&str>, tag: Option<&str>, key: Option<&str>) -> 
         .interact()
         .unwrap();
     if confirmation {
-        vault.remove_entry(
-            &derived.hmac_key,
-            group,
-            tag,
-            key,
-            tag_password.as_ref().map(|s| s.as_str()),
-        )?;
+        vault.remove_entry(&derived.hmac_key, group, tag, key, tag_key.as_deref())?;
         vault.save()?;
         eprintln!("Deletion successful!!");
     } else {
