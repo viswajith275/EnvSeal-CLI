@@ -78,17 +78,17 @@ pub fn cmd_load(
     if !keys.is_empty() {
         for key in keys {
             let value = if tag.is_some() {
-                match vault.get_entry(&derived.enc_key, group, tag, &key, tag_key.as_deref()) {
+                match vault.get_entry(&derived.enc_key, group, tag, key, tag_key.as_deref()) {
                     Ok(val) => val,
                     Err(_) => vault
-                        .get_entry(&derived.enc_key, group, None, &key, tag_key.as_deref())
+                        .get_entry(&derived.enc_key, group, None, key, tag_key.as_deref())
                         .with_context(|| {
                             format!("Failed to read '{}' from tag '{}'", key, tag.unwrap())
                         })?,
                 }
             } else {
                 vault
-                    .get_entry(&derived.enc_key, group, None, &key, tag_key.as_deref())
+                    .get_entry(&derived.enc_key, group, None, key, tag_key.as_deref())
                     .with_context(|| format!("Failed to read '{}'", key))?
             };
 

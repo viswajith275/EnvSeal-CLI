@@ -23,7 +23,7 @@ pub fn cmd_remove(
         }
     }
 
-    let prompt = format!("do you want to delete these variables?");
+    let prompt = "do you want to delete these variables?".to_string();
 
     let confirmation = Confirm::new()
         .with_prompt(prompt)

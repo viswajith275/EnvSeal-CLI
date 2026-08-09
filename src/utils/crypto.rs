@@ -75,7 +75,7 @@ pub fn encrypt(key: &[u8; KEY_LEN], plaintext: &str) -> Result<(Vec<u8>, Vec<u8>
     let cipher = Aes256Gcm::new(key.into());
     let mut nonce_bytes = [0u8; NONCE_LEN];
     OsRng.fill_bytes(&mut nonce_bytes);
-    let nonce = Nonce::try_from(nonce_bytes)?;
+    let nonce = Nonce::from(nonce_bytes);
     let ciphertext = cipher
         .encrypt(&nonce, plaintext.as_bytes())
         .map_err(|e| anyhow!("Encryption failed: {e}"))?;

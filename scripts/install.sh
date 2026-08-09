@@ -14,6 +14,8 @@ set -euo pipefail
 #
 # Key Features:
 #   - Auto-detects OS and Architecture.
+#   - Verifies downloaded release archives against the SHA-256 checksum
+#     published alongside each asset (skips gracefully if unavailable).
 #   - Automatically adds the install directory to the user's PATH.
 #   - Injects a shell wrapper function to allow `envseal load` to modify
 #     the parent shell's environment variables using `eval`, while safely
@@ -31,6 +33,7 @@ INSTALL_DIR="$DEFAULT_INSTALL_DIR"
 VERSION="$VERSION_DEFAULT"
 LOCAL_FILE=""
 DRY_RUN=false
+SKIP_VERIFY=false
 
 # --- Dynamic Platform Variables ---
 PLATFORM=""
@@ -66,14 +69,17 @@ Updates the current shell's configuration file if it exists.
 Options:
   -d, --dir <path>      Install directory (default: $DEFAULT_INSTALL_DIR)
   -v, --version <tag>   Install a specific release tag (default: latest)
-                          Example: v1.2.3
+                          Example: v1.2.3 (the leading "v" is added
+                          automatically if you omit it)
   -f, --file <path>     Manual install from local .tar.gz, .zip or binary
+  --no-verify           Skip SHA-256 checksum verification of downloads
   --dry-run             Show what would be done without making changes
   -h, --help            Show this help message and exit
 
 Examples:
   ./install.sh
   ./install.sh --version v1.2.3
+  ./install.sh --version 1.2.3
   ./install.sh --dir /usr/local/bin
   ./install.sh --file ~/Downloads/$BIN_NAME-macos-aarch64.tar.gz
 EOF
@@ -86,11 +92,18 @@ parse_args() {
             -d|--dir) INSTALL_DIR="$2"; shift 2 ;;
             -v|--version) VERSION="$2"; shift 2 ;;
             -f|--file) LOCAL_FILE="$2"; shift 2 ;;
+            --no-verify) SKIP_VERIFY=true; shift ;;
             --dry-run) DRY_RUN=true; shift ;;
             -h|--help) usage; exit 0 ;;
             *) log_error "Unknown option: $1"; usage; exit 1 ;;
         esac
     done
+
+    # Release tags are published as "v*" (see the release workflow),
+    # so normalize a bare version like "1.2.3" to "v1.2.3".
+    if [[ "$VERSION" != "latest" && "$VERSION" != v* ]]; then
+        VERSION="v$VERSION"
+    fi
 }
 
 # --- Dependency Checkers ---
@@ -104,6 +117,40 @@ fetch() {
         curl -fsSL "$url"
     elif command_exists wget; then
         wget -qO- "$url"
+    else
+        log_error "Neither curl nor wget is installed. Cannot download files."
+        exit 1
+    fi
+}
+
+# Like fetch(), but deliberately does NOT fail on a non-2xx HTTP status.
+# GitHub's API returns a JSON body (with a "message" field) even on 403/404
+# responses, and callers need to inspect that body to tell "rate limited"
+# apart from "release not found" apart from "genuinely unreachable". Using
+# `curl -f` here would discard the body on any error status, making that
+# inspection impossible -- so this is only for API calls whose response body
+# matters; use fetch()/fetch_to_file() for downloading actual release assets.
+fetch_api() {
+    local url="$1"
+    if command_exists curl; then
+        curl -sSL "$url"
+    elif command_exists wget; then
+        wget -qO- "$url" 2>/dev/null || true
+    else
+        log_error "Neither curl nor wget is installed. Cannot download files."
+        exit 1
+    fi
+}
+
+# Download a URL to a file, returning non-zero (instead of aborting the whole
+# script via set -e) so callers can treat a missing optional asset (like a
+# checksum file) as "not available" rather than a hard failure.
+fetch_to_file() {
+    local url="$1" dest="$2"
+    if command_exists curl; then
+        curl -fsSL -o "$dest" "$url"
+    elif command_exists wget; then
+        wget -q -O "$dest" "$url"
     else
         log_error "Neither curl nor wget is installed. Cannot download files."
         exit 1
@@ -131,7 +178,7 @@ set_platform_vars() {
                 *) PLATFORM="" ;;
             esac
             ;;
-        CYGWIN*|MINGW*|MSYS*|MINGW32*|MINGW64*)
+        CYGWIN*|MINGW*|MSYS*)
             EXE_EXT=".exe"
             ARCHIVE_EXT=".zip"
             case "$arch" in
@@ -183,6 +230,50 @@ validate_install_dir() {
     fi
 }
 
+# Verify a file's SHA-256 checksum against a ".sha256" sidecar file
+# (as produced by `sha256sum`/`shasum -a 256`). Returns:
+#   0  - verified OK
+#   1  - verification failed (checksum mismatch) -- caller should abort
+#   2  - could not verify (no tool available or no checksum file) -- caller
+#        should warn and continue, since verification is best-effort
+verify_checksum() {
+    local file="$1" sidecar_url="$2" tmp_dir="$3"
+
+    if [[ "$SKIP_VERIFY" == true ]]; then
+        return 2
+    fi
+
+    if ! command_exists sha256sum && ! command_exists shasum; then
+        return 2
+    fi
+
+    local sidecar
+    sidecar="$tmp_dir/$(basename "$file").sha256"
+    if ! fetch_to_file "$sidecar_url" "$sidecar" 2>/dev/null; then
+        return 2
+    fi
+
+    # The sidecar's recorded filename may not match our local path, so only
+    # compare the hash (first field) rather than running sha256sum -c directly.
+    local expected actual
+    expected=$(awk '{print $1; exit}' "$sidecar")
+    if [[ -z "$expected" ]]; then
+        return 2
+    fi
+
+    if command_exists sha256sum; then
+        actual=$(sha256sum "$file" | awk '{print $1}')
+    else
+        actual=$(shasum -a 256 "$file" | awk '{print $1}')
+    fi
+
+    if [[ "$expected" == "$actual" ]]; then
+        return 0
+    else
+        return 1
+    fi
+}
+
 install_from_local() {
     if [[ ! -e "$LOCAL_FILE" ]]; then
         log_error "File not found: $LOCAL_FILE"
@@ -190,37 +281,27 @@ install_from_local() {
     fi
 
     local target_path="$INSTALL_DIR/${BIN_NAME}${EXE_EXT}"
+    local tmp_dir
+    tmp_dir=$(mktemp -d) || exit 1
+    # Double-quoted here so $tmp_dir's value is baked into the trap string
+    # immediately. A single-quoted trap would defer expansion to when the
+    # trap actually fires (script exit) -- by which point this function's
+    # `local tmp_dir` is out of scope, and `set -u` would abort with
+    # "unbound variable" instead of cleaning up.
+    # shellcheck disable=SC2064  # intentional: expand $tmp_dir now, not at signal time
+    trap "rm -rf '$tmp_dir'" EXIT
 
     case "$LOCAL_FILE" in
         *.tar.gz|*.tgz)
             log_info "Installing from tar archive: $LOCAL_FILE"
-            local tmp_dir
-            tmp_dir=$(mktemp -d) || exit 1
-            trap "rm -rf '$tmp_dir'" EXIT
 
             if ! tar -xzf "$LOCAL_FILE" -C "$tmp_dir" 2>/dev/null; then
                 log_error "Failed to extract archive: $LOCAL_FILE"
                 exit 1
             fi
-
-            local found_bin
-            found_bin=$(find "$tmp_dir" -maxdepth 2 -type f -name "${BIN_NAME}*" ! -name "*.txt" ! -name "*.md" 2>/dev/null | head -n 1)
-
-            if [[ -z "$found_bin" ]]; then
-                log_error "No '$BIN_NAME' binary found in archive"
-                exit 1
-            fi
-
-            if [[ "$DRY_RUN" == false ]]; then
-                cp "$found_bin" "$target_path"
-                chmod +x "$target_path"
-            fi
             ;;
         *.zip)
             log_info "Installing from zip archive: $LOCAL_FILE"
-            local tmp_dir
-            tmp_dir=$(mktemp -d) || exit 1
-            trap "rm -rf '$tmp_dir'" EXIT
 
             if ! command_exists unzip; then
                 log_error "'unzip' command is required to extract .zip archives. Please install it first."
@@ -231,19 +312,6 @@ install_from_local() {
                 log_error "Failed to extract archive: $LOCAL_FILE"
                 exit 1
             fi
-
-            local found_bin
-            found_bin=$(find "$tmp_dir" -maxdepth 2 -type f -name "${BIN_NAME}*" ! -name "*.txt" ! -name "*.md" 2>/dev/null | head -n 1)
-
-            if [[ -z "$found_bin" ]]; then
-                log_error "No '$BIN_NAME' binary found in archive"
-                exit 1
-            fi
-
-            if [[ "$DRY_RUN" == false ]]; then
-                cp "$found_bin" "$target_path"
-                chmod +x "$target_path"
-            fi
             ;;
         *)
             log_info "Installing from raw binary: $LOCAL_FILE"
@@ -251,14 +319,29 @@ install_from_local() {
                 cp "$LOCAL_FILE" "$target_path"
                 chmod +x "$target_path"
             fi
+            log_info "Binary installed to: $target_path"
+            return
             ;;
     esac
+
+    local found_bin
+    found_bin=$(find "$tmp_dir" -maxdepth 2 -type f -name "${BIN_NAME}*" ! -name "*.txt" ! -name "*.md" ! -name "*.sha256" 2>/dev/null | head -n 1 || true)
+
+    if [[ -z "$found_bin" ]]; then
+        log_error "No '$BIN_NAME' binary found in archive"
+        exit 1
+    fi
+
+    if [[ "$DRY_RUN" == false ]]; then
+        cp "$found_bin" "$target_path"
+        chmod +x "$target_path"
+    fi
 
     log_info "Binary installed to: $target_path"
 }
 
 install_from_release() {
-    local release_url tmp_dir
+    local release_url
     log_info "Detected platform: $PLATFORM"
 
     local api_url
@@ -270,7 +353,32 @@ install_from_release() {
 
     log_info "Fetching release information..."
 
-    release_url=$(fetch "$api_url" 2>/dev/null | grep -o "https://github.com/[^\"]*$PLATFORM$ARCHIVE_EXT" | head -n 1 || true)
+    local api_response
+    # `|| true` prevents a genuine connection failure (DNS, timeout, etc.)
+    # from tripping `set -e` here; the emptiness check below turns that
+    # case into the friendly error message instead of a silent abort.
+    api_response=$(fetch_api "$api_url") || true
+    if [[ -z "$api_response" ]]; then
+        log_error "Failed to reach GitHub API. Check your network connection or try again later."
+        exit 1
+    fi
+
+    # Use the POSIX [[:space:]] class instead of the GNU-only \s escape --
+    # macOS ships BSD-derived grep, which doesn't understand \s.
+    if echo "$api_response" | grep -qi '"message":[[:space:]]*"API rate limit exceeded'; then
+        log_error "GitHub API rate limit exceeded. Try again later, or set GITHUB_TOKEN and retry."
+        exit 1
+    fi
+
+    if echo "$api_response" | grep -qi '"message":[[:space:]]*"Not Found"'; then
+        log_error "Release '$VERSION' was not found for $REPO."
+        exit 1
+    fi
+
+    # Escape the archive extension's literal dot before using it in a
+    # regex-based grep match against the asset URL.
+    local archive_ext_re="${ARCHIVE_EXT//./\\.}"
+    release_url=$(echo "$api_response" | grep -o "https://github.com/[^\"]*${PLATFORM}${archive_ext_re}" | head -n 1 || true)
 
     if [[ -z "$release_url" ]]; then
         log_error "Could not find release asset for $PLATFORM (version: $VERSION)"
@@ -282,7 +390,42 @@ install_from_release() {
 
     local tmp_dir target_path
     tmp_dir=$(mktemp -d) || exit 1
+    # See the matching comment in install_from_local() -- must stay
+    # double-quoted so the path is baked in now, not resolved at exit time.
+    # shellcheck disable=SC2064  # intentional: expand $tmp_dir now, not at signal time
     trap "rm -rf '$tmp_dir'" EXIT
+
+    local downloaded_file
+    downloaded_file="$tmp_dir/$(basename "$release_url")"
+    if ! fetch_to_file "$release_url" "$downloaded_file"; then
+        log_error "Failed to download release"
+        exit 1
+    fi
+
+    # Best-effort checksum verification against the "<asset>.sha256" sidecar
+    # published by the release workflow.
+    #
+    # IMPORTANT: with `set -e` active, calling verify_checksum as a bare
+    # statement would abort the whole script the instant it returns 1 or 2 --
+    # before this case statement ever ran. Capturing the status via `||`
+    # keeps the overall command's exit status 0 so set -e doesn't fire.
+    local checksum_status=0
+    verify_checksum "$downloaded_file" "${release_url}.sha256" "$tmp_dir" || checksum_status=$?
+    case "$checksum_status" in
+        0) log_info "Checksum verified" ;;
+        1)
+            log_error "Checksum verification FAILED for $downloaded_file"
+            log_error "The downloaded file may be corrupted or tampered with. Aborting."
+            exit 1
+            ;;
+        2)
+            if [[ "$SKIP_VERIFY" == true ]]; then
+                log_warn "Skipping checksum verification (--no-verify)"
+            else
+                log_warn "Skipping checksum verification (no checksum tool or sidecar file available)"
+            fi
+            ;;
+    esac
 
     if [[ "$ARCHIVE_EXT" == ".zip" ]]; then
         if ! command_exists unzip; then
@@ -290,25 +433,19 @@ install_from_release() {
             exit 1
         fi
 
-        local zip_file="$tmp_dir/release.zip"
-        if ! fetch "$release_url" > "$zip_file"; then
-            log_error "Failed to download release"
-            exit 1
-        fi
-
-        if ! unzip -q "$zip_file" -d "$tmp_dir"; then
+        if ! unzip -q "$downloaded_file" -d "$tmp_dir"; then
             log_error "Failed to extract zip archive"
             exit 1
         fi
     else
-        if ! fetch "$release_url" 2>/dev/null | tar -xz -C "$tmp_dir"; then
-            log_error "Failed to download or extract release"
+        if ! tar -xzf "$downloaded_file" -C "$tmp_dir"; then
+            log_error "Failed to extract release archive"
             exit 1
         fi
     fi
 
     local found_bin
-    found_bin=$(find "$tmp_dir" -maxdepth 2 -type f -name "${BIN_NAME}*" ! -name "*.txt" ! -name "*.md" 2>/dev/null | head -n 1)
+    found_bin=$(find "$tmp_dir" -maxdepth 2 -type f -name "${BIN_NAME}*" ! -name "*.txt" ! -name "*.md" ! -name "*.sha256" 2>/dev/null | head -n 1 || true)
 
     if [[ -z "$found_bin" ]]; then
         log_error "No '$BIN_NAME' binary found in release"
@@ -471,13 +608,13 @@ verify_installation() {
     elif "$binary_path" --help >/dev/null 2>&1; then
         version_output=$("$binary_path" --help 2>&1 | head -n 1)
     else
-        if file "$binary_path" | grep -iq "ELF\|Mach-O\|executable\|PE32"; then
+        if command_exists file && file "$binary_path" | grep -iq "ELF\|Mach-O\|executable\|PE32"; then
             log_warn "Binary exists but couldn't verify execution (missing version/help flags)"
             log_info "Binary installed: $binary_path"
             return 0
         else
-            log_error "Binary exists but is not a valid executable file format"
-            return 1
+            log_warn "Binary exists but execution could not be verified"
+            return 0
         fi
     fi
 

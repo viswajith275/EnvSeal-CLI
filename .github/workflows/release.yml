@@ -1,5 +1,4 @@
 name: Release
-
 on:
   push:
     tags:
@@ -9,8 +8,9 @@ permissions:
   contents: write
 
 jobs:
-  build-and-release:
+  build:
     strategy:
+      fail-fast: false
       matrix:
         include:
           # Linux x86_64
@@ -21,18 +21,18 @@ jobs:
           - os: ubuntu-latest
             target: aarch64-unknown-linux-gnu
             name: linux-aarch64
-          # Mac builds
-          - os: macos-latest
+          # Mac builds (pin architecture-matching runners instead of cross-compiling on macos-latest,
+          # which now points to an Apple Silicon runner)
+          - os: macos-13
             target: x86_64-apple-darwin
             name: macos-x86_64
-          - os: macos-latest
+          - os: macos-14
             target: aarch64-apple-darwin
             name: macos-aarch64
           # Windows build
           - os: windows-latest
             target: x86_64-pc-windows-msvc
             name: windows-x86_64
-
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
@@ -55,22 +55,56 @@ jobs:
         env:
           CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER: aarch64-linux-gnu-gcc
 
-      - name: Rename and compress
+      - name: Rename and compress (Unix)
+        if: runner.os != 'Windows'
         shell: bash
         run: |
-          if [ "${{ runner.os }}" = "Windows" ]; then
-            mv target/${{ matrix.target }}/release/envseal.exe envseal-${{ matrix.name }}.exe
-            zip envseal-${{ matrix.name }}.zip envseal-${{ matrix.name }}.exe
-            echo "ASSET=envseal-${{ matrix.name }}.zip" >> $GITHUB_ENV
+          set -euo pipefail
+          mv target/${{ matrix.target }}/release/envseal envseal-${{ matrix.name }}
+          tar -czvf envseal-${{ matrix.name }}.tar.gz envseal-${{ matrix.name }}
+          echo "ASSET=envseal-${{ matrix.name }}.tar.gz" >> "$GITHUB_ENV"
+
+      - name: Rename and compress (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $target = "target\${{ matrix.target }}\release\envseal.exe"
+          $renamed = "envseal-${{ matrix.name }}.exe"
+          Move-Item -Path $target -Destination $renamed
+          Compress-Archive -Path $renamed -DestinationPath "envseal-${{ matrix.name }}.zip"
+          echo "ASSET=envseal-${{ matrix.name }}.zip" >> $env:GITHUB_ENV
+
+      - name: Generate checksum
+        shell: bash
+        run: |
+          set -euo pipefail
+          if command -v sha256sum >/dev/null 2>&1; then
+            sha256sum "${{ env.ASSET }}" > "${{ env.ASSET }}.sha256"
           else
-            mv target/${{ matrix.target }}/release/envseal envseal-${{ matrix.name }}
-            tar -czvf envseal-${{ matrix.name }}.tar.gz envseal-${{ matrix.name }}
-            echo "ASSET=envseal-${{ matrix.name }}.tar.gz" >> $GITHUB_ENV
+            shasum -a 256 "${{ env.ASSET }}" > "${{ env.ASSET }}.sha256"
           fi
+
+      - name: Upload build artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-${{ matrix.name }}
+          path: envseal-${{ matrix.name }}.*
+          if-no-files-found: error
+          retention-days: 1
+
+  release:
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download all build artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
 
       - name: Release
         uses: softprops/action-gh-release@v2
         with:
-          files: ${{ env.ASSET }}
+          files: dist/*
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

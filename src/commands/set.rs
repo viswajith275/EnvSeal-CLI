@@ -26,7 +26,7 @@ pub fn cmd_set(
         }
     }
 
-    let secret = Zeroizing::new(prompt_password(&format!("value for {key}: "))?);
+    let secret = Zeroizing::new(prompt_password(format!("value for {key}: "))?);
 
     vault.set_entry(&derived, group, tag, key, &secret, tag_key.as_deref())?;
     vault.save()?;

@@ -1,8 +1,12 @@
 use clap::{Parser, Subcommand};
 
 #[derive(Parser)]
-#[command(name = "envseal", about = "Encrypted Environment Manager")]
-#[command(version = "v4.0.0b")]
+#[command(
+    name = "envseal",
+    about = "An encrypted vault for your API keys and secrets, because `.env` files have never once kept a secret.
+"
+)]
+#[command(version = "v4.0.0")]
 #[command(propagate_version = true)]
 pub struct Cli {
     /// Target a specific local environment profile (e.g., 'prod' targets '.prod.envseal')

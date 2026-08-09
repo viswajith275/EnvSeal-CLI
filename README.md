@@ -17,8 +17,11 @@ EnvSeal keeps your credentials organized, scoped, and locked down with AES-256-G
 ## The Problem (Yes, You've Done This)
 
 - Plaintext secrets everywhere. `.env` files get copied into `~/Downloads`, scattered across projects, and inevitably pushed to GitHub. Bots scrape new public commits for exposed keys within minutes. Suddenly you're rotating credentials at 2 a.m.
+
 - Environment mix-ups. One misplaced key and your local script is mutating the production database or emailing real customers.
+
 - Global shell pollution. Source a `.env` and every background process, cron job, and nosy subshell can read your Stripe key.
+
 - Collaboration risks. Sharing secrets across a team usually ends with someone pasting production credentials into Slack.
 
 ## The Solution
@@ -41,6 +44,7 @@ No more hunting for the right `.env` or accidentally committing one. If the lapt
 Initialize a local `.envseal`, commit it, and share the master password for development secrets. Put production credentials under a protected tag that requires a second password known only to the people who actually deploy. Everyone can `git pull` and start working; production stays cryptographically locked.
 
 **CI/CD that doesn't leave secrets lying around**  
+
 Set `ENVSEAL_PASSWORD` (and `ENVSEAL_TAG_PASSWORD_PROD` if needed) in your pipeline secrets. The job stays fully non-interactive:
 
 ```bash
@@ -51,6 +55,7 @@ envseal run --tag prod npm start
 Secrets exist only for the lifetime of those processes. When the job ends, they're gone.
 
 **The classic "which `.env` is loaded right now?" disaster**  
+
 Instead of juggling `.env`, `.env.staging`, `.env.production` and the inevitable mix-up, switch deliberately:
 
 ```bash
@@ -61,6 +66,7 @@ envseal -e prod run npm start
 Or use tags inside a single group when only a few values differ.
 
 **Rotating a leaked key without editing plaintext over SSH**  
+
 Someone pasted a key in a PR comment. With a plain `.env` you're editing files and praying. With EnvSeal:
 
 ```bash
@@ -211,8 +217,11 @@ A `.env` file is just a text file, and text files have a way of ending up places
 ## Best Practices
 
 - Prefer `run` over `load`. `load` dumps secrets into your live shell; `run` injects them ephemerally.
+
 - In CI/CD, set `ENVSEAL_PASSWORD` (and `ENVSEAL_TAG_PASSWORD_<TAG>` when needed) to skip interactive prompts.
+
 - Run `envseal clear` when stepping away from the machine.
+
 - Keep production behind protected tags or separate profiles and share those passwords narrowly.
 
 ## Troubleshooting

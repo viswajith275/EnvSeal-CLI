@@ -41,22 +41,13 @@ pub struct Entry {
     ciphertext: String,
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, Default)]
 pub struct Tag {
     pub salt: Option<String>,
     pub canary: Option<Entry>,
     pub entries: HashMap<String, Entry>,
 }
 
-impl Default for Tag {
-    fn default() -> Self {
-        Self {
-            salt: None,
-            canary: None,
-            entries: HashMap::new(),
-        }
-    }
-}
 #[derive(Serialize, Deserialize)]
 pub struct Group {
     link: PathBuf,
@@ -203,7 +194,7 @@ impl Vault {
     pub fn verify_integrity(&self, hmac_key: &[u8; crypto::HMAC_KEY_LEN]) -> Result<()> {
         let stored = self.hmac.as_ref();
         let bytes = self.signable_bytes()?;
-        let tag = b64_decode(&stored)?;
+        let tag = b64_decode(stored)?;
         if !crypto::verify_hmac(hmac_key, &bytes, &tag) {
             return Err(anyhow!("SEAL TAMPERED: HMAC verification failed!"));
         }
@@ -284,7 +275,7 @@ impl Vault {
 
     /// checks if current vault is local or global
     pub fn is_local(&self) -> bool {
-        self.file_path.as_ref().map_or(false, |p| {
+        self.file_path.as_ref().is_some_and(|p| {
             let name = p.file_name().unwrap_or_default().to_string_lossy();
             name == ".envseal" || name.ends_with(".envseal")
         })
@@ -421,7 +412,7 @@ impl Vault {
             .ok_or_else(|| anyhow!("Corrupted tag: missing canary!!"))?;
 
         let salt = b64_decode(salt_str)?;
-        let enc_key = crypto::derive_key(&password, &salt)?;
+        let enc_key = crypto::derive_key(password, &salt)?;
 
         let nonce = b64_decode(&canary.nonce)?;
         let ciphertext = b64_decode(&canary.ciphertext)?;
@@ -474,10 +465,7 @@ impl Vault {
 
         self.verify_integrity(&hmac_key)?;
 
-        Ok(VaultKeys {
-            enc_key: enc_key,
-            hmac_key: hmac_key,
-        })
+        Ok(VaultKeys { enc_key, hmac_key })
     }
 
     /// link group to current directory
@@ -623,7 +611,7 @@ impl Vault {
                     anyhow!("Tag '{active_tag}' is protected! Password required!!")
                 })?;
 
-                crypto::encrypt(&tag_key, value)?
+                crypto::encrypt(tag_key, value)?
             } else {
                 crypto::encrypt(&keys.enc_key, value)?
             };
@@ -657,7 +645,7 @@ impl Vault {
             .get(&group_name)
             .ok_or_else(|| anyhow!("No group named '{group_name}'!!"))?;
 
-        let active_tag = tag.unwrap_or("base");
+        let active_tag = tag.unwrap_or(BASE_TAG);
 
         if active_tag == BASE_TAG {
             let entry = group_entry
@@ -667,7 +655,7 @@ impl Vault {
 
             let nonce = b64_decode(&entry.nonce)?;
             let ciphertext = b64_decode(&entry.ciphertext)?;
-            let plaintext = crypto::decrypt(&key, &nonce, &ciphertext)?;
+            let plaintext = crypto::decrypt(key, &nonce, &ciphertext)?;
 
             return Ok(Zeroizing::new(plaintext));
         }
@@ -710,8 +698,8 @@ impl Vault {
     ) -> Result<()> {
         let group_name = self.resolve_group_name(group)?;
 
-        let active_tag = tag.as_deref().unwrap_or(BASE_TAG);
-        let name_str = name.as_deref().unwrap_or("");
+        let active_tag = tag.unwrap_or(BASE_TAG);
+        let name_str = name.unwrap_or("");
 
         // Remove an entire group (when no tag or name is provided)
         if tag.is_none() && name_str.is_empty() {
@@ -797,21 +785,19 @@ impl Vault {
         // getting tag (base as default)
         let active_tag = tag.unwrap_or("base");
 
-        let keys: Vec<String>;
-
         // finding entries inside base and tag
-        if active_tag == BASE_TAG {
-            keys = group_entry.base.keys().cloned().collect();
+        let keys: Vec<String> = if active_tag == BASE_TAG {
+            group_entry.base.keys().cloned().collect()
         } else {
-            keys = group_entry
+            group_entry
                 .tags
                 .get(active_tag)
                 .ok_or_else(|| anyhow!("No tag named '{active_tag}' in group '{group_name}'!!"))?
                 .entries
                 .keys()
                 .cloned()
-                .collect();
-        }
+                .collect()
+        };
 
         Ok(keys)
     }
