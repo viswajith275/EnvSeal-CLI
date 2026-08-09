@@ -16,7 +16,8 @@ set -euo pipefail
 #   - Auto-detects OS and Architecture.
 #   - Automatically adds the install directory to the user's PATH.
 #   - Injects a shell wrapper function to allow `envseal load` to modify
-#     the parent shell's environment variables using `eval`.
+#     the parent shell's environment variables using `eval`, while safely
+#     ignoring help flags.
 # =============================================================================
 
 # --- Configuration Defaults ---
@@ -32,14 +33,11 @@ LOCAL_FILE=""
 DRY_RUN=false
 
 # --- Dynamic Platform Variables ---
-# These are populated during OS detection to handle platform-specific quirks
-# (e.g., Windows requiring .exe extensions and .zip archives).
 PLATFORM=""
 EXE_EXT=""
 ARCHIVE_EXT=".tar.gz"
 
 # --- UI / Colors ---
-# Enable terminal colors only if the script is running interactively.
 if [[ -t 1 ]]; then
     readonly RED='\033[0;31m'
     readonly GREEN='\033[0;32m'
@@ -74,18 +72,10 @@ Options:
   -h, --help            Show this help message and exit
 
 Examples:
-  # Normal install (auto-detects OS/arch, downloads latest)
   ./install.sh
-
-  # Install a specific version
   ./install.sh --version v1.2.3
-
-  # Install to a custom directory
   ./install.sh --dir /usr/local/bin
-
-  # Manual install from downloaded archives
   ./install.sh --file ~/Downloads/$BIN_NAME-macos-aarch64.tar.gz
-  ./install.sh --file ~/Downloads/$BIN_NAME-windows-x86_64.zip
 EOF
 }
 
@@ -108,7 +98,6 @@ command_exists() {
     command -v "$1" >/dev/null 2>&1
 }
 
-# Fetch URL using either curl or wget depending on availability
 fetch() {
     local url="$1"
     if command_exists curl; then
@@ -122,8 +111,6 @@ fetch() {
 }
 
 # --- Platform Detection ---
-# Determines the OS and CPU architecture to map to the correct GitHub release asset.
-# Also configures file extensions for Windows (Git Bash / MSYS2).
 set_platform_vars() {
     local os arch
     os="$(uname -s)"
@@ -144,7 +131,6 @@ set_platform_vars() {
                 *) PLATFORM="" ;;
             esac
             ;;
-        # Match typical Windows POSIX environments (Git Bash, MSYS, Cygwin)
         CYGWIN*|MINGW*|MSYS*|MINGW32*|MINGW64*)
             EXE_EXT=".exe"
             ARCHIVE_EXT=".zip"
@@ -164,14 +150,11 @@ set_platform_vars() {
 }
 
 # --- Shell Configuration Helpers ---
-
-# Returns the current shell name (e.g., bash, zsh, fish)
 detect_current_shell() {
     local shell_path="${SHELL:-/bin/bash}"
     basename "$shell_path"
 }
 
-# Maps the detected shell to its corresponding rc/config file
 get_shell_config_path() {
     local shell="$1"
     case "$shell" in
@@ -185,8 +168,6 @@ get_shell_config_path() {
 }
 
 # --- Core Installation Logic ---
-
-# Ensure the destination directory exists and is writable
 validate_install_dir() {
     if [[ ! -d "$INSTALL_DIR" ]]; then
         if ! mkdir -p "$INSTALL_DIR" 2>/dev/null; then
@@ -202,7 +183,6 @@ validate_install_dir() {
     fi
 }
 
-# Handle installations provided via the --file flag
 install_from_local() {
     if [[ ! -e "$LOCAL_FILE" ]]; then
         log_error "File not found: $LOCAL_FILE"
@@ -223,7 +203,6 @@ install_from_local() {
                 exit 1
             fi
 
-            # Find the uncompressed binary inside the temp directory
             local found_bin
             found_bin=$(find "$tmp_dir" -maxdepth 2 -type f -name "${BIN_NAME}*" ! -name "*.txt" ! -name "*.md" 2>/dev/null | head -n 1)
 
@@ -267,7 +246,6 @@ install_from_local() {
             fi
             ;;
         *)
-            # Treat as raw binary file
             log_info "Installing from raw binary: $LOCAL_FILE"
             if [[ "$DRY_RUN" == false ]]; then
                 cp "$LOCAL_FILE" "$target_path"
@@ -279,12 +257,10 @@ install_from_local() {
     log_info "Binary installed to: $target_path"
 }
 
-# Handle installations dynamically from GitHub Releases
 install_from_release() {
     local release_url tmp_dir
     log_info "Detected platform: $PLATFORM"
 
-    # Construct the GitHub API URL for fetching release metadata
     local api_url
     if [[ "$VERSION" == "latest" ]]; then
         api_url="https://api.github.com/repos/$REPO/releases/latest"
@@ -294,7 +270,6 @@ install_from_release() {
 
     log_info "Fetching release information..."
 
-    # Use grep to find the asset URL matching our target platform and required extension (.tar.gz or .zip)
     release_url=$(fetch "$api_url" 2>/dev/null | grep -o "https://github.com/[^\"]*$PLATFORM$ARCHIVE_EXT" | head -n 1 || true)
 
     if [[ -z "$release_url" ]]; then
@@ -309,7 +284,6 @@ install_from_release() {
     tmp_dir=$(mktemp -d) || exit 1
     trap "rm -rf '$tmp_dir'" EXIT
 
-    # Handle extraction securely based on file type
     if [[ "$ARCHIVE_EXT" == ".zip" ]]; then
         if ! command_exists unzip; then
             log_error "'unzip' command is required to extract Windows .zip releases. Please install it first."
@@ -333,7 +307,6 @@ install_from_release() {
         fi
     fi
 
-    # Find the binary in the extracted archive, ignoring text files
     local found_bin
     found_bin=$(find "$tmp_dir" -maxdepth 2 -type f -name "${BIN_NAME}*" ! -name "*.txt" ! -name "*.md" 2>/dev/null | head -n 1)
 
@@ -352,7 +325,6 @@ install_from_release() {
 }
 
 # --- Shell Integration Engine ---
-
 update_shell_config() {
     local shell config_file
     shell=$(detect_current_shell)
@@ -383,12 +355,10 @@ update_shell_config() {
     fi
 }
 
-# Inject PATH and Wrapper Function for Bash/Zsh/etc.
 update_posix_config() {
     local config_file="$1"
     local modified=false
 
-    # 1. Update PATH safely
     if ! grep -q "$(printf '%s\n' "$INSTALL_DIR" | sed 's/[[\.*^$/]/\\&/g')" "$config_file" 2>/dev/null; then
         if [[ "$DRY_RUN" == false ]]; then
             {
@@ -400,10 +370,6 @@ update_posix_config() {
         modified=true
     fi
 
-    # 2. Inject Shell Wrapper Function
-    # Why is this needed? Sub-processes cannot mutate the parent shell's environment variables.
-    # When a user types `envseal load`, we need the generated export commands to execute
-    # IN the current shell context via `eval`. For all other commands, we just pass them through.
     local marker="# >>> $BIN_NAME shell integration >>>"
     if ! grep -qF "$marker" "$config_file" 2>/dev/null; then
         if [[ "$DRY_RUN" == false ]]; then
@@ -412,9 +378,19 @@ update_posix_config() {
                 echo "$marker"
                 echo "$BIN_NAME() {"
                 echo "    if [ \"\$1\" = \"load\" ]; then"
-                echo "        # The load command needs to mutate the current shell environment."
-                echo "        # We capture the output of the binary and eval it in the current context."
-                echo "        eval \"\$(command $BIN_NAME \"\$@\")\""
+                echo "        _envseal_help=0"
+                echo "        for _arg in \"\$@\"; do"
+                echo "            if [ \"\$_arg\" = \"--help\" ] || [ \"\$_arg\" = \"-h\" ]; then"
+                echo "                _envseal_help=1"
+                echo "                break"
+                echo "            fi"
+                echo "        done"
+                echo "        if [ \"\$_envseal_help\" -eq 1 ]; then"
+                echo "            command $BIN_NAME \"\$@\""
+                echo "        else"
+                echo "            eval \"\$(command $BIN_NAME \"\$@\")\""
+                echo "        fi"
+                echo "        unset _envseal_help _arg"
                 echo "    else"
                 echo "        # Pass all other commands directly to the binary."
                 echo "        command $BIN_NAME \"\$@\""
@@ -429,12 +405,10 @@ update_posix_config() {
     echo "$modified"
 }
 
-# Inject PATH and Wrapper Function for Fish
 update_fish_config() {
     local config_file="$1"
     local modified=false
 
-    # 1. Update PATH safely for Fish
     if ! grep -q "$(printf '%s\n' "$INSTALL_DIR" | sed 's/[[\.*^$/]/\\&/g')" "$config_file" 2>/dev/null; then
         if [[ "$DRY_RUN" == false ]]; then
             {
@@ -446,7 +420,6 @@ update_fish_config() {
         modified=true
     fi
 
-    # 2. Inject Shell Wrapper Function for Fish
     local marker="# >>> $BIN_NAME shell integration >>>"
     if ! grep -qF "$marker" "$config_file" 2>/dev/null; then
         if [[ "$DRY_RUN" == false ]]; then
@@ -454,9 +427,12 @@ update_fish_config() {
                 echo ""
                 echo "$marker"
                 echo "function $BIN_NAME"
-                echo "    if [ \"\$argv[1]\" = \"load\" ]"
-                echo "        # Evaluate output to apply environment variables directly"
-                echo "        eval (command $BIN_NAME \$argv)"
+                echo "    if test \"\$argv[1]\" = \"load\""
+                echo "        if contains -- --help \$argv; or contains -- -h \$argv"
+                echo "            command $BIN_NAME \$argv"
+                echo "        else"
+                echo "            eval (command $BIN_NAME \$argv)"
+                echo "        end"
                 echo "    else"
                 echo "        # Standard pass-through"
                 echo "        command $BIN_NAME \$argv"
@@ -472,23 +448,19 @@ update_fish_config() {
 }
 
 # --- Post-Install Verification ---
-
 verify_installation() {
     local binary_path="$INSTALL_DIR/${BIN_NAME}${EXE_EXT}"
 
-    # Ensure the file arrived safely
     if [[ ! -f "$binary_path" ]]; then
         log_error "Binary not found: $binary_path"
         return 1
     fi
 
-    # Ensure the permissions are correct
     if [[ ! -x "$binary_path" ]]; then
         log_error "Binary is not executable: $binary_path"
         return 1
     fi
 
-    # Attempt to query the version. Try standard flags in fallback order.
     local version_output=""
     if "$binary_path" --version >/dev/null 2>&1; then
         version_output=$("$binary_path" --version 2>&1)
@@ -499,8 +471,6 @@ verify_installation() {
     elif "$binary_path" --help >/dev/null 2>&1; then
         version_output=$("$binary_path" --help 2>&1 | head -n 1)
     else
-        # Fallback check using the `file` utility if flags fail.
-        # Looks for ELF (Linux), Mach-O (Mac), or PE32 (Windows) magic headers.
         if file "$binary_path" | grep -iq "ELF\|Mach-O\|executable\|PE32"; then
             log_warn "Binary exists but couldn't verify execution (missing version/help flags)"
             log_info "Binary installed: $binary_path"
@@ -520,7 +490,6 @@ verify_installation() {
 }
 
 # --- Main Entry Point ---
-
 main() {
     parse_args "$@"
 
@@ -531,31 +500,26 @@ main() {
     echo ""
     log_info "Starting installation for $BIN_NAME..."
 
-    # Initialize environment tracking
     set_platform_vars
     validate_install_dir
 
-    # Download or copy files
     if [[ -n "$LOCAL_FILE" ]]; then
         install_from_local
     else
         install_from_release
     fi
 
-    # Apply configuration modifications
     update_shell_config
 
     if [[ "$DRY_RUN" == false ]]; then
         echo ""
 
-        # Verify the binary is intact and working
         if verify_installation; then
             log_info "Installation successful!"
         else
             log_warn "Could not fully verify the installation."
         fi
 
-        # Provide user guidance
         echo ""
         echo "Next steps:"
         echo "  1. Reload your shell configuration to apply changes:"

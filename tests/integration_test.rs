@@ -1,284 +1,317 @@
-use envseal::utils::crypto;
-use envseal::utils::vault::Vault;
-use serial_test::serial;
-use std::env;
-use tempfile::TempDir;
+#[cfg(test)]
+mod vault_integration_tests {
+    use envseal::utils::vault::Vault;
+    use std::env;
+    use std::fs;
+    use std::path::{Path, PathBuf};
+    use std::sync::Mutex;
+    use tempfile::tempdir;
 
-// Helper function to set up isolated test environments using a TempDir
-fn setup_test_vault() -> TempDir {
-    let temp_dir = TempDir::new().expect("Failed to create temp directory");
-    // Point the environment variable to a file inside the temp directory that DOES NOT exist yet
-    let vault_path = temp_dir.path().join("vault.seal");
-    env::set_var("ENVSEAL_TEST_PATH", vault_path);
+    // Mutex to prevent race conditions when multiple test threads modify the environment variable
+    static ENV_MUTEX: Mutex<()> = Mutex::new(());
 
-    // Return the directory guard so it stays alive until the end of the test
-    temp_dir
-}
-
-#[test]
-fn test_crypto_flow() {
-    let password = "super_secure_password";
-    let salt = crypto::generate_salt();
-    let (enc_key, hmac_key) = crypto::derive_keys(password, &salt).expect("Failed to derive key");
-    let plaintext = "secret_api_key";
-
-    let (nonce, ciphertext) = crypto::encrypt(&enc_key, plaintext).expect("Encryption failed");
-    let decrypted = crypto::decrypt(&enc_key, &nonce, &ciphertext).expect("Decryption failed");
-
-    assert_eq!(decrypted, plaintext);
-}
-
-#[test]
-#[serial]
-fn test_vault_init_and_unlock() {
-    let _temp_dir = setup_test_vault();
-    let password = "master_password";
-
-    Vault::init(password).expect("Failed to init vault");
-    let vault = Vault::load().expect("Failed to load vault");
-
-    let keys = vault
-        .unlock(password)
-        .expect("Failed to unlock vault with correct password");
-    assert_eq!(keys.enc_key.len(), crypto::KEY_LEN);
-    assert_eq!(keys.hmac_key.len(), crypto::HMAC_KEY_LEN);
-
-    let bad_unlock = vault.unlock("wrong_password");
-    assert!(bad_unlock.is_err());
-}
-
-#[test]
-#[serial]
-fn test_vault_init_prevents_overwrite() {
-    let _temp_dir = setup_test_vault();
-    let password = "master_password";
-
-    Vault::init(password).expect("First init failed");
-    let second_init = Vault::init(password);
-    assert!(
-        second_init.is_err(),
-        "Seal::init should error out if a seal already exists to prevent data loss"
-    );
-}
-
-#[test]
-#[serial]
-fn test_vault_set_and_get_entry() {
-    let _temp_dir = setup_test_vault();
-    let password = "master_password";
-
-    Vault::init(password).expect("Failed to init vault");
-    let mut vault = Vault::load().expect("Failed to load vault");
-    let keys = vault.unlock(password).expect("Failed to unlock vault");
-
-    let group_name = "test_project";
-    vault
-        .link_group(&keys.hmac_key, group_name.to_string())
-        .expect("Failed to link group");
-
-    vault
-        .set_entry(
-            &keys,
-            Some(group_name),
-            None,
-            false,
-            "DB_HOST",
-            "localhost",
-            None,
-        )
-        .expect("Failed to set entry");
-
-    let retrieved_value = vault
-        .get_entry(
-            &keys.enc_key,
-            Some(group_name),
-            None,
-            "DB_HOST",
-            false,
-            None,
-        )
-        .expect("Failed to get entry");
-
-    assert_eq!(retrieved_value, "localhost");
-}
-
-#[test]
-#[serial]
-fn test_vault_overwrite_entry() {
-    let _temp_dir = setup_test_vault();
-    let password = "master_password";
-
-    Vault::init(password).unwrap();
-    let mut vault = Vault::load().unwrap();
-    let keys = vault.unlock(password).unwrap();
-
-    let group_name = "test_project";
-    vault
-        .link_group(&keys.hmac_key, group_name.to_string())
-        .unwrap();
-
-    // Set initial value
-    vault
-        .set_entry(&keys, Some(group_name), None, false, "PORT", "8080", None)
-        .unwrap();
-
-    // Overwrite with new value
-    vault
-        .set_entry(&keys, Some(group_name), None, false, "PORT", "9090", None)
-        .unwrap();
-
-    let retrieved = vault
-        .get_entry(&keys.enc_key, Some(group_name), None, "PORT", false, None)
-        .unwrap();
-    assert_eq!(retrieved, "9090", "Vault should overwrite existing keys");
-}
-
-#[test]
-fn test_crypto_tampering_fails_decryption() {
-    let password = "super_secure_password";
-    let salt = crypto::generate_salt();
-    let (enc_key, _hmac_key) = crypto::derive_keys(password, &salt).unwrap();
-    let plaintext = "secret_api_key";
-
-    let (nonce, mut ciphertext) = crypto::encrypt(&enc_key, plaintext).unwrap();
-
-    if let Some(first_byte) = ciphertext.first_mut() {
-        *first_byte ^= 1;
+    fn setup_isolated_env(temp_path: &Path, filename: &str) -> PathBuf {
+        let vault_path = temp_path.join(filename);
+        env::set_var("ENVSEAL_TEST_PATH", vault_path.to_str().unwrap());
+        vault_path
     }
 
-    let decrypted = crypto::decrypt(&enc_key, &nonce, &ciphertext);
-    assert!(
-        decrypted.is_err(),
-        "Decryption must fail if the ciphertext has been modified"
-    );
-}
+    #[test]
+    fn test_vault_initialization_and_overwrite_protection() {
+        let _guard = ENV_MUTEX.lock().unwrap();
+        let temp = tempdir().unwrap();
+        let _path = setup_isolated_env(temp.path(), ".envseal");
 
-#[test]
-#[serial]
-fn test_vault_with_tags() {
-    let _temp_dir = setup_test_vault();
-    let password = "master_password";
+        // Successful initialization
+        let init_result = Vault::init("master_pass", true, false, None);
+        assert!(init_result.is_ok(), "Vault should initialize successfully");
 
-    Vault::init(password).unwrap();
-    let mut vault = Vault::load().unwrap();
-    let keys = vault.unlock(password).unwrap();
+        // Edge Case: Prevent overwriting an existing vault
+        let overwrite_result = Vault::init("master_pass", true, false, None);
+        assert!(
+            overwrite_result.is_err(),
+            "Vault must refuse to overwrite an existing seal"
+        );
+        assert!(overwrite_result
+            .unwrap_err()
+            .to_string()
+            .contains("Refusing to overwrite"));
+    }
 
-    let group_name = "test_project";
-    vault
-        .link_group(&keys.hmac_key, group_name.to_string())
-        .unwrap();
+    #[test]
+    fn test_hmac_tamper_detection() {
+        let _guard = ENV_MUTEX.lock().unwrap();
+        let temp = tempdir().unwrap();
+        let path = setup_isolated_env(temp.path(), ".envseal");
 
-    // Set same key with different tags
-    vault
-        .set_entry(
-            &keys,
-            Some(group_name),
-            Some("development"),
-            false,
-            "API_KEY",
-            "dev_123",
-            None,
-        )
-        .unwrap();
-    vault
-        .set_entry(
-            &keys,
-            Some(group_name),
-            Some("production"),
-            false,
-            "API_KEY",
-            "prod_999",
-            None,
-        )
-        .unwrap();
+        Vault::init("master_pass", true, false, None).unwrap();
+        let vault = Vault::load(false, None).unwrap();
 
-    let dev_val = vault
-        .get_entry(
-            &keys.enc_key,
-            Some(group_name),
-            Some("development"),
-            "API_KEY",
-            false,
-            None,
-        )
-        .unwrap();
-    let prod_val = vault
-        .get_entry(
-            &keys.enc_key,
-            Some(group_name),
-            Some("production"),
-            "API_KEY",
-            false,
-            None,
-        )
-        .unwrap();
+        // Ensure successful unlock first
+        assert!(vault.unlock("master_pass").is_ok());
 
-    assert_eq!(dev_val, "dev_123");
-    assert_eq!(prod_val, "prod_999");
-}
+        // Edge Case: Simulate file tampering (user modifies JSON manually)
+        let raw_json = fs::read_to_string(&path).unwrap();
+        // Tamper with the cleartext JSON structure (modifying the implicitly created "project" group)
+        let tampered_json = raw_json.replace("\"project\"", "\"hacked_project\"");
+        fs::write(&path, tampered_json).unwrap();
 
-#[test]
-#[serial]
-fn test_vault_get_missing_entry() {
-    let _temp_dir = setup_test_vault();
-    let password = "master_password";
+        // Load and verify HMAC failure
+        let tampered_vault = Vault::load(false, None).unwrap();
+        let unlock_result = tampered_vault.unlock("master_pass");
 
-    Vault::init(password).unwrap();
-    let mut vault = Vault::load().unwrap();
-    let keys = vault.unlock(password).unwrap();
+        assert!(unlock_result.is_err());
+        assert!(unlock_result
+            .unwrap_err()
+            .to_string()
+            .contains("SEAL TAMPERED: HMAC verification failed!"));
+    }
 
-    let group_name = "test_project";
-    vault
-        .link_group(&keys.hmac_key, group_name.to_string())
-        .unwrap();
+    #[test]
+    fn test_base_and_protected_tag_workflow() {
+        let _guard = ENV_MUTEX.lock().unwrap();
+        let temp = tempdir().unwrap();
+        setup_isolated_env(temp.path(), ".envseal");
 
-    let result = vault.get_entry(
-        &keys.enc_key,
-        Some(group_name),
-        None,
-        "NON_EXISTENT",
-        false,
-        None,
-    );
-    assert!(
-        result.is_err(),
-        "Fetching a missing key should return an error"
-    );
-}
+        Vault::init("master_pass", true, false, None).unwrap();
+        let mut vault = Vault::load(false, None).unwrap();
+        let keys = vault.unlock("master_pass").unwrap();
 
-#[test]
-#[serial]
-fn test_vault_persistence_across_reloads() {
-    let _temp_dir = setup_test_vault();
-    let password = "master_password";
-    let group_name = "test_project";
-
-    Vault::init(password).unwrap();
-    {
-        let mut vault = Vault::load().unwrap();
-        let keys = vault.unlock(password).unwrap();
+        // Set and Get in BASE tag
         vault
-            .link_group(&keys.hmac_key, group_name.to_string())
+            .set_entry(&keys, None, None, "API_KEY", "secret-123", None)
             .unwrap();
+        let retrieved = vault
+            .get_entry(&keys.enc_key, None, None, "API_KEY", None)
+            .unwrap();
+        assert_eq!(retrieved.as_str(), "secret-123");
+
+        // Create Protected Tag
+        vault
+            .create_protected_tag(&keys.hmac_key, None, "prod", "tag_pass")
+            .unwrap();
+        assert!(vault.is_tag_protected(None, Some("prod")).unwrap());
+
+        // Edge Case: Prevent creating a tag named "base"
+        let create_base_err = vault.create_protected_tag(&keys.hmac_key, None, "base", "pass");
+        assert!(create_base_err.is_err());
+        assert!(create_base_err
+            .unwrap_err()
+            .to_string()
+            .contains("reserved keyword"));
+
+        // Set and Get in Protected Tag
+        let tag_key = vault.unlock_tag(None, "prod", "tag_pass").unwrap();
         vault
             .set_entry(
                 &keys,
-                Some(group_name),
                 None,
-                false,
-                "DB_URL",
-                "postgres://localhost",
-                None,
+                Some("prod"),
+                "DB_PASS",
+                "prod-db-123",
+                Some(&tag_key),
             )
             .unwrap();
-        vault.save().unwrap();
+
+        let retrieved_tag = vault
+            .get_entry(&keys.enc_key, None, Some("prod"), "DB_PASS", Some(&tag_key))
+            .unwrap();
+        assert_eq!(retrieved_tag.as_str(), "prod-db-123");
     }
 
-    let vault = Vault::load().unwrap();
-    let keys = vault.unlock(password).unwrap();
+    #[test]
+    fn test_entry_removal_edge_cases() {
+        let _guard = ENV_MUTEX.lock().unwrap();
+        let temp = tempdir().unwrap();
+        setup_isolated_env(temp.path(), ".envseal");
 
-    let retrieved = vault
-        .get_entry(&keys.enc_key, Some(group_name), None, "DB_URL", false, None)
-        .unwrap();
-    assert_eq!(retrieved, "postgres://localhost");
+        Vault::init("master_pass", true, false, None).unwrap();
+        let mut vault = Vault::load(false, None).unwrap();
+        let keys = vault.unlock("master_pass").unwrap();
+
+        vault
+            .set_entry(&keys, None, None, "KEY1", "val1", None)
+            .unwrap();
+
+        // Edge Case: Prevent removing the entire 'base' tag
+        let remove_base_err = vault.remove_entry(&keys.hmac_key, None, Some("base"), None, None);
+        assert!(remove_base_err.is_err());
+        assert!(remove_base_err
+            .unwrap_err()
+            .to_string()
+            .contains("Cannot remove the reserved"));
+
+        // Successful specific entry removal
+        vault
+            .remove_entry(&keys.hmac_key, None, None, Some("KEY1"), None)
+            .unwrap();
+        let get_err = vault.get_entry(&keys.enc_key, None, None, "KEY1", None);
+        assert!(get_err.is_err());
+    }
+
+    #[test]
+    fn test_local_vault_group_isolation() {
+        let _guard = ENV_MUTEX.lock().unwrap();
+        let temp = tempdir().unwrap();
+        setup_isolated_env(temp.path(), ".envseal");
+
+        Vault::init("master_pass", true, false, None).unwrap();
+        let mut vault = Vault::load(false, None).unwrap();
+
+        // Edge Case: Local vaults reject explicit group requests
+        let resolve_err = vault.resolve_group_name(Some("CUSTOM_GROUP"));
+        assert!(resolve_err.is_err());
+        assert!(resolve_err
+            .unwrap_err()
+            .to_string()
+            .contains("do not support multiple groups"));
+
+        // Edge Case: Local vaults reject `link_group`
+        let keys = vault.unlock("master_pass").unwrap();
+        let link_err = vault.link_group(&keys.hmac_key, "NEW_GROUP");
+        assert!(link_err.is_err());
+        assert!(link_err
+            .unwrap_err()
+            .to_string()
+            .contains("Linking is only used for the global vault"));
+    }
+
+    #[test]
+    fn test_failed_authentication_attempts() {
+        let _guard = ENV_MUTEX.lock().unwrap();
+        let temp = tempdir().unwrap();
+        setup_isolated_env(temp.path(), ".envseal");
+
+        Vault::init("correct_master", true, false, None).unwrap();
+        let mut vault = Vault::load(false, None).unwrap();
+
+        // Edge Case: Wrong Master Password
+        let bad_master_err = vault.unlock("wrong_master");
+        assert!(bad_master_err.is_err());
+        assert!(bad_master_err
+            .unwrap_err()
+            .to_string()
+            .contains("Wrong Master Password"));
+
+        // Edge Case: Wrong Tag Password
+        let keys = vault.unlock("correct_master").unwrap();
+        vault
+            .create_protected_tag(&keys.hmac_key, None, "staging", "correct_tag_pass")
+            .unwrap();
+
+        let bad_tag_err = vault.unlock_tag(None, "staging", "wrong_tag_pass");
+        assert!(bad_tag_err.is_err());
+        assert!(bad_tag_err
+            .unwrap_err()
+            .to_string()
+            .contains("Wrong Tag Password"));
+    }
+
+    #[test]
+    fn test_custom_profile_naming() {
+        let _guard = ENV_MUTEX.lock().unwrap();
+        let temp = tempdir().unwrap();
+        let path = setup_isolated_env(temp.path(), ".prod.envseal");
+
+        // Init with custom prefix (e.g. -e prod -> .prod.envseal)
+        Vault::init("master_pass", true, false, Some("prod")).unwrap();
+        assert!(path.exists());
+
+        // Load custom profile and verify is_local() recognizes it
+        let vault = Vault::load(false, Some("prod")).unwrap();
+        assert!(vault.is_local());
+    }
+
+    #[test]
+    fn test_list_all_keys() {
+        let _guard = ENV_MUTEX.lock().unwrap();
+        let temp = tempdir().unwrap();
+        setup_isolated_env(temp.path(), ".envseal");
+
+        Vault::init("master_pass", true, false, None).unwrap();
+        let mut vault = Vault::load(false, None).unwrap();
+        let keys = vault.unlock("master_pass").unwrap();
+
+        vault
+            .set_entry(&keys, None, None, "BASE_KEY_1", "v1", None)
+            .unwrap();
+        vault
+            .set_entry(&keys, None, None, "BASE_KEY_2", "v2", None)
+            .unwrap();
+
+        vault
+            .create_protected_tag(&keys.hmac_key, None, "dev", "tag_pass")
+            .unwrap();
+        let tag_key = vault.unlock_tag(None, "dev", "tag_pass").unwrap();
+        vault
+            .set_entry(&keys, None, Some("dev"), "DEV_KEY_1", "v3", Some(&tag_key))
+            .unwrap();
+
+        // List base keys
+        let base_keys = vault.list_all_keys(None, None).unwrap();
+        assert_eq!(base_keys.len(), 2);
+        assert!(base_keys.contains(&"BASE_KEY_1".to_string()));
+
+        // List tag keys
+        let dev_keys = vault.list_all_keys(None, Some("dev")).unwrap();
+        assert_eq!(dev_keys.len(), 1);
+        assert!(dev_keys.contains(&"DEV_KEY_1".to_string()));
+    }
+
+    #[test]
+    fn test_protected_tag_deletion_rules() {
+        let _guard = ENV_MUTEX.lock().unwrap();
+        let temp = tempdir().unwrap();
+        setup_isolated_env(temp.path(), ".envseal");
+
+        Vault::init("master_pass", true, false, None).unwrap();
+        let mut vault = Vault::load(false, None).unwrap();
+        let keys = vault.unlock("master_pass").unwrap();
+
+        vault
+            .create_protected_tag(&keys.hmac_key, None, "secure_tag", "tag_pass")
+            .unwrap();
+
+        // Edge Case: Modifying/Deleting inside a protected tag without password must fail
+        let unauth_remove_err =
+            vault.remove_entry(&keys.hmac_key, None, Some("secure_tag"), None, None);
+        assert!(unauth_remove_err.is_err());
+        assert!(unauth_remove_err
+            .unwrap_err()
+            .to_string()
+            .contains("Password required to modify it"));
+
+        // Successful tag deletion with valid tag key unlocked
+        let tag_key = vault.unlock_tag(None, "secure_tag", "tag_pass").unwrap();
+        vault
+            .remove_entry(
+                &keys.hmac_key,
+                None,
+                Some("secure_tag"),
+                None,
+                Some(&tag_key),
+            )
+            .unwrap();
+
+        // Verify tag no longer exists
+        assert!(!vault.is_tag_protected(None, Some("secure_tag")).unwrap());
+    }
+
+    #[test]
+    fn test_master_and_tag_scope_generation() {
+        let _guard = ENV_MUTEX.lock().unwrap();
+        let temp = tempdir().unwrap();
+        let _ = setup_isolated_env(temp.path(), ".envseal");
+
+        Vault::init("master_pass", true, false, None).unwrap();
+        let vault = Vault::load(false, None).unwrap();
+
+        // Master scope should be a deterministic hash starting with "master_"
+        let scope = vault.master_scope();
+        assert!(scope.starts_with("master_"));
+
+        // Tag scope should append group and tag names
+        let tag_scope = vault.tag_scope(None, "dev").unwrap();
+        assert!(tag_scope.contains("group_project_tag_dev"));
+    }
 }

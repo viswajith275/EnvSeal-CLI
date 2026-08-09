@@ -134,8 +134,8 @@ pub enum Commands {
     /// Source variables directly into your current shell session
     ///
     /// Decrypts variables and outputs shell-compatible export commands. To use this,
-    /// evaluate it in your shell (e.g., `eval $(envseal load)`) normally automatically done by a shell function.
-    /// Warning!!: For isolated execution, `envseal run` is highly recommended instead.
+    /// evaluate it in your shell (e.g., 'eval $(envseal load)') normally automatically done by a function added to the shell config.
+    /// Warning!! For isolated execution, 'envseal run' is highly recommended instead.
     Load {
         /// The group to load variables from (uses linked group if omitted)
         #[arg(short, long)]

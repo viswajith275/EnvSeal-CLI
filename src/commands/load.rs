@@ -2,6 +2,31 @@ use crate::utils::{unlock, vault::Vault};
 use anyhow::{anyhow, Context, Result};
 use std::collections::HashMap;
 
+/// Determines the target shell for proper syntax formatting and string escaping
+#[derive(Debug)]
+enum ShellType {
+    Posix,
+    Fish,
+    PowerShell,
+    Cmd,
+}
+
+impl ShellType {
+    fn from_name(name: &str) -> Self {
+        let lower = name.to_lowercase();
+        if lower.ends_with("fish") {
+            ShellType::Fish
+        } else if lower.ends_with("pwsh") || lower.ends_with("powershell") {
+            ShellType::PowerShell
+        } else if lower.ends_with("cmd") || lower.ends_with("cmd.exe") {
+            ShellType::Cmd
+        } else {
+            // Default to POSIX (Bash, Zsh, Sh)
+            ShellType::Posix
+        }
+    }
+}
+
 pub fn cmd_load(
     group: Option<&str>,
     tag: Option<&str>,
@@ -89,8 +114,32 @@ pub fn cmd_load(
         }
     }
 
+    // Determine target shell type
+    let shell_name = std::env::var("SHELL")
+        .ok()
+        .unwrap_or_else(|| "posix".to_string());
+
+    let shell = ShellType::from_name(&shell_name);
+
+    // Format output dynamically with robust value escaping
     for (key, value) in merged_env {
-        println!("export {key}={value}");
+        match shell {
+            ShellType::Posix => {
+                let escaped_val = value.replace('\'', "'\\''");
+                println!("export {}='{}'", key, escaped_val);
+            }
+            ShellType::Fish => {
+                let escaped_val = value.replace('\\', "\\\\").replace('\'', "\\'");
+                println!("set -gx {} '{}'", key, escaped_val);
+            }
+            ShellType::PowerShell => {
+                let escaped_val = value.replace('\'', "''");
+                println!("$env:{}='{}'", key, escaped_val);
+            }
+            ShellType::Cmd => {
+                println!("set {}={}", key, value);
+            }
+        }
     }
 
     Ok(())

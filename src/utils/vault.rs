@@ -5,6 +5,7 @@ use directories::ProjectDirs;
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, HashMap};
 use std::env;
+use std::fmt;
 use std::fs;
 use std::hash::DefaultHasher;
 use std::hash::Hash;
@@ -15,14 +16,23 @@ use std::path::PathBuf;
 use tempfile::NamedTempFile;
 use zeroize::{Zeroize, ZeroizeOnDrop, Zeroizing};
 
-const CANARY_PLAINTEXT: &str = "envseal-Encrypted";
-const BASE_TAG: &str = "base";
+pub const CANARY_PLAINTEXT: &str = "envseal-Encrypted";
+pub const BASE_TAG: &str = "base";
 const LOCAL_GROUP_NAME: &str = "project";
 
 #[derive(Zeroize, ZeroizeOnDrop)]
 pub struct VaultKeys {
     pub enc_key: Zeroizing<[u8; crypto::KEY_LEN]>,
     pub hmac_key: Zeroizing<[u8; crypto::HMAC_KEY_LEN]>,
+}
+
+impl fmt::Debug for VaultKeys {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("VaultKeys")
+            .field("enc_key", &"[REDACTED]")
+            .field("hmac_key", &"[REDACTED]")
+            .finish()
+    }
 }
 
 #[derive(Serialize, Deserialize)]
