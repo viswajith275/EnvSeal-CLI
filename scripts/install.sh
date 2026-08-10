@@ -9,7 +9,7 @@ set -euo pipefail
 #
 # Supported Environments:
 #   - Linux (x86_64, aarch64)
-#   - macOS (x86_64, arm64)
+#   - macOS (arm64 / Apple Silicon only)
 #   - Windows (via Git Bash, MSYS2, Cygwin)
 #
 # Key Features:
@@ -173,8 +173,8 @@ set_platform_vars() {
             ;;
         Darwin)
             case "$arch" in
-                x86_64) PLATFORM="macos-x86_64" ;;
                 arm64) PLATFORM="macos-aarch64" ;;
+                x86_64) PLATFORM="" ;;
                 *) PLATFORM="" ;;
             esac
             ;;
@@ -190,16 +190,56 @@ set_platform_vars() {
     esac
 
     if [[ -z "$PLATFORM" ]]; then
-        log_error "Unsupported platform: $os/$arch"
-        log_error "Install manually with: ./install.sh --file <path-to-binary-or-archive>"
+        if [[ "$os" == "Darwin" && "$arch" == "x86_64" ]]; then
+            log_error "Intel Macs (macOS/x86_64) are no longer supported by prebuilt releases."
+            log_error "Build from source, or install manually with: ./install.sh --file <path-to-binary-or-archive>"
+        else
+            log_error "Unsupported platform: $os/$arch"
+            log_error "Install manually with: ./install.sh --file <path-to-binary-or-archive>"
+        fi
         exit 1
     fi
 }
 
 # --- Shell Configuration Helpers ---
+
+# Whether $1 is a shell name this installer knows how to configure. Kept in
+# sync with the case in get_shell_config_path() below.
+is_known_shell() {
+    case "$1" in
+        bash|zsh|fish|ksh|mksh|tcsh) return 0 ;;
+        *) return 1 ;;
+    esac
+}
+
 detect_current_shell() {
-    local shell_path="${SHELL:-/bin/bash}"
-    basename "$shell_path"
+    local shell_name=""
+
+    # Prefer the shell that is actually running this script (its parent
+    # process) over $SHELL. $SHELL only reflects the user's configured
+    # *login* shell, which can silently diverge from the shell they're
+    # currently using -- e.g. `bash install.sh` run from an interactive zsh
+    # session, or `curl ... | bash` piped from zsh -- in which case trusting
+    # $SHELL would update the wrong rc file (.bashrc instead of .zshrc, or
+    # vice versa).
+    if command_exists ps; then
+        shell_name=$(ps -p "$PPID" -o comm= 2>/dev/null | tr -d '[:space:]')
+        # Login shells are often reported with a leading '-' (e.g. "-zsh").
+        shell_name="${shell_name#-}"
+        # Some platforms report a full path (e.g. "/usr/bin/zsh") rather
+        # than a bare name.
+        shell_name="$(basename "$shell_name" 2>/dev/null || true)"
+    fi
+
+    # Fall back to the configured login shell if parent-process detection
+    # didn't work (no `ps`, PPID unavailable, or the parent isn't a shell
+    # this installer recognizes -- e.g. the script was invoked from a
+    # Makefile or another non-interactive wrapper).
+    if [[ -z "$shell_name" ]] || ! is_known_shell "$shell_name"; then
+        shell_name=$(basename "${SHELL:-/bin/bash}")
+    fi
+
+    echo "$shell_name"
 }
 
 get_shell_config_path() {
