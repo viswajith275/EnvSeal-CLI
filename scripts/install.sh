@@ -428,12 +428,23 @@ install_from_release() {
 
     log_info "Downloading from: $release_url"
 
-    local tmp_dir target_path
+    local tmp_dir extract_dir target_path
     tmp_dir=$(mktemp -d) || exit 1
     # See the matching comment in install_from_local() -- must stay
     # double-quoted so the path is baked in now, not resolved at exit time.
     # shellcheck disable=SC2064  # intentional: expand $tmp_dir now, not at signal time
     trap "rm -rf '$tmp_dir'" EXIT
+
+    # Extract into a dedicated subdirectory, kept separate from the
+    # downloaded archive itself (which also lives under $tmp_dir). If the
+    # archive were extracted directly into $tmp_dir, the archive file and
+    # the binary inside it would both match the `find ... -name
+    # "${BIN_NAME}*"` glob below, and `head -n 1` would pick whichever one
+    # the filesystem happens to list first -- an unspecified, platform-
+    # dependent order. That's exactly what caused the released .tar.gz to
+    # get installed verbatim in place of the real binary on some systems.
+    extract_dir="$tmp_dir/extracted"
+    mkdir -p "$extract_dir"
 
     local downloaded_file
     downloaded_file="$tmp_dir/$(basename "$release_url")"
@@ -473,19 +484,19 @@ install_from_release() {
             exit 1
         fi
 
-        if ! unzip -q "$downloaded_file" -d "$tmp_dir"; then
+        if ! unzip -q "$downloaded_file" -d "$extract_dir"; then
             log_error "Failed to extract zip archive"
             exit 1
         fi
     else
-        if ! tar -xzf "$downloaded_file" -C "$tmp_dir"; then
+        if ! tar -xzf "$downloaded_file" -C "$extract_dir"; then
             log_error "Failed to extract release archive"
             exit 1
         fi
     fi
 
     local found_bin
-    found_bin=$(find "$tmp_dir" -maxdepth 2 -type f -name "${BIN_NAME}*" ! -name "*.txt" ! -name "*.md" ! -name "*.sha256" 2>/dev/null | head -n 1 || true)
+    found_bin=$(find "$extract_dir" -maxdepth 2 -type f -name "${BIN_NAME}*" ! -name "*.txt" ! -name "*.md" ! -name "*.sha256" 2>/dev/null | head -n 1 || true)
 
     if [[ -z "$found_bin" ]]; then
         log_error "No '$BIN_NAME' binary found in release"
