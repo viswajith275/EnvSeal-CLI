@@ -120,7 +120,7 @@ cargo build --release
 ./scripts/install.sh --file ./target/release/envseal
 ```
 
-Pre-built binaries for Linux (x86_64/ARM64), macOS (Intel/Apple Silicon), and Windows are available on the [Releases](https://github.com/viswajith275/EnvSeal-CLI/releases) page.
+Pre-built binaries for Linux (x86_64/ARM64), macOS (Apple Silicon), and Windows are available on the [Releases](https://github.com/viswajith275/EnvSeal-CLI/releases) page.
 
 ## Quick Start
 
@@ -213,6 +213,10 @@ A `.env` file is just a text file, and text files have a way of ending up places
 - **Session Caching**: Native OS keyring (Keychain on macOS, Secret Service on Linux, Credential Manager on Windows) for 10-minute sessions.
 
 - **No Password Recovery**: Lose the password and the vault is permanently unrecoverable. This is actual security, not security theater.
+
+## Upcoming
+
+**Replacing HMAC with Ed25519**: Replacing HMAC with Ed25519 and implementing read-only, token-based environment access with scopes. This way, you no longer need to share the master password or create separate protected tags just to restrict access for certain people.
 
 ## Best Practices
 
