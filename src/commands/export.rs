@@ -1,32 +1,20 @@
-use crate::utils::{unlock, vault::Vault};
-use anyhow::{anyhow, Context, Result};
+use crate::utils::{resolve, vault::Vault};
+use anyhow::{Context, Result};
 use std::collections::BTreeMap;
 use std::fs;
+use std::path::PathBuf;
 
 pub fn cmd_export(
     group: Option<&str>,
     tag: Option<&str>,
     keys: Vec<&str>,
+    token_file: Option<&PathBuf>,
     global: bool,
     pref: Option<&str>,
     output_path: Option<&str>,
 ) -> Result<()> {
     let vault = Vault::load(global, pref)?;
     let group_name = vault.resolve_group_name(group)?;
-    let derived = unlock::sudo_unlock(&vault)?;
-
-    let mut tag_key = None;
-    if vault.is_tag_protected(group, tag)? {
-        if let Some(t) = tag {
-            tag_key = Some(unlock::sudo_unlock_tag(&vault, group, t)?);
-        } else {
-            return Err(anyhow!(
-                "A tag must be provided if the group's default tag is protected."
-            ));
-        }
-    }
-
-    let mut merged_env: BTreeMap<String, String> = BTreeMap::new();
 
     let location_label = if vault.is_local() { "local" } else { "global" };
     let message = if !keys.is_empty() && tag.is_some() {
@@ -53,48 +41,30 @@ pub fn cmd_export(
 
     eprintln!("{}", message);
 
+    let mut decrypted_envs = resolve::resolve_secrets(&vault, group, tag, token_file)?;
+
     if !keys.is_empty() {
-        for key in keys {
-            let value = if tag.is_some() {
-                match vault.get_entry(&derived.enc_key, group, tag, key, tag_key.as_deref()) {
-                    Ok(val) => val,
-                    Err(_) => vault
-                        .get_entry(&derived.enc_key, group, None, key, tag_key.as_deref())
-                        .with_context(|| {
-                            format!("Failed to read '{key}' from tag or base group")
-                        })?,
-                }
-            } else {
-                vault
-                    .get_entry(&derived.enc_key, group, None, key, tag_key.as_deref())
-                    .with_context(|| format!("Failed to read '{key}'"))?
-            };
+        let requested_set: std::collections::HashSet<&str> = keys.iter().copied().collect();
+        decrypted_envs.retain(|k, _| requested_set.contains(k.as_str()));
 
-            merged_env.insert(key.to_string(), value.to_string());
-        }
-    } else {
-        let group_keys = vault.list_all_keys(group, None)?;
-        for key in group_keys {
-            let value = vault
-                .get_entry(&derived.enc_key, group, None, &key, tag_key.as_deref())
-                .with_context(|| format!("Failed to read base key '{key}'"))?;
-            merged_env.insert(key, value.to_string());
-        }
-
-        if tag.is_some() {
-            let tag_keys = vault.list_all_keys(group, tag)?;
-            for key in tag_keys {
-                let value = vault
-                    .get_entry(&derived.enc_key, group, tag, &key, tag_key.as_deref())
-                    .with_context(|| format!("Failed to read tag key '{key}'"))?;
-                merged_env.insert(key, value.to_string());
+        for key in &keys {
+            if !decrypted_envs.contains_key(*key) {
+                return Err(anyhow::anyhow!(
+                    "Failed to read '{key}' from tag or base group!!"
+                ));
             }
         }
     }
 
+    let mut sorted_envs: BTreeMap<String, String> = BTreeMap::new();
+    for (key, mut value) in decrypted_envs {
+        sorted_envs.insert(key, value.to_string());
+        zeroize::Zeroize::zeroize(&mut value);
+    }
+
     let mut buffer = String::new();
-    for (key, value) in &merged_env {
-        buffer.push_str(&format!("{key}={}\n", format_env_value(value)));
+    for (key, value) in &sorted_envs {
+        buffer.push_str(&format!("{key}={}\n", format_env_value(value.as_str())));
     }
 
     // Default target file to .env if not specified
@@ -107,7 +77,7 @@ pub fn cmd_export(
 
     eprintln!(
         "successfully exported {} variable(s) to '{}'",
-        merged_env.len(),
+        sorted_envs.len(),
         target_file
     );
 

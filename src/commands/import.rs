@@ -12,7 +12,7 @@ pub fn cmd_import(
 ) -> Result<()> {
     let mut vault = Vault::load(global, pref)?;
     let group_name = vault.resolve_group_name(group)?;
-    let derived = unlock::sudo_unlock(&vault)?;
+    let master_keys = unlock::sudo_unlock(&vault)?;
 
     let path = Path::new(path);
 
@@ -33,7 +33,7 @@ pub fn cmd_import(
     for item in iter {
         match item {
             Ok((key, value)) => {
-                vault.set_entry(&derived, group, tag, &key, &value, tag_key.as_deref())?;
+                vault.set_entry(&master_keys, group, tag, &key, &value, tag_key.as_deref())?;
             }
             Err(e) => {
                 eprintln!("Warniing: Failed to parse line: {}", e);

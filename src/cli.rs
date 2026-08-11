@@ -1,4 +1,5 @@
 use clap::{Parser, Subcommand};
+use std::path::PathBuf;
 
 #[derive(Parser)]
 #[command(
@@ -6,7 +7,7 @@ use clap::{Parser, Subcommand};
     about = "An encrypted vault for your API keys and secrets, because `.env` files have never once kept a secret.
 "
 )]
-#[command(version = "v4.0.0")]
+#[command(version = "v5.0.0b")]
 #[command(propagate_version = true)]
 pub struct Cli {
     /// Target a specific local environment profile (e.g., 'prod' targets '.prod.envseal')
@@ -57,7 +58,6 @@ pub enum Commands {
         /// The group to apply the tag to (uses linked group if omitted)
         #[arg(short, long)]
         group: Option<String>,
-
         /// The name of the protected tag to create
         tag: String,
     },
@@ -71,15 +71,15 @@ pub enum Commands {
         /// The group to export from (uses linked group if omitted)
         #[arg(short, long)]
         group: Option<String>,
-
         /// The tag to export from
         #[arg(short, long)]
         tag: Option<String>,
-
         /// Output path of .env file defaults to .env in current directory
         #[arg(short, long)]
         output_path: Option<String>,
-
+        /// Path to a file containing the zero-trust execution token
+        #[arg(long)]
+        token_file: Option<PathBuf>,
         /// Specific keys to export (exports all if empty)
         keys: Vec<String>,
     },
@@ -92,11 +92,9 @@ pub enum Commands {
         /// The group to import variables into (uses linked group if omitted)
         #[arg(short, long)]
         group: Option<String>,
-
         /// The tag to import variables into
         #[arg(short, long)]
         tag: Option<String>,
-
         /// Path to the .env file to read from
         path: String,
     },
@@ -109,11 +107,9 @@ pub enum Commands {
         /// The group to store the key in (uses linked group if omitted)
         #[arg(short, long)]
         group: Option<String>,
-
         /// The tag to scope the key to
         #[arg(short, long)]
         tag: Option<String>,
-
         /// The name of the environment variable (e.g., API_KEY)
         key: String,
     },
@@ -130,7 +126,9 @@ pub enum Commands {
         /// The tag to fetch the key from
         #[arg(short, long)]
         tag: Option<String>,
-
+        /// Path to a file containing the zero-trust execution token
+        #[arg(long)]
+        token_file: Option<PathBuf>,
         /// The name of the key to retrieve
         key: String,
     },
@@ -144,11 +142,12 @@ pub enum Commands {
         /// The group to load variables from (uses linked group if omitted)
         #[arg(short, long)]
         group: Option<String>,
-
         /// The tag to load variables from
         #[arg(short, long)]
         tag: Option<String>,
-
+        /// Path to a file containing the zero-trust execution token
+        #[arg(long)]
+        token_file: Option<PathBuf>,
         /// Specific keys to load (loads all if empty)
         keys: Vec<String>,
     },
@@ -161,11 +160,9 @@ pub enum Commands {
         /// The group to remove data from (uses linked group if omitted)
         #[arg(short, long)]
         group: Option<String>,
-
         /// The tag to remove data from
         #[arg(short, long)]
         tag: Option<String>,
-
         /// The specific key to delete (deletes the group/tag if omitted)
         key: Option<String>,
     },
@@ -178,7 +175,6 @@ pub enum Commands {
         /// Filter the list by a specific group (uses linked group if omitted)
         #[arg(short, long)]
         group: Option<String>,
-
         /// Filter the list by a specific tag
         #[arg(short, long)]
         tag: Option<String>,
@@ -193,13 +189,47 @@ pub enum Commands {
         /// The group of variables to inject (uses linked group if omitted)
         #[arg(short, long)]
         group: Option<String>,
-
         /// The tag of variables to inject
         #[arg(short, long)]
         tag: Option<String>,
-
+        /// Path to a file containing the zero-trust execution token
+        #[arg(long)]
+        token_file: Option<PathBuf>,
         /// The command and its arguments to execute (e.g., `npm start`)
         #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
         cmd_args: Vec<String>,
+    },
+    /// Generate a zero-trust Bearer Token for CI/CD or offline execution
+    ///
+    /// Generates a read only token with specified scopes and access to gain more
+    /// control on who can access what. No more leakage of master password by sharing
+    /// it with everyone
+    Token {
+        /// The group of which is included in scope
+        #[arg(short = 'g', long)]
+        group: Option<String>,
+        /// The tag which is included in scope
+        #[arg(short = 't', long)]
+        tag: Option<String>,
+        /// Name given to token (creater name / reason for creating token)
+        #[arg(short = 'n', long, default_value = "envseal-token")]
+        name: String,
+        /// Description of token (whats the scope, what it is used for etc...)
+        #[arg(short = 'd', long)]
+        desc: Option<String>,
+        /// Securely write the token directly to a file (restricted permissions)
+        #[arg(short = 'o', long)]
+        out: Option<PathBuf>,
+        keys: Vec<String>,
+    },
+    /// Rotate the Data Encryption Key (DEK) for a specific scope
+    ///
+    /// Invalidates all existing zero-trust tokens for the target scope by re-encrypting
+    /// the variables with a freshly generated cryptographic key.
+    Rotate {
+        #[arg(short, long)]
+        group: Option<String>,
+        #[arg(short, long)]
+        tag: Option<String>,
     },
 }

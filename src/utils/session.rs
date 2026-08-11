@@ -1,16 +1,28 @@
+use super::crypto;
 use anyhow::Result;
+use base64::Engine;
 use keyring::Entry;
 use serde::{Deserialize, Serialize};
 use std::time::{SystemTime, UNIX_EPOCH};
-use zeroize::Zeroize;
+use zeroize::{Zeroize, ZeroizeOnDrop};
 
 const SERVICE_NAME: &str = "envseal";
 const SESSION_TIMEOUT_SEC: u64 = 600; // 10 minutes
 
-#[derive(Serialize, Deserialize, Zeroize)]
-#[zeroize(drop)]
+#[derive(Serialize, Deserialize, Zeroize, ZeroizeOnDrop)]
+pub enum CachedKeys {
+    Master {
+        kek: [u8; crypto::KEY_LEN],
+        seed: [u8; crypto::KEY_LEN],
+    },
+    Tag {
+        dek: [u8; crypto::KEY_LEN],
+    },
+}
+
+#[derive(Serialize, Deserialize, Zeroize, ZeroizeOnDrop)]
 struct SessionData {
-    password: String,
+    keys: CachedKeys,
     expires_at: u64,
 }
 
@@ -22,41 +34,46 @@ impl SessionManager {
         Ok(Entry::new(SERVICE_NAME, scope)?)
     }
 
-    /// Caches the password and sets/resets the 15 minute timer
-    pub fn cache_password(scope: &str, password: &str) -> Result<()> {
+    /// Caches the keys and sets/resets the 10 minute timer
+    pub fn cache_keys(scope: &str, keys: CachedKeys) -> Result<()> {
         let expires_at =
             SystemTime::now().duration_since(UNIX_EPOCH)?.as_secs() + SESSION_TIMEOUT_SEC;
-
-        let session = SessionData {
-            password: password.to_string(),
-            expires_at,
-        };
-
+        let session = SessionData { keys, expires_at };
         let entry = Self::get_entry(scope)?;
-        entry.set_password(&serde_json::to_string(&session)?)?;
+
+        let serialized =
+            base64::engine::general_purpose::STANDARD.encode(rmp_serde::to_vec(&session)?);
+        entry.set_password(&serialized)?;
         Ok(())
     }
 
-    /// Removes the cached password
+    /// Removes the cached keys
     pub fn clear_session(scope: &str) -> Result<()> {
         let _ = Self::get_entry(scope)?.delete_credential();
         Ok(())
     }
 
-    /// Retrieves the password if it hasn't expired
-    pub fn get_active_password(scope: &str) -> Result<Option<String>> {
+    /// Retrieves the keys if it hasn't expired
+    pub fn get_active_keys(scope: &str) -> Result<Option<CachedKeys>> {
         let entry = match Self::get_entry(scope) {
             Ok(e) => e,
-            Err(_) => return Ok(None), // no keyring
-        };
-
-        let serialized = match entry.get_password() {
-            Ok(pw) => pw,
-            Err(keyring::Error::NoEntry) => return Ok(None),
             Err(_) => return Ok(None),
         };
 
-        let session: SessionData = match serde_json::from_str(&serialized) {
+        let encoded = match entry.get_password() {
+            Ok(pw) => pw,
+            Err(_) => return Ok(None),
+        };
+
+        let bytes = match base64::engine::general_purpose::STANDARD.decode(encoded) {
+            Ok(b) => b,
+            Err(_) => {
+                let _ = Self::clear_session(scope);
+                return Ok(None);
+            }
+        };
+
+        let mut session: SessionData = match rmp_serde::from_slice(&bytes) {
             Ok(s) => s,
             Err(_) => {
                 let _ = Self::clear_session(scope);
@@ -65,12 +82,13 @@ impl SessionManager {
         };
 
         let now = SystemTime::now().duration_since(UNIX_EPOCH)?.as_secs();
-
         if now > session.expires_at {
             let _ = Self::clear_session(scope);
             Ok(None)
         } else {
-            Ok(Some(session.password.clone()))
+            let valid_keys =
+                std::mem::replace(&mut session.keys, CachedKeys::Tag { dek: [0u8; 32] });
+            Ok(Some(valid_keys))
         }
     }
 }

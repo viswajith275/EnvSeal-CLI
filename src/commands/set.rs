@@ -13,7 +13,7 @@ pub fn cmd_set(
     let mut vault = Vault::load(global, pref)?;
 
     let group_name = vault.resolve_group_name(group)?;
-    let derived = unlock::sudo_unlock(&vault)?;
+    let master_keys = unlock::sudo_unlock(&vault)?;
 
     let mut tag_key = None;
     if vault.is_tag_protected(group, tag)? {
@@ -28,7 +28,7 @@ pub fn cmd_set(
 
     let secret = Zeroizing::new(prompt_password(format!("value for {key}: "))?);
 
-    vault.set_entry(&derived, group, tag, key, &secret, tag_key.as_deref())?;
+    vault.set_entry(&master_keys, group, tag, key, &secret, tag_key.as_deref())?;
     vault.save()?;
 
     let location_label = if vault.is_local() { "local" } else { "global" };

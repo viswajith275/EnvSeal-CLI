@@ -8,5 +8,7 @@ pub mod list;
 pub mod load;
 pub mod protag;
 pub mod remove;
+pub mod rotate;
 pub mod run;
 pub mod set;
+pub mod token;

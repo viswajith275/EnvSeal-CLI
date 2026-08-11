@@ -10,7 +10,7 @@ pub fn cmd_remove(
     pref: Option<&str>,
 ) -> Result<()> {
     let mut vault = Vault::load(global, pref)?;
-    let derived = unlock::sudo_unlock(&vault)?;
+    let master_keys = unlock::sudo_unlock(&vault)?;
 
     let mut tag_key = None;
     if vault.is_tag_protected(group, tag)? {
@@ -31,7 +31,13 @@ pub fn cmd_remove(
         .interact()
         .unwrap();
     if confirmation {
-        vault.remove_entry(&derived.hmac_key, group, tag, key, tag_key.as_deref())?;
+        vault.remove_entry(
+            &master_keys.signing_key,
+            group,
+            tag,
+            key,
+            tag_key.as_deref(),
+        )?;
         vault.save()?;
         eprintln!("deletion successful!!");
     } else {

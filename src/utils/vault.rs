@@ -1,204 +1,163 @@
 use super::crypto;
+use super::token::TokenPayload;
 use anyhow::{anyhow, Context, Result};
-use base64::Engine;
 use directories::ProjectDirs;
+use ed25519_dalek::{Signature, Signer, SigningKey, Verifier, VerifyingKey};
 use serde::{Deserialize, Serialize};
-use std::collections::{BTreeMap, HashMap};
+use std::collections::{BTreeMap, HashSet};
 use std::env;
 use std::fmt;
 use std::fs;
+use std::fs::File;
+use std::fs::OpenOptions;
 use std::hash::DefaultHasher;
 use std::hash::Hash;
 use std::hash::Hasher;
-use std::io::Write;
-use std::path::Path;
-use std::path::PathBuf;
+use std::io::{Read, Write};
+use std::path::{Path, PathBuf};
 use tempfile::NamedTempFile;
 use zeroize::{Zeroize, ZeroizeOnDrop, Zeroizing};
 
-pub const CANARY_PLAINTEXT: &str = "envseal-Encrypted";
 pub const BASE_TAG: &str = "base";
 const LOCAL_GROUP_NAME: &str = "project";
 
 #[derive(Zeroize, ZeroizeOnDrop)]
 pub struct VaultKeys {
-    pub enc_key: Zeroizing<[u8; crypto::KEY_LEN]>,
-    pub hmac_key: Zeroizing<[u8; crypto::HMAC_KEY_LEN]>,
+    pub master_kek: Zeroizing<[u8; crypto::KEY_LEN]>, // used for rotating keys
+    pub master_dek: Zeroizing<[u8; crypto::KEY_LEN]>, // used as master key
+    #[zeroize(skip)]
+    pub signing_key: SigningKey,  // for signing the file
 }
 
 impl fmt::Debug for VaultKeys {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("VaultKeys")
-            .field("enc_key", &"[REDACTED]")
-            .field("hmac_key", &"[REDACTED]")
+            .field("master_kek", &"[REDACTED]")
+            .field("master_dek", &"[REDACTED]")
+            .field("signing_key", &"[REDACTED]")
             .finish()
     }
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, Clone)]
 pub struct Entry {
-    nonce: String,
-    ciphertext: String,
+    pub nonce: Vec<u8>,
+    pub ciphertext: Vec<u8>,
 }
 
-#[derive(Serialize, Deserialize, Default)]
+#[derive(Serialize, Deserialize, Default, Clone)]
 pub struct Tag {
-    pub salt: Option<String>,
-    pub canary: Option<Entry>,
-    pub entries: HashMap<String, Entry>,
+    pub salt: Option<Vec<u8>>,
+    pub wrapped_tag_dek: Option<Entry>,
+    pub entries: BTreeMap<String, Entry>,
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, Clone)]
 pub struct Group {
-    link: PathBuf,
-    base: HashMap<String, Entry>,
-    pub tags: HashMap<String, Tag>,
+    pub link: PathBuf,
+    pub base: BTreeMap<String, Entry>,
+    pub tags: BTreeMap<String, Tag>,
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, Clone)]
 pub struct Vault {
-    salt: String,
-    canary: Entry,
-    link_index: HashMap<PathBuf, String>,
-    // used for fetching group
-    pub entries: HashMap<String, Group>,
+    pub salt: Vec<u8>,
+    pub public_key: Vec<u8>,
+    pub wrapped_master_dek: Entry,
+    pub link_index: BTreeMap<PathBuf, String>,
+    pub entries: BTreeMap<String, Group>,
+
     #[serde(default)]
-    hmac: String,
+    pub signature: Vec<u8>,
+
     #[serde(skip)]
-    file_path: Option<PathBuf>,
-}
-
-// Canonical data structures used for hmac
-#[derive(Serialize)]
-struct CanonicalEntry<'a> {
-    nonce: &'a str,
-    ciphertext: &'a str,
-}
-
-#[derive(Serialize)]
-struct CanonicalTag<'a> {
-    salt: Option<&'a str>,
-    canary: Option<CanonicalEntry<'a>>,
-    entries: BTreeMap<&'a str, CanonicalEntry<'a>>,
-}
-
-#[derive(Serialize)]
-struct CanonicalGroup<'a> {
-    link: &'a PathBuf,
-    base: BTreeMap<&'a str, CanonicalEntry<'a>>,
-    tags: BTreeMap<&'a str, CanonicalTag<'a>>,
-}
-
-#[derive(Serialize)]
-struct CanonicalVault<'a> {
-    salt: &'a str,
-    canary: CanonicalEntry<'a>,
-    link_index: BTreeMap<&'a PathBuf, &'a str>,
-    entries: BTreeMap<&'a str, CanonicalGroup<'a>>,
+    pub file_path: Option<PathBuf>,
 }
 
 impl Vault {
-    /// turns the canonical vault into signable bytes
+    /// turns the vault into signable bytes
     fn signable_bytes(&self) -> Result<Vec<u8>> {
-        // Reads the vault into canonical structure
-        let entries: BTreeMap<&str, CanonicalGroup> = self
+        let mut clone = self.clone();
+        clone.signature = vec![];
+        Ok(rmp_serde::to_vec(&clone)?)
+    }
+
+    /// Computes and updates the Ed25519 signature
+    pub fn seal_integrity(&mut self, signing_key: &SigningKey) -> Result<()> {
+        let bytes = self.signable_bytes()?;
+        self.signature = signing_key.sign(&bytes).to_bytes().to_vec();
+        Ok(())
+    }
+
+    /// Verifies the integrity of the files with Ed25519
+    pub fn verify_integrity(&self) -> Result<()> {
+        let verifying_key = VerifyingKey::from_bytes(self.public_key.as_slice().try_into()?)
+            .map_err(|_| anyhow!("Public key is corrupted!!"))?;
+
+        let signature = Signature::from_slice(&self.signature)
+            .map_err(|_| anyhow!("Corrupted signature format in vault!!"))?;
+
+        verifying_key
+            .verify(&self.signable_bytes()?, &signature)
+            .map_err(|_| anyhow!("SEAL TAMPERED: Ed25519 signature verification failed!!"))?;
+
+        Ok(())
+    }
+
+    /// Universally decrypts any requested keys if the token possesses the derived key
+    pub fn decrypt_from_token(
+        &self,
+        group: Option<&str>,
+        tag: Option<&str>,
+        token_payload: &TokenPayload,
+    ) -> Result<BTreeMap<String, Zeroizing<String>>> {
+        let mut decrypted_map = BTreeMap::new();
+        let group_name = self.resolve_group_name(group)?;
+        let active_tag = tag.unwrap_or(BASE_TAG);
+
+        let group_entry = self
             .entries
-            .iter()
-            .map(|(name, group)| {
-                let base: BTreeMap<&str, CanonicalEntry> = group
-                    .base
-                    .iter()
-                    .map(|(k, e)| {
-                        (
-                            k.as_str(),
-                            CanonicalEntry {
-                                nonce: &e.nonce,
-                                ciphertext: &e.ciphertext,
-                            },
-                        )
-                    })
-                    .collect();
+            .get(&group_name)
+            .ok_or_else(|| anyhow::anyhow!("Group not found!!"))?;
 
-                let tags: BTreeMap<&str, CanonicalTag> = group
-                    .tags
-                    .iter()
-                    .map(|(tag_name, tag)| {
-                        let inner_entries: BTreeMap<&str, CanonicalEntry> = tag
-                            .entries
-                            .iter()
-                            .map(|(k, e)| {
-                                (
-                                    k.as_str(),
-                                    CanonicalEntry {
-                                        nonce: &e.nonce,
-                                        ciphertext: &e.ciphertext,
-                                    },
-                                )
-                            })
-                            .collect();
+        let crate::utils::token::TokenKeyMaterial::GranularKeys(keys_map) =
+            &token_payload.key_material;
 
-                        let canary = tag.canary.as_ref().map(|c| CanonicalEntry {
-                            nonce: &c.nonce,
-                            ciphertext: &c.ciphertext,
-                        });
+        // Check base entries
+        for (var_name, entry) in &group_entry.base {
+            if let Some(derived_key_bytes) = keys_map.get(var_name) {
+                let mut entry_key = [0u8; crate::utils::crypto::KEY_LEN];
+                entry_key.copy_from_slice(derived_key_bytes.as_slice());
 
-                        (
-                            tag_name.as_str(),
-                            CanonicalTag {
-                                salt: tag.salt.as_deref(),
-                                canary,
-                                entries: inner_entries,
-                            },
-                        )
-                    })
-                    .collect();
+                let pt_bytes =
+                    crate::utils::crypto::decrypt(&entry_key, &entry.nonce, &entry.ciphertext)?;
+                let plaintext = String::from_utf8(pt_bytes).map_err(|_| {
+                    anyhow::anyhow!("Failed to parse decrypted data as a valid UTF-8 string!!")
+                })?;
 
-                (
-                    name.as_str(),
-                    CanonicalGroup {
-                        link: &group.link,
-                        base,
-                        tags,
-                    },
-                )
-            })
-            .collect();
-
-        let link_index: BTreeMap<&PathBuf, &str> = self
-            .link_index
-            .iter()
-            .map(|(k, v)| (k, v.as_str()))
-            .collect();
-
-        let canon = CanonicalVault {
-            salt: &self.salt,
-            canary: CanonicalEntry {
-                nonce: &self.canary.nonce,
-                ciphertext: &self.canary.ciphertext,
-            },
-            link_index,
-            entries,
-        };
-        Ok(serde_json::to_vec(&canon)?)
-    }
-
-    /// computes and updated hmac
-    pub fn seal_integrity(&mut self, hmac_key: &[u8; crypto::HMAC_KEY_LEN]) -> Result<()> {
-        let bytes = self.signable_bytes()?;
-        let tag = crypto::compute_hmac(hmac_key, &bytes);
-        self.hmac = b64_encode(&tag);
-        Ok(())
-    }
-
-    /// verifies if the seal has been tampered with by checking hmac
-    pub fn verify_integrity(&self, hmac_key: &[u8; crypto::HMAC_KEY_LEN]) -> Result<()> {
-        let stored = self.hmac.as_ref();
-        let bytes = self.signable_bytes()?;
-        let tag = b64_decode(stored)?;
-        if !crypto::verify_hmac(hmac_key, &bytes, &tag) {
-            return Err(anyhow!("SEAL TAMPERED: HMAC verification failed!"));
+                decrypted_map.insert(var_name.clone(), zeroize::Zeroizing::new(plaintext));
+            }
         }
-        Ok(())
+
+        // Check tag entries (Overwrites base decrypted values if duplicate)
+        if let Some(tag_entry) = group_entry.tags.get(active_tag) {
+            for (var_name, entry) in &tag_entry.entries {
+                if let Some(derived_key_bytes) = keys_map.get(var_name) {
+                    let mut entry_key = [0u8; crate::utils::crypto::KEY_LEN];
+                    entry_key.copy_from_slice(derived_key_bytes.as_slice());
+
+                    let pt_bytes =
+                        crate::utils::crypto::decrypt(&entry_key, &entry.nonce, &entry.ciphertext)?;
+                    let plaintext = String::from_utf8(pt_bytes).map_err(|_| {
+                        anyhow::anyhow!("Failed to parse decrypted data as a valid UTF-8 string!")
+                    })?;
+
+                    decrypted_map.insert(var_name.clone(), zeroize::Zeroizing::new(plaintext));
+                }
+            }
+        }
+
+        Ok(decrypted_map)
     }
 
     /// Generates a unique session cache scope string derived from the vault's path
@@ -285,93 +244,113 @@ impl Vault {
     pub fn init(password: &str, local: bool, global: bool, pref: Option<&str>) -> Result<()> {
         let path = Self::resolve_path(local, global, pref)?;
         if path.exists() {
-            return Err(anyhow!(
-                "Seal already exists at {:?}! Refusing to overwrite...",
-                path
-            ));
+            return Err(anyhow!("Seal already exists at {:?}!", path));
         }
 
         let salt = crypto::generate_salt();
-        let (enc_key, hmac_key) = crypto::derive_keys(password, &salt)?;
-        let (nonce, ciphertext) = crypto::encrypt(&enc_key, CANARY_PLAINTEXT)?;
 
-        let mut entries = HashMap::new();
+        // Derive KEK and Signing Key
+        let (master_kek, signing_key) = crypto::derive_master_keys(password, &salt)?;
+        let public_key = signing_key.verifying_key().to_bytes().to_vec();
 
-        // If local, automatically instantiate the root project group
+        let master_dek = crypto::generate_dek();
+        let (nonce, ciphertext) = crypto::encrypt(&master_kek, &*master_dek)?;
+
+        let mut entries = BTreeMap::new();
+
         if local {
             entries.insert(
                 LOCAL_GROUP_NAME.to_string(),
                 Group {
                     link: PathBuf::new(),
-                    base: HashMap::new(),
-                    tags: HashMap::new(),
+                    base: BTreeMap::new(),
+                    tags: BTreeMap::new(),
                 },
             );
         }
 
         let mut vault = Vault {
-            salt: b64_encode(&salt),
-            canary: Entry {
-                nonce: b64_encode(&nonce),
-                ciphertext: b64_encode(&ciphertext),
-            },
-            link_index: HashMap::new(),
+            salt: salt.to_vec(),
+            public_key,
+            wrapped_master_dek: Entry { nonce, ciphertext },
+            link_index: BTreeMap::new(),
             entries,
-            hmac: String::new(),
+            signature: vec![], // intialy empty done by seal_integrity
             file_path: Some(path),
         };
 
-        vault.seal_integrity(&hmac_key)?;
+        vault.seal_integrity(&signing_key)?;
         vault.save()
     }
 
     /// loads json to structures
     pub fn load(force_global: bool, pref: Option<&str>) -> Result<Self> {
         let path = Self::resolve_path(false, force_global, pref)?;
-        let data = fs::read_to_string(&path)
-            .map_err(|_| anyhow!("No seal found run 'envseal init' first!!"))?;
+        let lock_path = path.with_extension("lock");
 
-        let mut vault: Vault = serde_json::from_str(&data)?;
+        let lock_file = OpenOptions::new()
+            .write(true)
+            .create(true)
+            .truncate(true)
+            .open(&lock_path)?;
+        lock_file.lock_shared()?;
 
+        let mut file = File::open(&path)?;
+        let mut data = Vec::new();
+        file.read_to_end(&mut data)?;
+
+        lock_file.unlock()?;
+
+        let mut vault: Vault = rmp_serde::from_slice(&data)?;
         vault.file_path = Some(path);
-
         Ok(vault)
     }
 
-    /// atomically saves the changed structure into json
+    /// Atomically saves the structure using MessagePack (rmp_serde).
     pub fn save(&self) -> Result<()> {
         let path = self
             .file_path
             .as_ref()
-            .ok_or_else(|| anyhow!("Vault path is not set!!"))?;
+            .ok_or_else(|| anyhow!("No file path configured for this vault!!"))?;
+
+        let lock_path = path.with_extension("lock");
+
+        if let Some(parent) = lock_path.parent() {
+            fs::create_dir_all(parent)
+                .with_context(|| format!("Failed to create directory {}", parent.display()))?;
+        }
+
+        let lock_file = OpenOptions::new()
+            .write(true)
+            .create(true)
+            .truncate(true)
+            .open(&lock_path)
+            .with_context(|| format!("Failed to open lock file {}", lock_path.display()))?;
+
+        lock_file
+            .lock()
+            .with_context(|| format!("Failed to acquire lock on {}", lock_path.display()))?;
 
         let parent_dir = path.parent().unwrap_or_else(|| Path::new("."));
 
-        fs::create_dir_all(parent_dir).with_context(|| {
-            format!(
-                "Failed to create directory structure for '{}'",
-                parent_dir.display()
-            )
-        })?;
+        let mut temp_file = NamedTempFile::new_in(parent_dir)
+            .with_context(|| format!("Failed to create temp file in {}", parent_dir.display()))?;
 
-        let mut temp_file = NamedTempFile::new_in(parent_dir).with_context(|| {
-            format!(
-                "Failed to create temporary file in '{}'",
-                parent_dir.display()
-            )
-        })?;
+        let binary_data =
+            rmp_serde::to_vec(self).context("Failed to serialize vault to MessagePack")?;
 
-        let json_data = serde_json::to_string_pretty(self)?;
-        temp_file.write_all(json_data.as_bytes())?;
-        temp_file.flush()?;
+        temp_file
+            .write_all(&binary_data)
+            .context("Failed to write serialized data to temp file")?;
+        temp_file.flush().context("Failed to flush temp file")?;
 
-        temp_file.persist(path).map_err(|e| {
-            anyhow!(
-                "Failed to atomically write vault file to '{}': {}",
-                path.display(),
-                e.error
-            )
-        })?;
+        temp_file
+            .persist(path)
+            .map_err(|e| e.error)
+            .with_context(|| format!("Failed to persist temp file to {}", path.display()))?;
+
+        let _ = lock_file.unlock();
+        let _ = fs::remove_file(&lock_path);
 
         Ok(())
     }
@@ -400,30 +379,96 @@ impl Vault {
         }
     }
 
+    /// rotate all the dek of the scope
+    pub fn rotate_scope_dek(
+        &mut self,
+        keys: &VaultKeys,
+        group: Option<&str>,
+        tag: Option<&str>,
+        old_tag_dek: Option<&[u8; crypto::KEY_LEN]>,
+        tag_password: Option<&str>,
+    ) -> Result<()> {
+        let group_name = self.resolve_group_name(group)?;
+        let active_tag = tag.unwrap_or(BASE_TAG);
+
+        let all_keys = self.list_all_keys(group, tag)?;
+        let mut plaintexts = BTreeMap::new();
+
+        for k in &all_keys {
+            plaintexts.insert(
+                k.clone(),
+                self.get_entry(&keys.master_dek, group, tag, k, old_tag_dek)?,
+            );
+        }
+
+        let new_dek = crypto::generate_dek();
+        let group_entry = self.entries.get_mut(&group_name).unwrap();
+
+        if active_tag == BASE_TAG {
+            let (nonce, ciphertext) = crypto::encrypt(&keys.master_kek, &*new_dek)?;
+            self.wrapped_master_dek = Entry { nonce, ciphertext };
+
+            for (k, v) in plaintexts {
+                let scope_dek = crypto::derive_scope_dek(&new_dek, &group_name, BASE_TAG);
+                let entry_key = crypto::derive_entry_key(&scope_dek, &k);
+                let (n, c) = crypto::encrypt(&entry_key, v.as_bytes())?;
+                group_entry.base.insert(
+                    k,
+                    Entry {
+                        nonce: n,
+                        ciphertext: c,
+                    },
+                );
+            }
+        } else {
+            let tag_entry = group_entry.tags.get_mut(active_tag).unwrap();
+
+            let tp = tag_password.ok_or_else(|| anyhow!("Tag password required!"))?;
+            let tag_kek = crypto::derive_key(tp, tag_entry.salt.as_ref().unwrap())?;
+            let (nonce, ciphertext) = crypto::encrypt(&tag_kek, &*new_dek)?;
+
+            tag_entry.wrapped_tag_dek = Some(Entry { nonce, ciphertext });
+
+            for (k, v) in plaintexts {
+                let entry_key = crypto::derive_entry_key(&new_dek, &k);
+                let (n, c) = crypto::encrypt(&entry_key, v.as_bytes())?;
+                tag_entry.entries.insert(
+                    k,
+                    Entry {
+                        nonce: n,
+                        ciphertext: c,
+                    },
+                );
+            }
+        }
+
+        self.seal_integrity(&keys.signing_key)?;
+        Ok(())
+    }
+
     /// unlock protected tags
     fn unlock_tag_key(tag: &Tag, password: &str) -> Result<Zeroizing<[u8; crypto::KEY_LEN]>> {
-        let salt_str = tag
+        let salt = tag
             .salt
             .as_ref()
             .ok_or_else(|| anyhow!("Tag is not protected!!"))?;
-        let canary = tag
-            .canary
+        let wrapped_dek = tag
+            .wrapped_tag_dek
             .as_ref()
-            .ok_or_else(|| anyhow!("Corrupted tag: missing canary!!"))?;
+            .ok_or_else(|| anyhow!("Corrupted tag: missing wrapped DEK!!"))?;
 
-        let salt = b64_decode(salt_str)?;
-        let enc_key = crypto::derive_key(password, &salt)?;
+        let tag_kek = crypto::derive_key(password, salt)?;
 
-        let nonce = b64_decode(&canary.nonce)?;
-        let ciphertext = b64_decode(&canary.ciphertext)?;
-        let plaintext = crypto::decrypt(&enc_key, &nonce, &ciphertext)
-            .map_err(|_| anyhow!("Wrong Tag Password!!"))?;
+        let nonce = &wrapped_dek.nonce;
+        let ciphertext = &wrapped_dek.ciphertext;
 
-        if plaintext != CANARY_PLAINTEXT {
-            return Err(anyhow!("Wrong Tag Password!!"));
-        }
+        let tag_dek_bytes = crypto::decrypt(&tag_kek, nonce, ciphertext)
+            .map_err(|_| anyhow!("Wrong tag password!!"))?;
 
-        Ok(enc_key)
+        let mut tag_dek = [0u8; crypto::KEY_LEN];
+        tag_dek.copy_from_slice(&tag_dek_bytes);
+
+        Ok(Zeroizing::new(tag_dek))
     }
 
     /// public unlock tag func
@@ -448,59 +493,61 @@ impl Vault {
         Self::unlock_tag_key(tag_entry, tag_password)
     }
 
-    /// unlock master key and hmac key
+    /// unlock master key and
     pub fn unlock(&self, password: &str) -> Result<VaultKeys> {
-        let salt = b64_decode(&self.salt)?;
-        let (enc_key, hmac_key) = crypto::derive_keys(password, &salt)?;
+        let salt = &self.salt;
+        let (master_kek, signing_key) = crypto::derive_master_keys(password, salt)?;
 
-        let nonce = b64_decode(&self.canary.nonce)?;
-        let ciphertext = b64_decode(&self.canary.ciphertext)?;
-        let plaintext = crypto::decrypt(&enc_key, &nonce, &ciphertext)
-            .map_err(|_| anyhow!("Wrong Master Password!"))?;
+        self.verify_integrity()?;
 
-        // checking if the password is correct
-        if plaintext != CANARY_PLAINTEXT {
-            return Err(anyhow!("Wrong Master Password!"));
-        }
+        let nonce = &self.wrapped_master_dek.nonce;
+        let ciphertext = &self.wrapped_master_dek.ciphertext;
 
-        self.verify_integrity(&hmac_key)?;
+        let master_dek_bytes = crypto::decrypt(&master_kek, nonce, ciphertext)
+            .map_err(|_| anyhow!("Wrong master password!!!"))?;
 
-        Ok(VaultKeys { enc_key, hmac_key })
+        let mut master_dek = [0u8; crypto::KEY_LEN];
+        master_dek.copy_from_slice(&master_dek_bytes);
+
+        Ok(VaultKeys {
+            master_kek,
+            master_dek: Zeroizing::new(master_dek),
+            signing_key,
+        })
     }
 
     /// link group to current directory
-    pub fn link_group(&mut self, hmac_key: &[u8; crypto::HMAC_KEY_LEN], group: &str) -> Result<()> {
+    pub fn link_group(&mut self, signing_key: &SigningKey, group: &str) -> Result<()> {
         if self.is_local() {
             return Err(anyhow!("Local .envseal vaults are automatically bound to their directory. Linking is only used for the global vault!!"));
         }
 
-        // Remove existing links
         if let Some(existing_group) = self.entries.get(group) {
             self.link_index.remove(&existing_group.link);
         }
-        // get current path and create an entry if doesnt exist
+
         let cur_dir = env::current_dir()?;
         let group_entry = self
             .entries
             .entry(group.to_string())
             .or_insert_with(|| Group {
                 link: PathBuf::new(),
-                base: HashMap::new(),
-                tags: HashMap::new(),
+                base: BTreeMap::new(),
+                tags: BTreeMap::new(),
             });
 
         group_entry.link = cur_dir.to_path_buf();
         self.link_index
             .insert(cur_dir.to_path_buf(), group.to_string());
 
-        self.seal_integrity(hmac_key)?;
+        self.seal_integrity(signing_key)?;
         Ok(())
     }
 
     /// create protected tag inside group
     pub fn create_protected_tag(
         &mut self,
-        hmac_key: &[u8; crypto::HMAC_KEY_LEN],
+        signing_key: &SigningKey,
         group: Option<&str>,
         tag: &str,
         tag_password: &str,
@@ -518,8 +565,8 @@ impl Vault {
             .entry(group_name.clone())
             .or_insert_with(|| Group {
                 link: PathBuf::new(),
-                base: HashMap::new(),
-                tags: HashMap::new(),
+                base: BTreeMap::new(),
+                tags: BTreeMap::new(),
             });
 
         if group_entry.tags.contains_key(tag) {
@@ -529,26 +576,28 @@ impl Vault {
         }
 
         let salt = crypto::generate_salt();
-        let enc_key = crypto::derive_key(tag_password, &salt)?;
-        let (nonce, ciphertext) = crypto::encrypt(&enc_key, CANARY_PLAINTEXT)?;
+        let tag_kek = crypto::derive_key(tag_password, &salt)?;
+
+        let tag_dek = crypto::generate_dek();
+        let (nonce, ciphertext) = crypto::encrypt(&tag_kek, &*tag_dek)?;
 
         group_entry.tags.insert(
             tag.to_string(),
             Tag {
-                salt: Some(b64_encode(&salt)),
-                canary: Some(Entry {
-                    nonce: b64_encode(&nonce),
-                    ciphertext: b64_encode(&ciphertext),
+                salt: Some(salt.to_vec()),
+                wrapped_tag_dek: Some(Entry {
+                    nonce: nonce,
+                    ciphertext: ciphertext,
                 }),
-                entries: HashMap::new(),
+                entries: BTreeMap::new(),
             },
         );
 
-        self.seal_integrity(hmac_key)?;
+        self.seal_integrity(signing_key)?;
         Ok(())
     }
 
-    /// check if a tag is protected or not
+    /// Check if a tag is protected or not
     pub fn is_tag_protected(&self, group: Option<&str>, tag: Option<&str>) -> Result<bool> {
         let tag = match tag {
             Some(val) => val,
@@ -571,7 +620,7 @@ impl Vault {
         }
     }
 
-    /// set entry into group/tag
+    /// Set entry into group/tag
     pub fn set_entry(
         &mut self,
         keys: &VaultKeys,
@@ -582,64 +631,65 @@ impl Vault {
         tag_key: Option<&[u8; crypto::KEY_LEN]>,
     ) -> Result<()> {
         let group_name = self.resolve_group_name(group)?;
-
-        let group_entry = self.entries.entry(group_name).or_insert_with(|| Group {
-            link: PathBuf::new(),
-            base: HashMap::new(),
-            tags: HashMap::new(),
-        });
+        let group_entry = self
+            .entries
+            .entry(group_name.clone())
+            .or_insert_with(|| Group {
+                link: PathBuf::new(),
+                base: BTreeMap::new(),
+                tags: BTreeMap::new(),
+            });
 
         let active_tag = tag.unwrap_or(BASE_TAG);
 
-        if active_tag == BASE_TAG {
-            // Base group uses master key
-            let (nonce, ciphertext) = crypto::encrypt(&keys.enc_key, value)?;
-            group_entry.base.insert(
-                name.to_string(),
-                Entry {
-                    nonce: b64_encode(&nonce),
-                    ciphertext: b64_encode(&ciphertext),
-                },
-            );
+        let active_scope_dek = if active_tag == BASE_TAG {
+            // Unprotected Base Tag: Derive from Master DEK
+            crypto::derive_scope_dek(&keys.master_dek, &group_name, active_tag)
         } else {
             let tag_entry = group_entry.tags.entry(active_tag.to_string()).or_default();
-
-            let actually_protected = tag_entry.salt.is_some();
-
-            let (nonce, ciphertext) = if actually_protected {
-                let tag_key = tag_key.ok_or_else(|| {
+            if tag_entry.salt.is_some() {
+                // Protected Tag: Uses its own wrapped Tag DEK
+                let tp = tag_key.ok_or_else(|| {
                     anyhow!("Tag '{active_tag}' is protected! Password required!!")
                 })?;
-
-                crypto::encrypt(tag_key, value)?
+                *tp
             } else {
-                crypto::encrypt(&keys.enc_key, value)?
-            };
+                // Unprotected Tag: Derive from Master DEK
+                crypto::derive_scope_dek(&keys.master_dek, &group_name, active_tag)
+            }
+        };
 
-            tag_entry.entries.insert(
-                name.to_string(),
-                Entry {
-                    nonce: b64_encode(&nonce),
-                    ciphertext: b64_encode(&ciphertext),
-                },
-            );
+        // Derives the specific variable key
+        let specific_entry_key = crypto::derive_entry_key(&active_scope_dek, name);
+
+        let (nonce, ciphertext) = crypto::encrypt(&specific_entry_key, value.as_bytes())?;
+
+        let entry = Entry {
+            nonce: nonce,
+            ciphertext: ciphertext,
+        };
+
+        if active_tag == BASE_TAG {
+            group_entry.base.insert(name.to_string(), entry);
+        } else {
+            let tag_entry = group_entry.tags.entry(active_tag.to_string()).or_default();
+            tag_entry.entries.insert(name.to_string(), entry);
         }
 
-        self.seal_integrity(&keys.hmac_key)?;
+        self.seal_integrity(&keys.signing_key)?;
         Ok(())
     }
 
-    /// fetches and decrypts an entry from group/tag
+    /// Fetches and decrypts an entry from group/tag
     pub fn get_entry(
         &self,
-        key: &[u8; crypto::KEY_LEN],
+        master_dek: &[u8; crypto::KEY_LEN],
         group: Option<&str>,
         tag: Option<&str>,
         name: &str,
-        tag_key: Option<&[u8; crypto::KEY_LEN]>,
+        tag_dek: Option<&[u8; crypto::KEY_LEN]>,
     ) -> Result<Zeroizing<String>> {
         let group_name = self.resolve_group_name(group)?;
-
         let group_entry = self
             .entries
             .get(&group_name)
@@ -647,50 +697,54 @@ impl Vault {
 
         let active_tag = tag.unwrap_or(BASE_TAG);
 
-        if active_tag == BASE_TAG {
-            let entry = group_entry
-                .base
-                .get(name)
-                .ok_or_else(|| anyhow!("No entry named '{name}' in group '{group_name}'!!"))?;
+        // Check the Active Tag (Overrides base)
+        if active_tag != BASE_TAG {
+            if let Some(tag_entry) = group_entry.tags.get(active_tag) {
+                if let Some(entry) = tag_entry.entries.get(name) {
+                    let active_scope_dek = if tag_entry.salt.is_some() {
+                        let td = tag_dek.ok_or_else(|| {
+                            anyhow!("Password required for protected tag '{active_tag}'!!")
+                        })?;
+                        *td
+                    } else {
+                        crypto::derive_scope_dek(master_dek, &group_name, active_tag)
+                    };
 
-            let nonce = b64_decode(&entry.nonce)?;
-            let ciphertext = b64_decode(&entry.ciphertext)?;
-            let plaintext = crypto::decrypt(key, &nonce, &ciphertext)?;
+                    let entry_key = crypto::derive_entry_key(&active_scope_dek, name);
+                    let nonce = &entry.nonce;
+                    let ciphertext = &entry.ciphertext;
 
-            return Ok(Zeroizing::new(plaintext));
+                    let pt_bytes = crypto::decrypt(&entry_key, nonce, ciphertext)?;
+                    let plaintext = String::from_utf8(pt_bytes).map_err(|_| {
+                        anyhow!("Failed to parse decrypted data as a valid UTF-8 string!!")
+                    })?;
+
+                    return Ok(Zeroizing::new(plaintext));
+                }
+            }
+        } else {
+            if let Some(entry) = group_entry.base.get(name) {
+                let base_scope_dek = crypto::derive_scope_dek(master_dek, &group_name, BASE_TAG);
+                let entry_key = crypto::derive_entry_key(&base_scope_dek, name);
+                let nonce = &entry.nonce;
+                let ciphertext = &entry.ciphertext;
+
+                let pt_bytes = crypto::decrypt(&entry_key, nonce, ciphertext)?;
+                let plaintext = String::from_utf8(pt_bytes).map_err(|_| {
+                    anyhow!("Failed to parse decrypted data as a valid UTF-8 string!!")
+                })?;
+
+                return Ok(Zeroizing::new(plaintext));
+            }
         }
 
-        let tag_entry = group_entry
-            .tags
-            .get(active_tag)
-            .ok_or_else(|| anyhow!("No tag named '{active_tag}' in group '{group_name}'!!"))?;
-
-        let actually_protected = tag_entry.salt.is_some();
-
-        let entry = tag_entry.entries.get(name).ok_or_else(|| {
-            anyhow!("No entry '{name}' in tag '{active_tag}' in '{group_name}'!!")
-        })?;
-
-        let enc_key = if actually_protected {
-            Zeroizing::new(
-                *tag_key.ok_or_else(|| anyhow!("Password required for tag '{active_tag}'!"))?,
-            )
-        } else {
-            Zeroizing::new(*key)
-        };
-
-        let nonce = b64_decode(&entry.nonce)?;
-        let ciphertext = b64_decode(&entry.ciphertext)?;
-
-        let plaintext = crypto::decrypt(&enc_key, &nonce, &ciphertext)?;
-
-        Ok(Zeroizing::new(plaintext))
+        Err(anyhow!("No entry '{name}' found in tag '{active_tag}'!!"))
     }
 
     /// removes an entry from group/tag
     pub fn remove_entry(
         &mut self,
-        hmac_key: &[u8; crypto::HMAC_KEY_LEN],
+        signing_key: &SigningKey,
         group: Option<&str>,
         tag: Option<&str>,
         name: Option<&str>,
@@ -701,11 +755,10 @@ impl Vault {
         let active_tag = tag.unwrap_or(BASE_TAG);
         let name_str = name.unwrap_or("");
 
-        // Remove an entire group (when no tag or name is provided)
         if tag.is_none() && name_str.is_empty() {
             if let Some(removed_group) = self.entries.remove(&group_name) {
                 self.link_index.remove(&removed_group.link);
-                self.seal_integrity(hmac_key)?;
+                self.seal_integrity(signing_key)?;
                 return Ok(());
             } else {
                 return Err(anyhow!("No group named '{group_name}'!!"));
@@ -717,9 +770,7 @@ impl Vault {
             .get_mut(&group_name)
             .ok_or_else(|| anyhow!("No group named '{group_name}'!!"))?;
 
-        // Validation checks
         if active_tag == BASE_TAG {
-            // Reject attempting to remove the whole "base" tag
             if name_str.is_empty() {
                 return Err(anyhow!(
                         "Cannot remove the reserved '{BASE_TAG}' tag entirely. You can only remove individual entries or the entire group!!"
@@ -738,35 +789,29 @@ impl Vault {
             }
         }
 
-        // Remove a whole tag from group (excluding 'base')
         if name_str.is_empty() && active_tag != BASE_TAG {
             group_entry.tags.remove(active_tag);
-            self.seal_integrity(hmac_key)?;
+            self.seal_integrity(signing_key)?;
             return Ok(());
         }
 
-        // Remove an entry inside a tag
         if !name_str.is_empty() && active_tag != BASE_TAG {
             let tag_entry = group_entry.tags.get_mut(active_tag).unwrap();
-
             tag_entry.entries.remove(name_str).ok_or_else(|| {
                 anyhow!(
                     "No entry named '{name_str}' in tag '{active_tag}' in group '{group_name}'!!"
                 )
             })?;
-
-            self.seal_integrity(hmac_key)?;
+            self.seal_integrity(signing_key)?;
             return Ok(());
         }
 
-        // Remove an entry from the base group
         if active_tag == BASE_TAG && !name_str.is_empty() {
             group_entry
                 .base
                 .remove(name_str)
                 .ok_or_else(|| anyhow!("No entry named '{name_str}' in group '{group_name}'!!"))?;
-
-            self.seal_integrity(hmac_key)?;
+            self.seal_integrity(signing_key)?;
         }
 
         Ok(())
@@ -775,38 +820,30 @@ impl Vault {
     /// list all key names(env var names) in a group/tag
     pub fn list_all_keys(&self, group: Option<&str>, tag: Option<&str>) -> Result<Vec<String>> {
         let group_name = self.resolve_group_name(group)?;
-
-        // Geting the group entry
         let group_entry = self
             .entries
-            .get(&group_name.to_string())
+            .get(&group_name)
             .ok_or_else(|| anyhow!("No group named '{group_name}'!!"))?;
 
-        // getting tag (base as default)
-        let active_tag = tag.unwrap_or("base");
+        let active_tag = tag.unwrap_or(BASE_TAG);
 
-        // finding entries inside base and tag
-        let keys: Vec<String> = if active_tag == BASE_TAG {
-            group_entry.base.keys().cloned().collect()
-        } else {
-            group_entry
+        // Load base keys into a HashSet to prevent duplicates
+        let mut keys: HashSet<String> = group_entry.base.keys().cloned().collect();
+
+        // Merge tag keys
+        if active_tag != BASE_TAG {
+            let tag_entry = group_entry
                 .tags
                 .get(active_tag)
-                .ok_or_else(|| anyhow!("No tag named '{active_tag}' in group '{group_name}'!!"))?
-                .entries
-                .keys()
-                .cloned()
-                .collect()
-        };
+                .ok_or_else(|| anyhow!("No tag named '{active_tag}' in group '{group_name}'!!"))?;
 
-        Ok(keys)
+            for k in tag_entry.entries.keys() {
+                keys.insert(k.clone());
+            }
+        }
+
+        let mut sorted_keys: Vec<String> = keys.into_iter().collect();
+        sorted_keys.sort();
+        Ok(sorted_keys)
     }
-}
-
-fn b64_encode(bytes: &[u8]) -> String {
-    base64::engine::general_purpose::STANDARD.encode(bytes)
-}
-
-fn b64_decode(s: &str) -> Result<Vec<u8>> {
-    Ok(base64::engine::general_purpose::STANDARD.decode(s)?)
 }

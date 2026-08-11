@@ -11,13 +11,7 @@ pub fn cmd_list(
     let vault = Vault::load(global, pref)?;
     let group_name = vault.resolve_group_name(group)?;
 
-    let group_keys = vault.list_all_keys(group, None)?;
-    let mut unique_keys: BTreeSet<String> = group_keys.into_iter().collect();
-
-    if let Some(t) = tag {
-        let tag_keys = vault.list_all_keys(group, Some(t))?;
-        unique_keys.extend(tag_keys);
-    }
+    let unique_keys: BTreeSet<String> = vault.list_all_keys(group, tag)?.into_iter().collect();
 
     let location = if vault.is_local() { "local" } else { "global" };
     let header = match tag {
@@ -28,7 +22,6 @@ pub fn cmd_list(
     eprintln!("{header}");
     eprintln!("--------------------");
 
-    // 5. Output sorted keys or empty state
     if unique_keys.is_empty() {
         eprintln!("(no keys found)");
     } else {

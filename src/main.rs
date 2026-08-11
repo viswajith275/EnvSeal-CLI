@@ -34,12 +34,32 @@ fn main() -> Result<()> {
         cli::Commands::Set { group, tag, key } => {
             commands::set::cmd_set(group.as_deref(), tag.as_deref(), &key, global, pref)
         }
-        cli::Commands::Get { group, tag, key } => {
-            commands::get::cmd_get(group.as_deref(), tag.as_deref(), &key, global, pref)
-        }
-        cli::Commands::Load { group, tag, keys } => {
-            commands::load::cmd_load(group.as_deref(), tag.as_deref(), &keys, global, pref)
-        }
+        cli::Commands::Get {
+            group,
+            tag,
+            key,
+            token_file,
+        } => commands::get::cmd_get(
+            group.as_deref(),
+            tag.as_deref(),
+            &key,
+            token_file.as_ref(),
+            global,
+            pref,
+        ),
+        cli::Commands::Load {
+            group,
+            tag,
+            keys,
+            token_file,
+        } => commands::load::cmd_load(
+            group.as_deref(),
+            tag.as_deref(),
+            &keys,
+            token_file.as_ref(),
+            global,
+            pref,
+        ),
         cli::Commands::Remove { group, tag, key } => commands::remove::cmd_remove(
             group.as_deref(),
             tag.as_deref(),
@@ -54,10 +74,12 @@ fn main() -> Result<()> {
             group,
             tag,
             cmd_args,
+            token_file,
         } => commands::run::cmd_run(
             group.as_deref(),
             tag.as_deref(),
             cmd_args.iter().map(|s| s.as_str()).collect(),
+            token_file.as_ref(),
             global,
             pref,
         ),
@@ -69,10 +91,12 @@ fn main() -> Result<()> {
             tag,
             keys,
             output_path,
+            token_file,
         } => commands::export::cmd_export(
             group.as_deref(),
             tag.as_deref(),
             keys.iter().map(|s| s.as_str()).collect(),
+            token_file.as_ref(),
             global,
             pref,
             output_path.as_deref(),
@@ -80,6 +104,26 @@ fn main() -> Result<()> {
         cli::Commands::Link { group } => commands::link::cmd_link(&group, global, pref),
         cli::Commands::Protag { group, tag } => {
             commands::protag::cmd_protag(group.as_deref(), &tag, global, pref)
+        }
+        cli::Commands::Token {
+            group,
+            tag,
+            name,
+            desc,
+            out,
+            keys,
+        } => commands::token::cmd_token(
+            group.as_deref(),
+            tag.as_deref(),
+            name.as_str(),
+            desc.as_deref(),
+            out.as_ref(),
+            keys,
+            global,
+            pref,
+        ),
+        cli::Commands::Rotate { group, tag } => {
+            commands::rotate::cmd_rotate(group.as_deref(), tag.as_deref(), global, pref)
         }
         cli::Commands::Clear => commands::clear::cmd_clear(global, pref),
     }

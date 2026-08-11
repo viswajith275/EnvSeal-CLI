@@ -4,9 +4,9 @@ use std::env;
 
 pub fn cmd_link(group: &str, global: bool, pref: Option<&str>) -> Result<()> {
     let mut vault = Vault::load(global, pref)?;
-    let derived = unlock::sudo_unlock(&vault)?;
+    let master_keys = unlock::sudo_unlock(&vault)?;
 
-    vault.link_group(&derived.hmac_key, group)?;
+    vault.link_group(&master_keys.signing_key, group)?;
     vault.save()?;
 
     let current_dir = env::current_dir()?;

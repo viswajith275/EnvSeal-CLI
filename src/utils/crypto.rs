@@ -1,19 +1,18 @@
-use aes_gcm::aead::{Aead, KeyInit};
-use aes_gcm::{Aes256Gcm, Nonce};
+use aes_gcm::{
+    aead::{Aead, KeyInit},
+    Aes256Gcm,
+};
 use anyhow::{anyhow, Result};
-use argon2::Argon2;
+use argon2::{Algorithm, Argon2, Params, Version};
+use ed25519_dalek::SigningKey;
 use hkdf::Hkdf;
-use hmac::{Hmac, Mac};
 use rand::{rngs::OsRng, RngCore};
 use sha2::Sha256;
 use zeroize::Zeroizing;
 
-type HmacSha256 = Hmac<Sha256>;
-
 pub const KEY_LEN: usize = 32;
 pub const NONCE_LEN: usize = 12;
 pub const SALT_LEN: usize = 16;
-pub const HMAC_KEY_LEN: usize = 32;
 
 /// One-time salt generation.
 pub fn generate_salt() -> [u8; SALT_LEN] {
@@ -22,75 +21,110 @@ pub fn generate_salt() -> [u8; SALT_LEN] {
     salt
 }
 
-/// Generic Argon2 derivation into provided buffer of any length.
-fn derive_key_raw(password: &str, salt: &[u8], out: &mut [u8]) -> Result<()> {
-    Argon2::default()
-        .hash_password_into(password.as_bytes(), salt, out)
-        .map_err(|e| anyhow!("Key derivation failed: {e}"))
+/// Runs argon2 to output a variable output length
+fn run_argon2(password: &str, salt: &[u8], out_len: usize) -> Result<Zeroizing<Vec<u8>>> {
+    if out_len == 0 {
+        return Err(anyhow!("Argon2 output length must be greater than zero!!"));
+    }
+
+    let params = Params::new(
+        Params::DEFAULT_M_COST,
+        Params::DEFAULT_T_COST,
+        Params::DEFAULT_P_COST,
+        Some(out_len),
+    )
+    .map_err(|e| anyhow!("Invalid Argon2 parameters: {e}"))?;
+
+    let argon2 = Argon2::new(Algorithm::Argon2id, Version::V0x13, params);
+
+    let mut hash = Zeroizing::new(vec![0u8; out_len]);
+
+    argon2
+        .hash_password_into(password.as_bytes(), salt, &mut hash)
+        .map_err(|e| anyhow!("Failed to hash password: {e}"))?;
+
+    Ok(hash)
 }
 
-/// Derive a 256-bit key from a password and salt using Argon2.
+/// Derives a standard 32-byte key (Used for Tag KEKs)
 pub fn derive_key(password: &str, salt: &[u8]) -> Result<Zeroizing<[u8; KEY_LEN]>> {
-    let mut key = Zeroizing::new([0u8; KEY_LEN]);
-    derive_key_raw(password, salt, &mut *key)?;
-    Ok(key)
+    let derived = run_argon2(password, salt, KEY_LEN)?;
+    let mut key = [0u8; KEY_LEN];
+    key.copy_from_slice(&derived.as_ref());
+
+    Ok(Zeroizing::new(key))
 }
 
-/// Derive both the encryption key and HMAC key from a single Argon2 pass (Instead of 2 argon2 passes)
-/// then split via HKDF-SHA256 with distinct context labels so the two stays unique
-pub fn derive_keys(
+/// Derives master_kek and signing_key from master_password or tag_password
+pub fn derive_master_keys(
     password: &str,
     salt: &[u8],
-) -> Result<(Zeroizing<[u8; KEY_LEN]>, Zeroizing<[u8; HMAC_KEY_LEN]>)> {
-    let master = derive_key(password, salt)?;
+) -> Result<(Zeroizing<[u8; KEY_LEN]>, SigningKey)> {
+    let derived = run_argon2(password, salt, 64)?;
+    let mut kek = [0u8; KEY_LEN];
+    kek.copy_from_slice(&derived[0..32]);
 
-    let hk = Hkdf::<Sha256>::new(None, &*master);
+    let mut seed = [0u8; KEY_LEN];
+    seed.copy_from_slice(&derived[32..64]);
 
-    let mut enc_key = Zeroizing::new([0u8; KEY_LEN]);
-    let mut hmac_key = Zeroizing::new([0u8; HMAC_KEY_LEN]);
-
-    hk.expand(b"envseal-enc", &mut *enc_key)
-        .map_err(|e| anyhow!("HKDF expand failed: {e}"))?;
-    hk.expand(b"envseal-hmac", &mut *hmac_key)
-        .map_err(|e| anyhow!("HKDF expand failed: {e}"))?;
-
-    Ok((enc_key, hmac_key))
+    Ok((Zeroizing::new(kek), SigningKey::from_bytes(&seed)))
 }
 
-pub fn compute_hmac(key: &[u8; HMAC_KEY_LEN], data: &[u8]) -> Vec<u8> {
-    let mut mac = HmacSha256::new_from_slice(key).expect("HMAC accepts any key length");
-    mac.update(data);
-    mac.finalize().into_bytes().to_vec()
+/// Derives an isolated Scope DEK from the Master DEK using the group and tag as context (for seperating the token from accessing out of scope items)
+pub fn derive_scope_dek(master_dek: &[u8; KEY_LEN], group: &str, tag: &str) -> [u8; KEY_LEN] {
+    let hk = Hkdf::<Sha256>::new(None, master_dek);
+    let mut scope_dek = [0u8; KEY_LEN];
+
+    let info = format!("scope_{group}_{tag}");
+    hk.expand(info.as_bytes(), &mut scope_dek)
+        .expect("HKDF expansion should never fail for 32 bytes!!");
+
+    scope_dek
 }
 
-pub fn verify_hmac(key: &[u8; HMAC_KEY_LEN], data: &[u8], tag: &[u8]) -> bool {
-    let mut mac = HmacSha256::new_from_slice(key).expect("HMAC accepts any key length");
-    mac.update(data);
-    mac.verify_slice(tag).is_ok() // constant-time
+/// Derives a mathematically isolated 32-byte key for a specific environment variable
+pub fn derive_entry_key(scope_dek: &[u8; KEY_LEN], entry_name: &str) -> [u8; KEY_LEN] {
+    // Initial Keying Material ()
+    let hk = Hkdf::<Sha256>::new(None, scope_dek);
+    let mut entry_key = [0u8; KEY_LEN];
+
+    let scope = format!("var_{}", entry_name);
+    // Expand it into a unique key using the variable name as the contextual info
+    hk.expand(scope.as_bytes(), &mut entry_key)
+        .expect("HKDF expansion should never fail for 32 bytes!!");
+
+    entry_key
 }
 
-/// Encrypt `plaintext` with a freshly generated random nonce.
-/// Returns `(nonce, ciphertext)`.
-pub fn encrypt(key: &[u8; KEY_LEN], plaintext: &str) -> Result<(Vec<u8>, Vec<u8>)> {
-    let cipher = Aes256Gcm::new(key.into());
+/// Generates a purely random 32-byte DEK
+pub fn generate_dek() -> Zeroizing<[u8; KEY_LEN]> {
+    let mut dek = [0u8; KEY_LEN];
+    OsRng.fill_bytes(&mut dek);
+    Zeroizing::new(dek)
+}
+
+/// Encrpts the plaintext bytes
+pub fn encrypt(key: &[u8; KEY_LEN], plaintext: &[u8]) -> Result<(Vec<u8>, Vec<u8>)> {
+    let cipher = Aes256Gcm::new((key).into());
     let mut nonce_bytes = [0u8; NONCE_LEN];
     OsRng.fill_bytes(&mut nonce_bytes);
-    let nonce = Nonce::from(nonce_bytes);
+
     let ciphertext = cipher
-        .encrypt(&nonce, plaintext.as_bytes())
-        .map_err(|e| anyhow!("Encryption failed: {e}"))?;
+        .encrypt(&nonce_bytes.into(), plaintext)
+        .map_err(|_| anyhow!("Encryption failed!!"))?;
+
     Ok((nonce_bytes.to_vec(), ciphertext))
 }
 
-/// Decrypt `ciphertext` using `key` and `nonce_bytes`.
-pub fn decrypt(key: &[u8; KEY_LEN], nonce_bytes: &[u8], ciphertext: &[u8]) -> Result<String> {
+/// decrypts the cipher text and returns plaintext as bytes
+pub fn decrypt(key: &[u8; KEY_LEN], nonce: &[u8], ciphertext: &[u8]) -> Result<Vec<u8>> {
     let cipher = Aes256Gcm::new(key.into());
-    if nonce_bytes.len() != NONCE_LEN {
-        return Err(anyhow!("Invalid nonce length: corrupted data!!!"));
-    }
-    let nonce = Nonce::try_from(nonce_bytes)?;
-    let plaintext = cipher
-        .decrypt(&nonce, ciphertext)
-        .map_err(|_| anyhow!("Decryption failed: wrong password or corrupted data!!!"))?;
-    String::from_utf8(plaintext).map_err(|e| anyhow!("Decrypted data was not valid utf8: {e}"))
+
+    let nonce_arr: &[u8; NONCE_LEN] = nonce
+        .try_into()
+        .map_err(|_| anyhow!("Invalid nonce length!!"))?;
+
+    cipher
+        .decrypt(nonce_arr.into(), ciphertext)
+        .map_err(|_| anyhow!("Decryption failed!!"))
 }

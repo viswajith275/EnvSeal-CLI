@@ -5,7 +5,7 @@ use zeroize::Zeroizing;
 pub fn cmd_protag(group: Option<&str>, tag: &str, global: bool, pref: Option<&str>) -> Result<()> {
     let mut vault = Vault::load(global, pref)?;
     let group_name = vault.resolve_group_name(group)?;
-    let derived = unlock::sudo_unlock(&vault)?;
+    let master_keys = unlock::sudo_unlock(&vault)?;
 
     let tag_password = Zeroizing::new(prompt_password(format!(
         "password for tag '{}' in group '{}': ",
@@ -19,7 +19,7 @@ pub fn cmd_protag(group: Option<&str>, tag: &str, global: bool, pref: Option<&st
         bail!("Passwords did not match!");
     }
 
-    vault.create_protected_tag(&derived.hmac_key, group, tag, tag_password.as_str())?;
+    vault.create_protected_tag(&master_keys.signing_key, group, tag, tag_password.as_str())?;
 
     vault.save()?;
     let location_label = if vault.is_local() { "local" } else { "global" };

@@ -1,6 +1,7 @@
-use crate::utils::{unlock, vault::Vault};
-use anyhow::{anyhow, Context, Result};
-use std::collections::HashMap;
+use crate::utils::{resolve, vault::Vault};
+use anyhow::{anyhow, Result};
+use std::collections::BTreeMap;
+use std::path::PathBuf;
 
 /// Determines the target shell for proper syntax formatting and string escaping
 #[derive(Debug)]
@@ -31,24 +32,12 @@ pub fn cmd_load(
     group: Option<&str>,
     tag: Option<&str>,
     keys: &[String],
+    token_file: Option<&PathBuf>, // Added for token support
     global: bool,
     pref: Option<&str>,
 ) -> Result<()> {
     let vault = Vault::load(global, pref)?;
     let group_name = vault.resolve_group_name(group)?;
-    let derived = unlock::sudo_unlock(&vault)?;
-
-    let mut tag_key = None;
-    if vault.is_tag_protected(group, tag)? {
-        if let Some(t) = tag {
-            tag_key = Some(unlock::sudo_unlock_tag(&vault, group, t)?);
-        } else {
-            return Err(anyhow!(
-                "A tag must be provided if the group's default tag is protected."
-            ));
-        }
-    }
-    let mut merged_env: HashMap<String, String> = HashMap::new();
 
     let location_label = if vault.is_local() { "local" } else { "global" };
     let message = if !keys.is_empty() && tag.is_some() {
@@ -75,54 +64,34 @@ pub fn cmd_load(
 
     eprintln!("{}", message);
 
+    let mut decrypted_envs = resolve::resolve_secrets(&vault, group, tag, token_file)?;
+
+    // filter derived to find specified keys
     if !keys.is_empty() {
+        let requested_set: std::collections::HashSet<&str> =
+            keys.iter().map(|k| k.as_str()).collect();
+        decrypted_envs.retain(|k, _| requested_set.contains(k.as_str()));
+
         for key in keys {
-            let value = if tag.is_some() {
-                match vault.get_entry(&derived.enc_key, group, tag, key, tag_key.as_deref()) {
-                    Ok(val) => val,
-                    Err(_) => vault
-                        .get_entry(&derived.enc_key, group, None, key, tag_key.as_deref())
-                        .with_context(|| {
-                            format!("Failed to read '{}' from tag '{}'", key, tag.unwrap())
-                        })?,
-                }
-            } else {
-                vault
-                    .get_entry(&derived.enc_key, group, None, key, tag_key.as_deref())
-                    .with_context(|| format!("Failed to read '{}'", key))?
-            };
-
-            merged_env.insert(key.to_string(), value.to_string());
-        }
-    } else {
-        let group_keys = vault.list_all_keys(group, None)?;
-        for key in group_keys {
-            let value = vault
-                .get_entry(&derived.enc_key, group, None, &key, tag_key.as_deref())
-                .with_context(|| format!("Failed to read base key '{}'", key))?;
-            merged_env.insert(key, value.to_string());
-        }
-
-        if tag.is_some() {
-            let tag_keys = vault.list_all_keys(group, tag)?;
-            for key in tag_keys {
-                let value = vault
-                    .get_entry(&derived.enc_key, group, tag, &key, tag_key.as_deref())
-                    .with_context(|| format!("Failed to read tag key '{}'", key))?;
-                merged_env.insert(key, value.to_string());
+            if !decrypted_envs.contains_key(key) {
+                return Err(anyhow!("Failed to read '{key}' from tag or base group!!"));
             }
         }
     }
 
-    // Determine target shell type
+    let mut sorted_envs: BTreeMap<String, String> = BTreeMap::new();
+    for (key, mut value) in decrypted_envs {
+        sorted_envs.insert(key, value.to_string());
+        zeroize::Zeroize::zeroize(&mut value);
+    }
+
     let shell_name = std::env::var("SHELL")
         .ok()
         .unwrap_or_else(|| "posix".to_string());
 
     let shell = ShellType::from_name(&shell_name);
 
-    // Format output dynamically with robust value escaping
-    for (key, value) in merged_env {
+    for (key, value) in sorted_envs {
         match shell {
             ShellType::Posix => {
                 let escaped_val = value.replace('\'', "'\\''");
