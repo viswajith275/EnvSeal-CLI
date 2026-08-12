@@ -3,6 +3,7 @@ use super::token::{TokenKeyMaterial, TokenPayload};
 use anyhow::{anyhow, Result};
 use directories::ProjectDirs;
 use ed25519_dalek::{Signature, Signer, SigningKey, Verifier, VerifyingKey};
+use fs2::FileExt;
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, HashSet};
 use std::env;
@@ -248,6 +249,10 @@ impl Vault {
             return Err(anyhow!("Seal already exists at {:?}!", path));
         }
 
+        if let Some(parent) = path.parent() {
+            fs::create_dir_all(parent)?;
+        }
+
         let salt = crypto::generate_salt();
 
         // Derive KEK and Signing Key
@@ -315,7 +320,7 @@ impl Vault {
             .write(true)
             .create(true)
             .open(&lock_path)?;
-        lock_file.lock()?;
+        lock_file.lock_exclusive()?;
 
         let parent_dir = path.parent().unwrap_or_else(|| Path::new("."));
         let mut temp_file = NamedTempFile::new_in(parent_dir)?;
