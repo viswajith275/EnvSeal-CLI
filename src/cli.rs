@@ -7,7 +7,7 @@ use std::path::PathBuf;
     about = "An encrypted vault for your API keys and secrets, because `.env` files have never once kept a secret.
 "
 )]
-#[command(version = "v5.0.0b")]
+#[command(version = "v5.0.0")]
 #[command(propagate_version = true)]
 pub struct Cli {
     /// Target a specific local environment profile (e.g., 'prod' targets '.prod.envseal')
