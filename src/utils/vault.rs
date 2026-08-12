@@ -359,7 +359,8 @@ impl Vault {
         }
     }
 
-    /// rotate all the dek of the scope
+    /// Rotate the DEK of a specific scope.
+    /// Rotating BASE_TAG automatically sweeps and re-encrypts the entire vault (including unprotected tags).
     pub fn rotate_scope_dek(
         &mut self,
         keys: &VaultKeys,
@@ -371,46 +372,48 @@ impl Vault {
         let group_name = self.resolve_group_name(group)?;
         let active_tag = tag.unwrap_or(BASE_TAG);
 
-        let all_keys = self.list_all_keys(group, tag)?;
-        let mut plaintexts = BTreeMap::new();
+        if active_tag != BASE_TAG {
+            let (is_unprotected, local_keys) = {
+                let group_entry = self
+                    .entries
+                    .get(&group_name)
+                    .ok_or_else(|| anyhow!("Group not found!"))?;
+                let tag_entry = group_entry
+                    .tags
+                    .get(active_tag)
+                    .ok_or_else(|| anyhow!("Tag not found!"))?;
 
-        for k in &all_keys {
-            plaintexts.insert(
-                k.clone(),
-                self.get_entry(&keys.master_dek, group, tag, k, old_tag_dek)?,
-            );
-        }
+                (
+                    tag_entry.salt.is_none(),
+                    tag_entry.entries.keys().cloned().collect::<Vec<String>>(),
+                )
+            };
 
-        let new_dek = crypto::generate_dek();
-        let group_entry = self.entries.get_mut(&group_name).unwrap();
+            if is_unprotected {
+                return Err(anyhow!("Cannot independently rotate an unprotected tag! Its security is mathematically bound to the Master DEK."));
+            }
 
-        if active_tag == BASE_TAG {
-            let (nonce, ciphertext) = crypto::encrypt(&keys.master_kek, &*new_dek)?;
-            self.wrapped_master_dek = Entry { nonce, ciphertext };
-
-            for (k, v) in plaintexts {
-                let scope_dek = crypto::derive_scope_dek(&new_dek, &group_name, BASE_TAG);
-                let entry_key = crypto::derive_entry_key(&scope_dek, &k);
-                let (n, c) = crypto::encrypt(&entry_key, v.as_bytes())?;
-                group_entry.base.insert(
-                    k,
-                    Entry {
-                        nonce: n,
-                        ciphertext: c,
-                    },
+            let mut plaintexts = BTreeMap::new();
+            for k in &local_keys {
+                plaintexts.insert(
+                    k.clone(),
+                    self.get_entry(&keys.master_dek, group, tag, k, old_tag_dek)?,
                 );
             }
-        } else {
+
+            let group_entry = self.entries.get_mut(&group_name).unwrap();
             let tag_entry = group_entry.tags.get_mut(active_tag).unwrap();
 
             let tp = tag_password.ok_or_else(|| anyhow!("Tag password required!"))?;
-            let tag_kek = crypto::derive_key(tp, tag_entry.salt.as_ref().unwrap())?;
-            let (nonce, ciphertext) = crypto::encrypt(&tag_kek, &*new_dek)?;
+            let salt = tag_entry.salt.as_ref().unwrap();
+            let tag_kek = crypto::derive_key(tp, salt)?;
 
+            let new_tag_dek = crypto::generate_dek();
+            let (nonce, ciphertext) = crypto::encrypt(&tag_kek, &*new_tag_dek)?;
             tag_entry.wrapped_tag_dek = Some(Entry { nonce, ciphertext });
 
             for (k, v) in plaintexts {
-                let entry_key = crypto::derive_entry_key(&new_dek, &k);
+                let entry_key = crypto::derive_entry_key(&new_tag_dek, &k);
                 let (n, c) = crypto::encrypt(&entry_key, v.as_bytes())?;
                 tag_entry.entries.insert(
                     k,
@@ -419,6 +422,101 @@ impl Vault {
                         ciphertext: c,
                     },
                 );
+            }
+        } else {
+            let new_master_dek = crypto::generate_dek();
+
+            let mut extraction_plan = Vec::new();
+            for (g_name, g_entry) in &self.entries {
+                let base_keys: Vec<String> = g_entry.base.keys().cloned().collect();
+                let mut unprotected_tags = Vec::new();
+
+                for (t_name, t_entry) in &g_entry.tags {
+                    if t_entry.salt.is_none() {
+                        unprotected_tags.push((
+                            t_name.clone(),
+                            t_entry.entries.keys().cloned().collect::<Vec<String>>(),
+                        ));
+                    }
+                }
+                extraction_plan.push((g_name.clone(), base_keys, unprotected_tags));
+            }
+
+            let mut all_base_plaintexts = BTreeMap::new();
+            let mut all_unprotected_tags = BTreeMap::new();
+
+            for (g_name, base_keys, unprotected_tags) in extraction_plan {
+                let mut base_pts = BTreeMap::new();
+                for k in base_keys {
+                    base_pts.insert(
+                        k.clone(),
+                        self.get_entry(&keys.master_dek, Some(g_name.as_str()), None, &k, None)?,
+                    );
+                }
+                all_base_plaintexts.insert(g_name.clone(), base_pts);
+
+                let mut group_tag_pts = BTreeMap::new();
+                for (t_name, tag_keys) in unprotected_tags {
+                    let mut tag_pts = BTreeMap::new();
+                    for k in tag_keys {
+                        tag_pts.insert(
+                            k.clone(),
+                            self.get_entry(
+                                &keys.master_dek,
+                                Some(g_name.as_str()),
+                                Some(t_name.as_str()),
+                                &k,
+                                None,
+                            )?,
+                        );
+                    }
+                    group_tag_pts.insert(t_name, tag_pts);
+                }
+                all_unprotected_tags.insert(g_name, group_tag_pts);
+            }
+
+            let (nonce, ciphertext) = crypto::encrypt(&keys.master_kek, &*new_master_dek)?;
+            self.wrapped_master_dek = Entry { nonce, ciphertext };
+
+            for (g_name, g_entry) in self.entries.iter_mut() {
+                // Sweep Base
+                if let Some(pts) = all_base_plaintexts.remove(g_name) {
+                    let scope_dek = crypto::derive_scope_dek(&new_master_dek, g_name, BASE_TAG);
+                    for (k, v) in pts {
+                        let entry_key = crypto::derive_entry_key(&scope_dek, &k);
+                        let (n, c) = crypto::encrypt(&entry_key, v.as_bytes())?;
+                        g_entry.base.insert(
+                            k,
+                            Entry {
+                                nonce: n,
+                                ciphertext: c,
+                            },
+                        );
+                    }
+                }
+
+                // Sweep Unprotected Tags
+                if let Some(mut tag_pts_map) = all_unprotected_tags.remove(g_name) {
+                    for (t_name, t_entry) in g_entry.tags.iter_mut() {
+                        if t_entry.salt.is_none() {
+                            if let Some(pts) = tag_pts_map.remove(t_name) {
+                                let scope_dek =
+                                    crypto::derive_scope_dek(&new_master_dek, g_name, t_name);
+                                for (k, v) in pts {
+                                    let entry_key = crypto::derive_entry_key(&scope_dek, &k);
+                                    let (n, c) = crypto::encrypt(&entry_key, v.as_bytes())?;
+                                    t_entry.entries.insert(
+                                        k,
+                                        Entry {
+                                            nonce: n,
+                                            ciphertext: c,
+                                        },
+                                    );
+                                }
+                            }
+                        }
+                    }
+                }
             }
         }
 
