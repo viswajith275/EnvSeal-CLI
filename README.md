@@ -44,6 +44,32 @@ Plaintext secrets get copied into `~/Downloads`, scattered across scripts, and o
 
 EnvSeal encrypts everything at rest, scopes access tightly by tag and token, and injects secrets only for the lifetime of a single child process — never into your interactive shell unless you explicitly ask for that with `load`.
 
+
+
+| Feature                      | `.env`           | dotenvx          | SOPS                   | EnvSeal               | Doppler                  |
+| ---------------------------- | ---------------- | ---------------- | ---------------------- | --------------------- | ------------------------ |
+| Encrypted secrets            | No               | Yes              | Yes                    | Yes                   | Yes                      |
+| Works offline                | Yes              | Yes              | Yes                    | Yes                   | No                       |
+| Run a command with secrets   | Yes*             | Yes              | Limited                | Yes                   | Yes                      |
+| No cloud account needed      | Yes              | Yes              | Yes                    | Yes                   | No                       |
+| CI/CD support                | Limited          | Yes              | Yes                    | Yes                   | Yes                      |
+| Secret scopes / environments | No               | Limited          | No                     | Yes                   | Yes                      |
+| Built-in secret rotation     | No               | Limited          | No                     | Yes                   | Yes                      |
+| Local-first                  | Yes              | Yes              | Yes                    | **Yes**               | No                       |
+| Simple setup                 | **Very simple**  | Simple           | Moderate               | **Simple**            | Simple                   |
+| Main idea                    | Plaintext config | Encrypted `.env` | Encrypted config files | Encrypted env secrets | Hosted secret management |
+
+
+* `.env` can provide variables to a process, but the secrets remain stored as plaintext.
+
+
+* **EnvSeal keeps the simplicity of `.env` while encrypting secrets on disk and injecting them only when your application runs.**
+
+* No server. No account. No complicated setup.
+
+* That is the main difference from larger secret-management platforms: **EnvSeal is designed to stay small, local, and easy to use.**
+
+
 ---
 
 ## Real-World Wins Over `.env`
