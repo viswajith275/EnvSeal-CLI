@@ -54,11 +54,6 @@ mod vault_integration_tests {
             .set_entry(&keys, None, None, "API_KEY", "secret-123", None)
             .unwrap();
 
-        // Edge Case: Simulate file tampering. The vault is persisted as MessagePack,
-        // not JSON, so we tamper by mutating the in-memory structure directly
-        // (bypassing seal_integrity/signing) and writing it straight to disk via
-        // the public save() method. This mimics an attacker editing the sealed
-        // file without holding the signing key.
         vault.entries.get_mut("project").unwrap().base.insert(
             "INJECTED_KEY".to_string(),
             Entry {
