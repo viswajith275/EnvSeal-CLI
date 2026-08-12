@@ -96,27 +96,35 @@ Or use tags inside a single profile when only a handful of values differ between
 ## What You Get
 
 **Local & Global Vaults**
+
 Project-scoped `.envseal` files that are safe to commit, or a system-wide vault for personal scripts and one-off tooling.
 
 **Protected Tags**
+
 Share one vault for everyday development keys while locking high-stakes variables behind a completely separate secondary password.
 
 **Zero-Trust Bearer Tokens**
+
 Mint least-privilege tokens scoped to an entire tag or to specific keys. Tokens never embed the master password, the KEK, or the signing key. They're compressed with zstd, carry `iat`/`exp` claims, and are only ever ingested via file, environment variable, or stdin — never as a CLI flag, so they don't leak into `ps` output or shell history.
 
 **DEK Rotation**
+
 `envseal rotate` generates a fresh Data Encryption Key for a scope, re-encrypts everything under it, and immediately invalidates every existing token for that scope.
 
 **Cryptographic Hierarchy**
+
 Master password → Argon2id → KEK → Master DEK → HKDF-derived Scope DEKs → per-variable Entry Keys. Secrets are never encrypted directly under the password itself. Every vault mutation is signed with an Ed25519 key derived alongside the KEK, and unlocking the vault verifies that signature against the embedded public key.
 
 **Session Caching**
+
 Derived cryptographic material — never the raw password — is cached in the OS keyring for about 10 minutes, dropping subsequent command latency from hundreds of milliseconds to single digits.
 
 **Storage & Integrity**
+
 MessagePack encoding with deterministic ordering, raw binary payloads, and atomic filesystem writes. All sensitive in-memory buffers implement `Zeroize` / `ZeroizeOnDrop` so key material doesn't linger after use.
 
 **Cross-Platform**
+
 Linux, macOS (Apple Silicon), and Windows.
 
 ---
