@@ -1,6 +1,6 @@
 use crate::utils::{resolve, vault::Vault};
 use anyhow::{Context, Result};
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashSet};
 use std::fs;
 use std::path::PathBuf;
 
@@ -44,14 +44,15 @@ pub fn cmd_export(
     let mut decrypted_envs = resolve::resolve_secrets(&vault, group, tag, token_file)?;
 
     if !keys.is_empty() {
-        let requested_set: std::collections::HashSet<&str> = keys.iter().copied().collect();
+        let requested_set: HashSet<&str> = keys.iter().copied().collect();
         decrypted_envs.retain(|k, _| requested_set.contains(k.as_str()));
 
         for key in &keys {
             if !decrypted_envs.contains_key(*key) {
-                return Err(anyhow::anyhow!(
-                    "Failed to read '{key}' from tag or base group!!"
-                ));
+                eprintln!(
+                        "Warning: '{}' was not found in the vault, or the provided token lacks permission to decrypt it. Skipping...",
+                        key
+                    );
             }
         }
     }

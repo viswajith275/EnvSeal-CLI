@@ -55,7 +55,7 @@ fn main() -> Result<()> {
         } => commands::load::cmd_load(
             group.as_deref(),
             tag.as_deref(),
-            &keys,
+            keys.iter().map(|s| s.as_str()).collect(),
             token_file.as_ref(),
             global,
             pref,
@@ -112,6 +112,7 @@ fn main() -> Result<()> {
             desc,
             out,
             keys,
+            exp,
         } => commands::token::cmd_token(
             group.as_deref(),
             tag.as_deref(),
@@ -119,6 +120,7 @@ fn main() -> Result<()> {
             desc.as_deref(),
             out.as_ref(),
             keys,
+            exp,
             global,
             pref,
         ),

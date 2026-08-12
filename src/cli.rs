@@ -220,6 +220,10 @@ pub enum Commands {
         /// Securely write the token directly to a file (restricted permissions)
         #[arg(short = 'o', long)]
         out: Option<PathBuf>,
+        /// Expiration time in seconds (Added to the current time!!)
+        #[arg[long]]
+        exp: Option<u64>,
+        /// Specific keys from the scope only
         keys: Vec<String>,
     },
     /// Rotate the Data Encryption Key (DEK) for a specific scope

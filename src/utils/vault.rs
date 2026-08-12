@@ -1,6 +1,6 @@
 use super::crypto;
-use super::token::TokenPayload;
-use anyhow::{anyhow, Context, Result};
+use super::token::{TokenKeyMaterial, TokenPayload};
+use anyhow::{anyhow, Result};
 use directories::ProjectDirs;
 use ed25519_dalek::{Signature, Signer, SigningKey, Verifier, VerifyingKey};
 use serde::{Deserialize, Serialize};
@@ -120,39 +120,40 @@ impl Vault {
             .get(&group_name)
             .ok_or_else(|| anyhow::anyhow!("Group not found!!"))?;
 
-        let crate::utils::token::TokenKeyMaterial::GranularKeys(keys_map) =
-            &token_payload.key_material;
+        let keys_map = match &token_payload.key_material {
+            TokenKeyMaterial::GranularKeys(map) => map,
+        };
 
-        // Check base entries
+        let mut target_entries: BTreeMap<&String, &Entry> = BTreeMap::new();
+
+        // Load base entries
         for (var_name, entry) in &group_entry.base {
-            if let Some(derived_key_bytes) = keys_map.get(var_name) {
-                let mut entry_key = [0u8; crate::utils::crypto::KEY_LEN];
-                entry_key.copy_from_slice(derived_key_bytes.as_slice());
+            target_entries.insert(var_name, entry);
+        }
 
-                let pt_bytes =
-                    crate::utils::crypto::decrypt(&entry_key, &entry.nonce, &entry.ciphertext)?;
-                let plaintext = String::from_utf8(pt_bytes).map_err(|_| {
-                    anyhow::anyhow!("Failed to parse decrypted data as a valid UTF-8 string!!")
-                })?;
-
-                decrypted_map.insert(var_name.clone(), zeroize::Zeroizing::new(plaintext));
+        // Tag entries overwrite base entries if duplicates exist
+        if let Some(tag_entry) = group_entry.tags.get(active_tag) {
+            for (var_name, entry) in &tag_entry.entries {
+                target_entries.insert(var_name, entry);
             }
         }
 
-        // Check tag entries (Overwrites base decrypted values if duplicate)
-        if let Some(tag_entry) = group_entry.tags.get(active_tag) {
-            for (var_name, entry) in &tag_entry.entries {
-                if let Some(derived_key_bytes) = keys_map.get(var_name) {
-                    let mut entry_key = [0u8; crate::utils::crypto::KEY_LEN];
-                    entry_key.copy_from_slice(derived_key_bytes.as_slice());
+        for (var_name, entry) in target_entries {
+            if let Some(derived_key_bytes) = keys_map.get(var_name) {
+                let mut entry_key = [0u8; crypto::KEY_LEN];
+                entry_key.copy_from_slice(derived_key_bytes.as_slice());
 
-                    let pt_bytes =
-                        crate::utils::crypto::decrypt(&entry_key, &entry.nonce, &entry.ciphertext)?;
-                    let plaintext = String::from_utf8(pt_bytes).map_err(|_| {
-                        anyhow::anyhow!("Failed to parse decrypted data as a valid UTF-8 string!")
-                    })?;
-
-                    decrypted_map.insert(var_name.clone(), zeroize::Zeroizing::new(plaintext));
+                match crypto::decrypt(&entry_key, &entry.nonce, &entry.ciphertext) {
+                    Ok(pt_bytes) => {
+                        let plaintext = String::from_utf8(pt_bytes).unwrap();
+                        decrypted_map.insert(var_name.clone(), Zeroizing::new(plaintext));
+                    }
+                    Err(_) => {
+                        eprintln!(
+                            "Warning: Failed to decrypt '{}' , Token key may be outdated!!",
+                            var_name
+                        );
+                    }
                 }
             }
         }
@@ -291,7 +292,6 @@ impl Vault {
         let lock_file = OpenOptions::new()
             .write(true)
             .create(true)
-            .truncate(true)
             .open(&lock_path)?;
         lock_file.lock_shared()?;
 
@@ -308,50 +308,25 @@ impl Vault {
 
     /// Atomically saves the structure using MessagePack (rmp_serde).
     pub fn save(&self) -> Result<()> {
-        let path = self
-            .file_path
-            .as_ref()
-            .ok_or_else(|| anyhow!("No file path configured for this vault!!"))?;
-
+        let path = self.file_path.as_ref().unwrap();
         let lock_path = path.with_extension("lock");
-
-        if let Some(parent) = lock_path.parent() {
-            fs::create_dir_all(parent)
-                .with_context(|| format!("Failed to create directory {}", parent.display()))?;
-        }
 
         let lock_file = OpenOptions::new()
             .write(true)
             .create(true)
-            .truncate(true)
-            .open(&lock_path)
-            .with_context(|| format!("Failed to open lock file {}", lock_path.display()))?;
-
-        lock_file
-            .lock()
-            .with_context(|| format!("Failed to acquire lock on {}", lock_path.display()))?;
+            .open(&lock_path)?;
+        lock_file.lock()?;
 
         let parent_dir = path.parent().unwrap_or_else(|| Path::new("."));
+        let mut temp_file = NamedTempFile::new_in(parent_dir)?;
 
-        let mut temp_file = NamedTempFile::new_in(parent_dir)
-            .with_context(|| format!("Failed to create temp file in {}", parent_dir.display()))?;
+        let binary_data = rmp_serde::to_vec(self)?;
+        temp_file.write_all(&binary_data)?;
+        temp_file.flush()?;
+        temp_file.persist(path)?;
 
-        let binary_data =
-            rmp_serde::to_vec(self).context("Failed to serialize vault to MessagePack")?;
-
-        temp_file
-            .write_all(&binary_data)
-            .context("Failed to write serialized data to temp file")?;
-        temp_file.flush().context("Failed to flush temp file")?;
-
-        temp_file
-            .persist(path)
-            .map_err(|e| e.error)
-            .with_context(|| format!("Failed to persist temp file to {}", path.display()))?;
-
-        let _ = lock_file.unlock();
-        let _ = fs::remove_file(&lock_path);
-
+        lock_file.unlock()?;
+        let _ = fs::remove_file(lock_path);
         Ok(())
     }
 

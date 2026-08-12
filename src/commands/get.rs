@@ -14,13 +14,14 @@ pub fn cmd_get(
     let vault = Vault::load(global, pref)?;
     let mut decrypted_envs = resolve::resolve_secrets(&vault, group, tag, token_file)?;
 
-    let mut value = decrypted_envs
-        .remove(key)
-        .ok_or_else(|| anyhow!("No entry named '{key}' found in the current scope!!"))?;
-
-    println!("{}: {}", key, value.as_str());
-
-    value.zeroize();
+    if let Some(mut value) = decrypted_envs.remove(key) {
+        println!("{}: {}", key, value.as_str());
+        Zeroize::zeroize(&mut value);
+    } else {
+        return Err(anyhow!(
+            "No entry named '{key}' found, or the provided token lacks permission to decrypt it!"
+        ));
+    }
 
     Ok(())
 }

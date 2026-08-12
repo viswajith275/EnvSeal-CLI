@@ -17,6 +17,7 @@ pub fn cmd_token(
     desc: Option<&str>,
     out_file: Option<&std::path::PathBuf>,
     allowed_keys: Vec<String>,
+    ttl_seconds: Option<u64>,
     global: bool,
     pref: Option<&str>,
 ) -> Result<()> {
@@ -80,6 +81,7 @@ pub fn cmd_token(
         &scope_string,
         final_token_keys,
         name,
+        ttl_seconds,
         desc,
     )?;
 

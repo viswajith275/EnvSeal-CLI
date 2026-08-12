@@ -21,6 +21,8 @@ pub struct TokenPayload {
     pub sub: String,
     /// Issued at timestamp
     pub iat: u64,
+    /// Expiration time of token (Dont trust this can be manipulated)
+    pub exp: Option<u64>,
     /// Custom description
     pub description: Option<String>,
 }
@@ -34,15 +36,22 @@ impl TokenManager {
         scope: &str,
         keys: HashMap<String, Zeroizing<Vec<u8>>>,
         sub: &str,
+        ttl_seconds: Option<u64>,
         description: Option<&str>,
     ) -> Result<String> {
         let now = SystemTime::now().duration_since(UNIX_EPOCH)?.as_secs();
 
+        let expiry_time = if ttl_seconds.is_some() {
+            Some(now + ttl_seconds.unwrap())
+        } else {
+            None
+        };
         let payload = TokenPayload {
             scope: scope.to_string(),
             key_material: TokenKeyMaterial::GranularKeys(keys),
             sub: sub.to_string(),
             iat: now,
+            exp: expiry_time,
             description: description.map(|s| s.to_string()),
         };
 
@@ -79,6 +88,16 @@ impl TokenManager {
             .map_err(|_| anyhow!("Failed to decompress token payload!"))?;
 
         let payload: TokenPayload = serde_json::from_slice(&json_bytes)?;
+
+        let now = SystemTime::now().duration_since(UNIX_EPOCH)?.as_secs();
+
+        if payload.exp.is_some() {
+            if now > payload.exp.unwrap() {
+                return Err(anyhow!(
+                    "Token expired, Create a new one to continue using!!"
+                ));
+            }
+        }
 
         Ok(payload)
     }

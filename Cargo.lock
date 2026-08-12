@@ -719,7 +719,7 @@ dependencies = [
 
 [[package]]
 name = "envseal"
-version = "4.0.0"
+version = "5.0.0"
 dependencies = [
  "aead",
  "aes-gcm",
