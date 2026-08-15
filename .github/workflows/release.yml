@@ -20,16 +20,25 @@ jobs:
           - os: ubuntu-latest
             target: x86_64-unknown-linux-musl
             name: linux-musl-x86_64
+            archive_type: tar
 
           # Linux ARM64 (glibc)
           - os: ubuntu-latest
             target: aarch64-unknown-linux-gnu
             name: linux-aarch64
+            archive_type: tar
 
           # macOS Apple Silicon
           - os: macos-latest
             target: aarch64-apple-darwin
             name: macos-aarch64
+            archive_type: tar
+
+          # Windows x86_64
+          - os: windows-latest
+            target: x86_64-pc-windows-msvc
+            name: windows-x86_64
+            archive_type: zip
 
     steps:
       - name: Checkout repository
@@ -57,12 +66,17 @@ jobs:
         run: cargo build --release --locked --target ${{ matrix.target }}
         env:
           CC_x86_64_unknown_linux_musl: musl-gcc
+          CARGO_TARGET_X86_64_UNKNOWN_LINUX_MUSL_LINKER: musl-gcc
+          AR_x86_64_unknown_linux_musl: ar
           CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER: aarch64-linux-gnu-gcc
           CC_aarch64_unknown_linux_gnu: aarch64-linux-gnu-gcc
           CXX_aarch64_unknown_linux_gnu: aarch64-linux-gnu-g++
           AR_aarch64_unknown_linux_gnu: aarch64-linux-gnu-ar
 
-      - name: Package archive and checksum
+      # Package Linux & macOS (tar.gz)
+      - name: Package Unix archive and checksum
+        if: matrix.archive_type == 'tar'
+        shell: bash
         run: |
           set -euo pipefail
           BIN_SRC="target/${{ matrix.target }}/release/envseal"
@@ -76,6 +90,17 @@ jobs:
           else
             shasum -a 256 "$ARCHIVE" > "${ARCHIVE}.sha256"
           fi
+
+      # Package Windows (zip)
+      - name: Package Windows archive and checksum
+        if: matrix.archive_type == 'zip'
+        shell: pwsh
+        run: |
+          $binSrc = "target/${{ matrix.target }}/release/envseal.exe"
+          $archive = "envseal-${{ matrix.name }}.zip"
+          Compress-Archive -Path $binSrc -DestinationPath $archive
+          $hash = (Get-FileHash -Path $archive -Algorithm SHA256).Hash.ToLower()
+          "$hash  $archive" | Out-File -FilePath "${archive}.sha256" -Encoding ascii
 
       - name: Upload build artifact
         uses: actions/upload-artifact@v4
@@ -97,9 +122,27 @@ jobs:
           merge-multiple: true
 
       - name: Create GitHub Release
+        id: create_release
         uses: softprops/action-gh-release@v2
         with:
           files: dist/*
           generate_release_notes: true
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  publish-winget:
+    name: Publish to Winget
+    needs: release
+    runs-on: windows-latest
+    steps:
+      - name: Strip 'v' prefix from tag for winget version
+        id: winget_version
+        shell: bash
+        run: echo "version=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
+
+      - name: Submit to Windows Package Manager
+        uses: vedantmgoyal2009/winget-releaser@v2
+        with:
+          identifier: viswajith275.envseal
+          version: ${{ steps.winget_version.outputs.version }}
+          token: ${{ secrets.WINGET_TOKEN }}

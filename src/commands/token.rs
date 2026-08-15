@@ -89,19 +89,35 @@ pub fn cmd_token(
         let mut options = OpenOptions::new();
         options.write(true).create(true).truncate(true);
 
+        #[cfg(unix)]
         {
             use std::os::unix::fs::OpenOptionsExt;
             options.mode(0o600);
         }
 
         let mut file = options.open(path)?;
-        file.write_all(token_string.as_bytes())?;
+
+        file.lock_exclusive()?;
+
+        let write_result = file.write_all(token_string.as_bytes());
+
+        let unlock_result = file.unlock();
+
+        write_result?;
+        unlock_result?;
 
         #[cfg(unix)]
         eprintln!(
-            "Token successfully written to '{}' (Permissions restricted to 600)",
+            "Token successfully written to '{}' (permissions set to 0600)",
             path.display()
         );
+
+        #[cfg(windows)]
+        eprintln!(
+               "Token successfully written to '{}'. Note: on Windows, file permissions are not \
+                explicitly restricted — ensure the containing directory has appropriate access controls.",
+               path.display()
+           );
     } else {
         eprintln!("Token generated successfully. Pass this via ENVSEAL_TOKEN or --token-file \n");
         println!("{}", token_string);
