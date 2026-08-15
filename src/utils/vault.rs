@@ -371,24 +371,30 @@ impl Vault {
             if let Some(name) = group {
                 if name != LOCAL_GROUP_NAME {
                     return Err(anyhow!(
-                                "Local .envseal vaults do not support multiple groups!! Please omit the --group flag."
-                            ));
+                            "Local .envseal vaults do not support multiple groups!! Please omit the --group flag."
+                        ));
                 }
             }
             return Ok(LOCAL_GROUP_NAME.to_string());
         }
 
         if let Some(name) = group {
-            Ok(name.to_string())
-        } else {
-            let cur_dir = env::current_dir()?;
-            let name = self
-                    .link_index
-                    .get(&cur_dir)
-                    .ok_or_else(|| anyhow!("No group linked to current directory!! Run `envseal link <group>` or use --group."))?;
-
-            Ok(name.to_string())
+            return Ok(name.to_string());
         }
+
+ i        let mut current = env::current_dir()?;
+        loop {
+            if let Some(group_name) = self.link_index.get(&current) {
+                return Ok(group_name.clone());
+            }
+            if !current.pop() {
+                break;
+            }
+        }
+
+        Err(anyhow!(
+                "No group linked to current directory or its parents!! Run `envseal link <group>` or use --group."
+            ))
     }
 
     /// Rewraps the Master DEK under a new password without altering stored entries
@@ -418,6 +424,7 @@ impl Vault {
         kek.copy_from_slice(&*new_master_kek);
         let mut seed = [0u8; crypto::KEY_LEN];
         seed.copy_from_slice(new_signing_key.to_bytes().as_slice());
+
         let _ = crate::utils::session::SessionManager::cache_keys(
             &self.master_scope(),
             crate::utils::session::CachedKeys::Master { kek, seed },
