@@ -8,13 +8,14 @@ use anyhow::{anyhow, Result};
 use std::collections::{HashMap, HashSet};
 use std::fs::OpenOptions;
 use std::io::Write;
+use std::path::PathBuf;
 
 pub fn cmd_token(
     group: Option<&str>,
     tag: Option<&str>,
     name: &str,
     desc: Option<&str>,
-    out_file: Option<&std::path::PathBuf>,
+    out_file: Option<&PathBuf>,
     allowed_keys: Vec<String>,
     ttl_seconds: Option<u64>,
     global: bool,
@@ -88,7 +89,6 @@ pub fn cmd_token(
         let mut options = OpenOptions::new();
         options.write(true).create(true).truncate(true);
 
-        #[cfg(unix)]
         {
             use std::os::unix::fs::OpenOptionsExt;
             options.mode(0o600);
@@ -102,9 +102,6 @@ pub fn cmd_token(
             "Token successfully written to '{}' (Permissions restricted to 600)",
             path.display()
         );
-
-        #[cfg(windows)]
-        eprintln!("Token successfully written to '{}'", path.display());
     } else {
         eprintln!("Token generated successfully. Pass this via ENVSEAL_TOKEN or --token-file \n");
         println!("{}", token_string);

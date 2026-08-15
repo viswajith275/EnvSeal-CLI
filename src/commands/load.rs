@@ -40,21 +40,18 @@ pub fn cmd_load(
     let group_name = vault.resolve_group_name(group)?;
 
     let location_label = if vault.is_local() { "local" } else { "global" };
-    let message = if !keys.is_empty() && tag.is_some() {
-        format!(
-            "loading envs '{:?}' from tag '{}' inside group '{}' {} seal!",
-            keys,
-            tag.unwrap(),
-            group_name,
-            location_label
-        )
-    } else if tag.is_some() {
-        format!(
-            "loading envs from tag '{}' inside group '{}' {} seal!",
-            tag.unwrap(),
-            group_name,
-            location_label
-        )
+
+    let message = if let Some(t) = tag {
+        match keys.is_empty() {
+            true => format!(
+                "loading envs from tag '{}' inside group '{}' {} seal!",
+                t, group_name, location_label
+            ),
+            false => format!(
+                "loading envs '{:?}' from tag '{}' inside group '{}' {} seal!",
+                keys, t, group_name, location_label
+            ),
+        }
     } else {
         format!(
             "loading envs from group '{}' {} seal!",

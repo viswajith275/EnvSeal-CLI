@@ -1,6 +1,6 @@
 use super::crypto;
 use super::token::{TokenKeyMaterial, TokenPayload};
-use anyhow::{anyhow, Result};
+use anyhow::{anyhow, Context, Result};
 use directories::ProjectDirs;
 use ed25519_dalek::{Signature, Signer, SigningKey, Verifier, VerifyingKey};
 use fs2::FileExt;
@@ -121,9 +121,7 @@ impl Vault {
             .get(&group_name)
             .ok_or_else(|| anyhow::anyhow!("Group not found!!"))?;
 
-        let keys_map = match &token_payload.key_material {
-            TokenKeyMaterial::GranularKeys(map) => map,
-        };
+        let TokenKeyMaterial::GranularKeys(keys_map) = &token_payload.key_material;
 
         let mut target_entries: BTreeMap<&String, &Entry> = BTreeMap::new();
 
@@ -292,21 +290,36 @@ impl Vault {
     /// loads json to structures
     pub fn load(force_global: bool, pref: Option<&str>) -> Result<Self> {
         let path = Self::resolve_path(false, force_global, pref)?;
+
+        if !path.exists() {
+            anyhow::bail!("No vault found, hint: Run 'envseal init' first!!");
+        }
+
         let lock_path = path.with_extension("lock");
 
         let lock_file = OpenOptions::new()
             .write(true)
             .create(true)
+            .truncate(true)
             .open(&lock_path)?;
-        lock_file.lock_shared()?;
 
-        let mut file = File::open(&path)?;
+        lock_file
+            .lock_shared()
+            .with_context(|| format!("Failed to acquire read lock on '{}'", lock_path.display()))?;
+
+        let mut file = File::open(&path)
+            .with_context(|| format!("Failed to open vault at '{}'", path.display()))?;
+
         let mut data = Vec::new();
-        file.read_to_end(&mut data)?;
 
-        lock_file.unlock()?;
+        file.read_to_end(&mut data)
+            .with_context(|| format!("Failed to read vault data from '{}'", path.display()))?;
 
-        let mut vault: Vault = rmp_serde::from_slice(&data)?;
+        let _ = lock_file.unlock()?;
+
+        let mut vault: Vault = rmp_serde::from_slice(&data).with_context(|| {
+            format!("Failed to deserialize vault data from '{}'", path.display())
+        })?;
         vault.file_path = Some(path);
         Ok(vault)
     }
@@ -319,7 +332,9 @@ impl Vault {
         let lock_file = OpenOptions::new()
             .write(true)
             .create(true)
+            .truncate(true)
             .open(&lock_path)?;
+
         lock_file.lock_exclusive()?;
 
         let parent_dir = path.parent().unwrap_or_else(|| Path::new("."));
@@ -330,7 +345,7 @@ impl Vault {
         temp_file.flush()?;
         temp_file.persist(path)?;
 
-        lock_file.unlock()?;
+        let _ = lock_file.unlock()?;
         let _ = fs::remove_file(lock_path);
         Ok(())
     }
@@ -338,10 +353,12 @@ impl Vault {
     /// resolves the group name from explicit value or link
     pub fn resolve_group_name(&self, group: Option<&str>) -> Result<String> {
         if self.is_local() {
-            if group.is_some() {
-                return Err(anyhow!(
-                        "Local .envseal vaults do not support multiple groups! Please omit the --group flag."
-                    ));
+            if let Some(name) = group {
+                if name != LOCAL_GROUP_NAME {
+                    return Err(anyhow!(
+                                "Local .envseal vaults do not support multiple groups!! Please omit the --group flag."
+                            ));
+                }
             }
             return Ok(LOCAL_GROUP_NAME.to_string());
         }
@@ -377,11 +394,11 @@ impl Vault {
                 let group_entry = self
                     .entries
                     .get(&group_name)
-                    .ok_or_else(|| anyhow!("Group not found!"))?;
+                    .ok_or_else(|| anyhow!("Group not found!!"))?;
                 let tag_entry = group_entry
                     .tags
                     .get(active_tag)
-                    .ok_or_else(|| anyhow!("Tag not found!"))?;
+                    .ok_or_else(|| anyhow!("Tag not found!!"))?;
 
                 (
                     tag_entry.salt.is_none(),
@@ -390,7 +407,7 @@ impl Vault {
             };
 
             if is_unprotected {
-                return Err(anyhow!("Cannot independently rotate an unprotected tag! Its security is mathematically bound to the Master DEK."));
+                return Err(anyhow!("Cannot independently rotate an unprotected tag, Its security is mathematically bound to the Master DEK!!"));
             }
 
             let mut plaintexts = BTreeMap::new();
@@ -404,7 +421,7 @@ impl Vault {
             let group_entry = self.entries.get_mut(&group_name).unwrap();
             let tag_entry = group_entry.tags.get_mut(active_tag).unwrap();
 
-            let tp = tag_password.ok_or_else(|| anyhow!("Tag password required!"))?;
+            let tp = tag_password.ok_or_else(|| anyhow!("Tag password required!!"))?;
             let salt = tag_entry.salt.as_ref().unwrap();
             let tag_kek = crypto::derive_key(tp, salt)?;
 
@@ -663,10 +680,7 @@ impl Vault {
             tag.to_string(),
             Tag {
                 salt: Some(salt.to_vec()),
-                wrapped_tag_dek: Some(Entry {
-                    nonce: nonce,
-                    ciphertext: ciphertext,
-                }),
+                wrapped_tag_dek: Some(Entry { nonce, ciphertext }),
                 entries: BTreeMap::new(),
             },
         );
@@ -742,10 +756,7 @@ impl Vault {
 
         let (nonce, ciphertext) = crypto::encrypt(&specific_entry_key, value.as_bytes())?;
 
-        let entry = Entry {
-            nonce: nonce,
-            ciphertext: ciphertext,
-        };
+        let entry = Entry { nonce, ciphertext };
 
         if active_tag == BASE_TAG {
             group_entry.base.insert(name.to_string(), entry);

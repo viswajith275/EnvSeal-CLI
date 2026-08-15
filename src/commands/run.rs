@@ -1,7 +1,7 @@
 use crate::utils::{resolve, vault::Vault};
 use anyhow::{Context, Result};
 use std::path::PathBuf;
-use std::process::Command;
+use std::process::{exit, Command};
 
 pub fn cmd_run(
     group: Option<&str>,
@@ -31,8 +31,8 @@ pub fn cmd_run(
     let status = child.wait().context("Failed to wait on child process!!")?;
 
     if let Some(code) = status.code() {
-        std::process::exit(code);
+        exit(code);
     } else {
-        std::process::exit(1);
+        exit(1);
     }
 }

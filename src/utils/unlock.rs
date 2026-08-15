@@ -12,26 +12,24 @@ use zeroize::Zeroizing;
 pub fn sudo_unlock(vault: &Vault) -> Result<VaultKeys> {
     let scope = vault.master_scope();
 
-    if let Some(cached_keys) = SessionManager::get_active_keys(&scope)? {
-        if let CachedKeys::Master { kek, seed } = cached_keys {
-            let signing_key = SigningKey::from_bytes(&seed);
+    if let Some(CachedKeys::Master { kek, seed }) = SessionManager::get_active_keys(&scope)? {
+        let signing_key = SigningKey::from_bytes(&seed);
 
-            if let Ok(master_dek_bytes) = crypto::decrypt(
-                &kek,
-                &vault.wrapped_master_dek.nonce,
-                &vault.wrapped_master_dek.ciphertext,
-            ) {
-                let mut master_dek = [0u8; crypto::KEY_LEN];
-                master_dek.copy_from_slice(&master_dek_bytes);
+        if let Ok(master_dek_bytes) = crypto::decrypt(
+            &kek,
+            &vault.wrapped_master_dek.nonce,
+            &vault.wrapped_master_dek.ciphertext,
+        ) {
+            let mut master_dek = [0u8; crypto::KEY_LEN];
+            master_dek.copy_from_slice(&master_dek_bytes);
 
-                return Ok(VaultKeys {
-                    master_kek: Zeroizing::new(kek),
-                    master_dek: Zeroizing::new(master_dek),
-                    signing_key,
-                });
-            } else {
-                let _ = SessionManager::clear_session(&scope);
-            }
+            return Ok(VaultKeys {
+                master_kek: Zeroizing::new(kek),
+                master_dek: Zeroizing::new(master_dek),
+                signing_key,
+            });
+        } else {
+            let _ = SessionManager::clear_session(&scope);
         }
     }
 

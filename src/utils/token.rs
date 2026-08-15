@@ -41,11 +41,8 @@ impl TokenManager {
     ) -> Result<String> {
         let now = SystemTime::now().duration_since(UNIX_EPOCH)?.as_secs();
 
-        let expiry_time = if ttl_seconds.is_some() {
-            Some(now + ttl_seconds.unwrap())
-        } else {
-            None
-        };
+        let expiry_time = ttl_seconds.map(|t| now + t);
+
         let payload = TokenPayload {
             scope: scope.to_string(),
             key_material: TokenKeyMaterial::GranularKeys(keys),
@@ -91,8 +88,8 @@ impl TokenManager {
 
         let now = SystemTime::now().duration_since(UNIX_EPOCH)?.as_secs();
 
-        if payload.exp.is_some() {
-            if now > payload.exp.unwrap() {
+        if let Some(exp) = payload.exp {
+            if now > exp {
                 return Err(anyhow!(
                     "Token expired, Create a new one to continue using!!"
                 ));

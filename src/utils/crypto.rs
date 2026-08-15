@@ -50,7 +50,7 @@ fn run_argon2(password: &str, salt: &[u8], out_len: usize) -> Result<Zeroizing<V
 pub fn derive_key(password: &str, salt: &[u8]) -> Result<Zeroizing<[u8; KEY_LEN]>> {
     let derived = run_argon2(password, salt, KEY_LEN)?;
     let mut key = [0u8; KEY_LEN];
-    key.copy_from_slice(&derived.as_ref());
+    key.copy_from_slice(derived.as_ref());
 
     Ok(Zeroizing::new(key))
 }

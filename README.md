@@ -38,6 +38,10 @@ Other install methods (pinned version, local binary, from source) are listed und
 
 ---
 
+## Upcoming
+
+**Local proxy** : Securely handling secrets by injecting real credentials into network traffic via a local proxy, keeping them out of process memory and environment variables. This prevents sensitive credentials from being exposed in memory or environment variables, mitigating risks from memory dumps, malicious dependencies, or insecure configuration practices. (Normal variables will be injected as usual specially configured ones will be injected by the proxy)
+
 ## Why This Exists
 
 Plaintext secrets get copied into `~/Downloads`, scattered across scripts, and occasionally pushed straight to GitHub. Scraper bots pick up newly committed keys within minutes. One misdirected key and a local script writes to production or emails real customers. Sourcing a `.env` file pollutes every process in your shell session. Sharing production credentials with a team usually means pasting them into Slack or committing a file helpfully named `prod.env.final`.

@@ -43,12 +43,10 @@ pub fn cmd_import(
 
     vault.save()?;
     let location_label = if vault.is_local() { "local" } else { "global" };
-    let message = if tag.is_some() {
+    let message = if let Some(t) = tag {
         format!(
             "sealed env in tag '{}' inside group '{}' {} seal",
-            tag.unwrap(),
-            group_name,
-            location_label
+            t, group_name, location_label
         )
     } else {
         format!(

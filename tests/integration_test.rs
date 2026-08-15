@@ -2,24 +2,47 @@
 mod vault_integration_tests {
     use envseal::utils::vault::{Entry, Vault};
     use std::env;
-    use std::path::{Path, PathBuf};
-    use std::sync::Mutex;
-    use tempfile::tempdir;
+    use std::path::PathBuf;
+    use std::sync::{Mutex, MutexGuard};
+    use tempfile::{tempdir, TempDir};
 
-    // Mutex to prevent race conditions when multiple test threads modify the environment variable
+    // Mutex to synchronize tests modifying the process-wide environment variable
     static ENV_MUTEX: Mutex<()> = Mutex::new(());
 
-    fn setup_isolated_env(temp_path: &Path, filename: &str) -> PathBuf {
-        let vault_path = temp_path.join(filename);
-        env::set_var("ENVSEAL_TEST_PATH", vault_path.to_str().unwrap());
-        vault_path
+    /// RAII guard ensuring isolated temp directory lifetime, poison-safe locking,
+    /// and automatic cleanup of the environment variable on drop.
+    struct TestEnv {
+        _guard: MutexGuard<'static, ()>,
+        _temp_dir: TempDir,
+        pub vault_path: PathBuf,
+    }
+
+    impl TestEnv {
+        fn new(filename: &str) -> Self {
+            let guard = ENV_MUTEX
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner());
+            let temp_dir = tempdir().expect("Failed to create isolated tempdir");
+            let vault_path = temp_dir.path().join(filename);
+            env::set_var("ENVSEAL_TEST_PATH", vault_path.to_str().unwrap());
+
+            Self {
+                _guard: guard,
+                _temp_dir: temp_dir,
+                vault_path,
+            }
+        }
+    }
+
+    impl Drop for TestEnv {
+        fn drop(&mut self) {
+            env::remove_var("ENVSEAL_TEST_PATH");
+        }
     }
 
     #[test]
     fn test_vault_initialization_and_overwrite_protection() {
-        let _guard = ENV_MUTEX.lock().unwrap();
-        let temp = tempdir().unwrap();
-        let _path = setup_isolated_env(temp.path(), ".envseal");
+        let _env = TestEnv::new(".envseal");
 
         // Successful initialization
         let init_result = Vault::init("master_pass", true, false, None);
@@ -39,9 +62,7 @@ mod vault_integration_tests {
 
     #[test]
     fn test_signature_tamper_detection() {
-        let _guard = ENV_MUTEX.lock().unwrap();
-        let temp = tempdir().unwrap();
-        setup_isolated_env(temp.path(), ".envseal");
+        let _env = TestEnv::new(".envseal");
 
         Vault::init("master_pass", true, false, None).unwrap();
         let mut vault = Vault::load(false, None).unwrap();
@@ -68,17 +89,16 @@ mod vault_integration_tests {
         let unlock_result = tampered_vault.unlock("master_pass");
 
         assert!(unlock_result.is_err());
-        assert!(unlock_result
-            .unwrap_err()
-            .to_string()
-            .contains("SEAL TAMPERED: Ed25519 signature verification failed!!"));
+        let err_msg = unlock_result.unwrap_err().to_string();
+        assert!(
+            err_msg.contains("signature verification failed") || err_msg.contains("SEAL TAMPERED"),
+            "Expected tamper error, got: {err_msg}"
+        );
     }
 
     #[test]
     fn test_base_and_protected_tag_workflow() {
-        let _guard = ENV_MUTEX.lock().unwrap();
-        let temp = tempdir().unwrap();
-        setup_isolated_env(temp.path(), ".envseal");
+        let _env = TestEnv::new(".envseal");
 
         Vault::init("master_pass", true, false, None).unwrap();
         let mut vault = Vault::load(false, None).unwrap();
@@ -139,9 +159,7 @@ mod vault_integration_tests {
 
     #[test]
     fn test_entry_removal_edge_cases() {
-        let _guard = ENV_MUTEX.lock().unwrap();
-        let temp = tempdir().unwrap();
-        setup_isolated_env(temp.path(), ".envseal");
+        let _env = TestEnv::new(".envseal");
 
         Vault::init("master_pass", true, false, None).unwrap();
         let mut vault = Vault::load(false, None).unwrap();
@@ -169,9 +187,7 @@ mod vault_integration_tests {
 
     #[test]
     fn test_local_vault_group_isolation() {
-        let _guard = ENV_MUTEX.lock().unwrap();
-        let temp = tempdir().unwrap();
-        setup_isolated_env(temp.path(), ".envseal");
+        let _env = TestEnv::new(".envseal");
 
         Vault::init("master_pass", true, false, None).unwrap();
         let mut vault = Vault::load(false, None).unwrap();
@@ -196,9 +212,7 @@ mod vault_integration_tests {
 
     #[test]
     fn test_failed_authentication_attempts() {
-        let _guard = ENV_MUTEX.lock().unwrap();
-        let temp = tempdir().unwrap();
-        setup_isolated_env(temp.path(), ".envseal");
+        let _env = TestEnv::new(".envseal");
 
         Vault::init("correct_master", true, false, None).unwrap();
         let mut vault = Vault::load(false, None).unwrap();
@@ -227,13 +241,11 @@ mod vault_integration_tests {
 
     #[test]
     fn test_custom_profile_naming() {
-        let _guard = ENV_MUTEX.lock().unwrap();
-        let temp = tempdir().unwrap();
-        let path = setup_isolated_env(temp.path(), ".prod.envseal");
+        let env = TestEnv::new(".prod.envseal");
 
         // Init with custom prefix (e.g. -e prod -> .prod.envseal)
         Vault::init("master_pass", true, false, Some("prod")).unwrap();
-        assert!(path.exists());
+        assert!(env.vault_path.exists());
 
         // Load custom profile and verify is_local() recognizes it
         let vault = Vault::load(false, Some("prod")).unwrap();
@@ -242,9 +254,7 @@ mod vault_integration_tests {
 
     #[test]
     fn test_list_all_keys() {
-        let _guard = ENV_MUTEX.lock().unwrap();
-        let temp = tempdir().unwrap();
-        setup_isolated_env(temp.path(), ".envseal");
+        let _env = TestEnv::new(".envseal");
 
         Vault::init("master_pass", true, false, None).unwrap();
         let mut vault = Vault::load(false, None).unwrap();
@@ -279,9 +289,7 @@ mod vault_integration_tests {
 
     #[test]
     fn test_protected_tag_deletion_rules() {
-        let _guard = ENV_MUTEX.lock().unwrap();
-        let temp = tempdir().unwrap();
-        setup_isolated_env(temp.path(), ".envseal");
+        let _env = TestEnv::new(".envseal");
 
         Vault::init("master_pass", true, false, None).unwrap();
         let mut vault = Vault::load(false, None).unwrap();
@@ -318,9 +326,7 @@ mod vault_integration_tests {
 
     #[test]
     fn test_master_and_tag_scope_generation() {
-        let _guard = ENV_MUTEX.lock().unwrap();
-        let temp = tempdir().unwrap();
-        let _ = setup_isolated_env(temp.path(), ".envseal");
+        let _env = TestEnv::new(".envseal");
 
         Vault::init("master_pass", true, false, None).unwrap();
         let vault = Vault::load(false, None).unwrap();
@@ -336,9 +342,7 @@ mod vault_integration_tests {
 
     #[test]
     fn test_rotate_base_scope_dek() {
-        let _guard = ENV_MUTEX.lock().unwrap();
-        let temp = tempdir().unwrap();
-        setup_isolated_env(temp.path(), ".envseal");
+        let _env = TestEnv::new(".envseal");
 
         Vault::init("master_pass", true, false, None).unwrap();
         let mut vault = Vault::load(false, None).unwrap();
@@ -348,14 +352,12 @@ mod vault_integration_tests {
             .set_entry(&keys, None, None, "API_KEY", "secret-123", None)
             .unwrap();
 
-        // Rotate the base scope DEK. This re-wraps the master DEK, so the
-        // VaultKeys held before rotation becomes stale for decrypting entries.
+        // Rotate the base scope DEK. Re-wraps the master DEK.
         vault
             .rotate_scope_dek(&keys, None, None, None, None)
             .unwrap();
 
-        // Re-unlocking with the same master password must still succeed and
-        // must yield keys that can decrypt the rotated entry correctly.
+        // Re-unlocking with master password yields keys that decrypt properly
         let rotated_keys = vault.unlock("master_pass").unwrap();
         let retrieved = vault
             .get_entry(&rotated_keys.master_dek, None, None, "API_KEY", None)
@@ -365,17 +367,12 @@ mod vault_integration_tests {
 
     #[test]
     fn test_rotate_protected_tag_dek_requires_password() {
-        let _guard = ENV_MUTEX.lock().unwrap();
-        let temp = tempdir().unwrap();
-        setup_isolated_env(temp.path(), ".envseal");
+        let _env = TestEnv::new(".envseal");
 
         Vault::init("master_pass", true, false, None).unwrap();
         let mut vault = Vault::load(false, None).unwrap();
         let keys = vault.unlock("master_pass").unwrap();
 
-        // An empty protected tag: no entries to decrypt, so rotation must
-        // fail directly on the missing tag password rather than on entry
-        // decryption.
         vault
             .create_protected_tag(&keys.signing_key, None, "prod", "tag_pass")
             .unwrap();
@@ -390,9 +387,7 @@ mod vault_integration_tests {
 
     #[test]
     fn test_rotate_protected_tag_dek_with_entries() {
-        let _guard = ENV_MUTEX.lock().unwrap();
-        let temp = tempdir().unwrap();
-        setup_isolated_env(temp.path(), ".envseal");
+        let _env = TestEnv::new(".envseal");
 
         Vault::init("master_pass", true, false, None).unwrap();
         let mut vault = Vault::load(false, None).unwrap();
@@ -414,9 +409,7 @@ mod vault_integration_tests {
             )
             .unwrap();
 
-        // Edge Case: rotating a tag with existing entries but no supplied
-        // tag DEK fails while re-reading the entries, before the password
-        // itself is even checked.
+        // Rotating a tag with existing entries but no supplied tag DEK fails
         let rotate_no_dek =
             vault.rotate_scope_dek(&keys, None, Some("prod"), None, Some("tag_pass"));
         assert!(rotate_no_dek.is_err());
@@ -425,16 +418,11 @@ mod vault_integration_tests {
             .to_string()
             .contains("Password required for protected tag"));
 
-        // Rotating a protected tag's DEK requires both the current tag DEK
-        // (to re-encrypt existing entries) and the tag password (to rewrap
-        // the new DEK). The salt, and therefore the tag password itself,
-        // stays the same afterward.
+        // Rotate with both the current tag DEK and tag password
         vault
             .rotate_scope_dek(&keys, None, Some("prod"), Some(&tag_key), Some("tag_pass"))
             .unwrap();
 
-        // Unlocking with the same tag password after rotation still works,
-        // and yields the newly rotated tag DEK that decrypts correctly.
         let new_tag_key = vault.unlock_tag(None, "prod", "tag_pass").unwrap();
         let retrieved = vault
             .get_entry(

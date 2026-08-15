@@ -2,86 +2,70 @@
 set -euo pipefail
 
 # =============================================================================
-# envseal-cli Installer
-#
-# This script downloads and installs the envseal binary from GitHub Releases,
-# or installs it from a local file/archive.
-#
-# Supported Environments:
-#   - Linux (x86_64, aarch64)
-#   - macOS (arm64 / Apple Silicon only)
-#   - Windows (via Git Bash, MSYS2, Cygwin)
-#
-# Key Features:
-#   - Auto-detects OS and Architecture.
-#   - Verifies downloaded release archives against the SHA-256 checksum
-#     published alongside each asset (skips gracefully if unavailable).
-#   - Automatically adds the install directory to the user's PATH.
-#   - Injects a shell wrapper function to allow `envseal load` to modify
-#     the parent shell's environment variables using `eval`, while safely
-#     ignoring help flags.
+# envseal-cli Installer (Linux & macOS)
 # =============================================================================
 
-# --- Configuration Defaults ---
 readonly REPO="viswajith275/envseal-cli"
 readonly BIN_NAME="envseal"
 readonly DEFAULT_INSTALL_DIR="$HOME/.local/bin"
 readonly VERSION_DEFAULT="latest"
+readonly ARCHIVE_EXT=".tar.gz"
 
-# --- Mutable Script State ---
+# State
 INSTALL_DIR="$DEFAULT_INSTALL_DIR"
 VERSION="$VERSION_DEFAULT"
 LOCAL_FILE=""
 DRY_RUN=false
 SKIP_VERIFY=false
 
-# --- Dynamic Platform Variables ---
+# Platform vars
 PLATFORM=""
-EXE_EXT=""
-ARCHIVE_EXT=".tar.gz"
+TMP_DIR=""
 
-# --- UI / Colors ---
+# UI & Colors
 if [[ -t 1 ]]; then
-    readonly RED='\033[0;31m'
-    readonly GREEN='\033[0;32m'
-    readonly YELLOW='\033[1;33m'
-    readonly NC='\033[0m' # No Color
+    readonly C_RED='\033[0;31m'
+    readonly C_GRN='\033[0;32m'
+    readonly C_BLU='\033[0;34m'
+    readonly C_YEL='\033[1;33m'
+    readonly C_CYA='\033[0;36m'
+    readonly C_BOLD='\033[1m'
+    readonly C_RESET='\033[0m'
 else
-    readonly RED=''
-    readonly GREEN=''
-    readonly YELLOW=''
-    readonly NC=''
+    readonly C_RED='' C_GRN='' C_BLU='' C_YEL='' C_CYA='' C_BOLD='' C_RESET=''
 fi
 
-# --- Logging Utilities ---
-log_info() { echo -e "${GREEN}✓${NC} $*" >&2; }
-log_warn() { echo -e "${YELLOW}⚠${NC} $*" >&2; }
-log_error() { echo -e "${RED}✗${NC} $*" >&2; }
+log_info()    { echo -e "${C_BLU}==>${C_RESET} $*" >&2; }
+log_success() { echo -e "${C_GRN}✔${C_RESET} $*" >&2; }
+log_warn()    { echo -e "${C_YEL}⚠${C_RESET} $*" >&2; }
+log_error()   { echo -e "${C_RED}✖${C_RESET} $*" >&2; }
 
-# --- Help / Usage Menu ---
+cleanup() {
+    if [[ -n "$TMP_DIR" && -d "$TMP_DIR" ]]; then
+        rm -rf "$TMP_DIR"
+    fi
+}
+trap cleanup EXIT
+
 usage() {
     cat <<EOF
-Usage: install.sh [options]
+${C_BOLD}Usage:${C_RESET} install.sh [options]
 
-Downloads and installs $BIN_NAME, or installs it from a local file.
-Updates the current shell's configuration file if it exists.
+Installs the ${BIN_NAME} binary from GitHub Releases or a local archive.
 
-Options:
-  -d, --dir <path>      Install directory (default: $DEFAULT_INSTALL_DIR)
-  -v, --version <tag>   Install a specific release tag (default: latest)
-                          Example: v1.2.3 (the leading "v" is added
-                          automatically if you omit it)
-  -f, --file <path>     Manual install from local .tar.gz, .zip or binary
-  --no-verify           Skip SHA-256 checksum verification of downloads
-  --dry-run             Show what would be done without making changes
-  -h, --help            Show this help message and exit
+${C_BOLD}Options:${C_RESET}
+  -d, --dir <path>      Target install directory (default: $DEFAULT_INSTALL_DIR)
+  -v, --version <tag>   Release version to install (default: latest)
+  -f, --file <path>     Install directly from a local archive or binary
+  --no-verify           Skip SHA-256 checksum verification
+  --dry-run             Preview actions without making changes
+  -h, --help            Show this help message
 
-Examples:
+${C_BOLD}Examples:${C_RESET}
   ./install.sh
-  ./install.sh --version v1.2.3
-  ./install.sh --version 1.2.3
+  ./install.sh --version v1.2.0
   ./install.sh --dir /usr/local/bin
-  ./install.sh --file ~/Downloads/$BIN_NAME-macos-aarch64.tar.gz
+  ./install.sh --file ./envseal-linux-aarch64.tar.gz
 EOF
 }
 
@@ -89,76 +73,95 @@ EOF
 parse_args() {
     while [[ $# -gt 0 ]]; do
         case "$1" in
-            -d|--dir) INSTALL_DIR="$2"; shift 2 ;;
-            -v|--version) VERSION="$2"; shift 2 ;;
-            -f|--file) LOCAL_FILE="$2"; shift 2 ;;
-            --no-verify) SKIP_VERIFY=true; shift ;;
-            --dry-run) DRY_RUN=true; shift ;;
-            -h|--help) usage; exit 0 ;;
-            *) log_error "Unknown option: $1"; usage; exit 1 ;;
+            -d|--dir)      INSTALL_DIR="$2"; shift 2 ;;
+            -v|--version)  VERSION="$2"; shift 2 ;;
+            -f|--file)     LOCAL_FILE="$2"; shift 2 ;;
+            --no-verify)   SKIP_VERIFY=true; shift ;;
+            --dry-run)     DRY_RUN=true; shift ;;
+            -h|--help)     usage; exit 0 ;;
+            *)             log_error "Unknown option: $1"; usage; exit 1 ;;
         esac
     done
 
-    # Release tags are published as "v*" (see the release workflow),
-    # so normalize a bare version like "1.2.3" to "v1.2.3".
     if [[ "$VERSION" != "latest" && "$VERSION" != v* ]]; then
         VERSION="v$VERSION"
     fi
 }
 
-# --- Dependency Checkers ---
-command_exists() {
-    command -v "$1" >/dev/null 2>&1
-}
+# --- HTTP Helpers ---
+has_cmd() { command -v "$1" >/dev/null 2>&1; }
 
-fetch() {
+http_get() {
     local url="$1"
-    if command_exists curl; then
-        curl -fsSL "$url"
-    elif command_exists wget; then
-        wget -qO- "$url"
-    else
-        log_error "Neither curl nor wget is installed. Cannot download files."
-        exit 1
-    fi
-}
-
-# Like fetch(), but deliberately does NOT fail on a non-2xx HTTP status.
-# GitHub's API returns a JSON body (with a "message" field) even on 403/404
-# responses, and callers need to inspect that body to tell "rate limited"
-# apart from "release not found" apart from "genuinely unreachable". Using
-# `curl -f` here would discard the body on any error status, making that
-# inspection impossible -- so this is only for API calls whose response body
-# matters; use fetch()/fetch_to_file() for downloading actual release assets.
-fetch_api() {
-    local url="$1"
-    if command_exists curl; then
+    if has_cmd curl; then
         curl -sSL "$url"
-    elif command_exists wget; then
+    elif has_cmd wget; then
         wget -qO- "$url" 2>/dev/null || true
     else
-        log_error "Neither curl nor wget is installed. Cannot download files."
+        log_error "curl or wget is required to run this installer."
         exit 1
     fi
 }
 
-# Download a URL to a file, returning non-zero (instead of aborting the whole
-# script via set -e) so callers can treat a missing optional asset (like a
-# checksum file) as "not available" rather than a hard failure.
-fetch_to_file() {
+get_remote_size() {
+    local url="$1"
+    if has_cmd curl; then
+        curl -sIL "$url" | tr -d '\r' | awk '/^[Cc]ontent-[Ll]ength:/ {len=$2} END {print len}'
+    elif has_cmd wget; then
+        wget --spider --server-response "$url" 2>&1 | tr -d '\r' | awk '/^[Cc]ontent-[Ll]ength:/ {len=$2} END {print len}'
+    fi
+}
+
+http_download_with_progress() {
     local url="$1" dest="$2"
-    if command_exists curl; then
-        curl -fsSL -o "$dest" "$url"
-    elif command_exists wget; then
-        wget -q -O "$dest" "$url"
+    local total_bytes
+    total_bytes="$(get_remote_size "$url" || echo 0)"
+
+    if has_cmd curl; then
+        curl -fsSL -o "$dest" "$url" &
+    elif has_cmd wget; then
+        wget -q -O "$dest" "$url" &
     else
-        log_error "Neither curl nor wget is installed. Cannot download files."
+        log_error "curl or wget is required to run this installer."
         exit 1
     fi
+    local dl_pid=$!
+
+    while kill -0 "$dl_pid" 2>/dev/null; do
+        local cur_bytes=0
+        if [[ -f "$dest" ]]; then
+            cur_bytes=$(wc -c < "$dest" | tr -d '[:space:]')
+        fi
+
+        if [[ -n "$total_bytes" && "$total_bytes" -gt 0 ]]; then
+            local pct=$(( cur_bytes * 100 / total_bytes ))
+            local cur_mb total_mb
+            cur_mb=$(awk -v b="$cur_bytes" 'BEGIN { printf "%.2f", b/1048576 }')
+            total_mb=$(awk -v b="$total_bytes" 'BEGIN { printf "%.2f", b/1048576 }')
+            printf "\r\033[K%b==>%b Downloading: %s MB / %s MB (%d%%)" "${C_BLU}" "${C_RESET}" "$cur_mb" "$total_mb" "$pct" >&2
+        else
+            local cur_mb
+            cur_mb=$(awk -v b="$cur_bytes" 'BEGIN { printf "%.2f", b/1048576 }')
+            printf "\r\033[K%b==>%b Downloading: %s MB" "${C_BLU}" "${C_RESET}" "$cur_mb" >&2
+        fi
+        sleep 0.1
+    done
+
+    wait "$dl_pid" || {
+        printf "\r\033[K" >&2
+        log_error "Download failed."
+        exit 1
+    }
+
+    local final_bytes
+    final_bytes=$(wc -c < "$dest" | tr -d '[:space:]')
+    local final_mb
+    final_mb=$(awk -v b="$final_bytes" 'BEGIN { printf "%.2f", b/1048576 }')
+    printf "\r\033[K%b✔%b Download complete (%s MB)\n" "${C_GRN}" "${C_RESET}" "$final_mb" >&2
 }
 
 # --- Platform Detection ---
-set_platform_vars() {
+detect_platform() {
     local os arch
     os="$(uname -s)"
     arch="$(uname -m)"
@@ -166,562 +169,269 @@ set_platform_vars() {
     case "$os" in
         Linux)
             case "$arch" in
-                x86_64|amd64) PLATFORM="linux-musl-x86_64" ;;
+                x86_64|amd64)  PLATFORM="linux-musl-x86_64" ;;
                 aarch64|arm64) PLATFORM="linux-aarch64" ;;
-                *) PLATFORM="" ;;
             esac
             ;;
         Darwin)
             case "$arch" in
                 arm64) PLATFORM="macos-aarch64" ;;
-                x86_64) PLATFORM="" ;;
-                *) PLATFORM="" ;;
+                x86_64)
+                    log_error "Intel Macs (x86_64) are not supported by prebuilt releases."
+                    exit 1
+                    ;;
             esac
             ;;
-        CYGWIN*|MINGW*|MSYS*)
-            EXE_EXT=".exe"
-            ARCHIVE_EXT=".zip"
-            case "$arch" in
-                x86_64|amd64) PLATFORM="windows-x86_64" ;;
-                *) PLATFORM="" ;;
-            esac
-            ;;
-        *) PLATFORM="" ;;
     esac
 
     if [[ -z "$PLATFORM" ]]; then
-        if [[ "$os" == "Darwin" && "$arch" == "x86_64" ]]; then
-            log_error "Intel Macs (macOS/x86_64) are no longer supported by prebuilt releases."
-            log_error "Build from source, or install manually with: ./install.sh --file <path-to-binary-or-archive>"
-        else
-            log_error "Unsupported platform: $os/$arch"
-            log_error "Install manually with: ./install.sh --file <path-to-binary-or-archive>"
-        fi
+        log_error "Unsupported operating system/architecture: $os/$arch"
+        log_error "Supported: Linux (x86_64, aarch64) and macOS (Apple Silicon arm64)"
         exit 1
     fi
 }
 
-# --- Shell Configuration Helpers ---
-
-# Whether $1 is a shell name this installer knows how to configure. Kept in
-# sync with the case in get_shell_config_path() below.
-is_known_shell() {
-    case "$1" in
-        bash|zsh|fish|ksh|mksh|tcsh) return 0 ;;
-        *) return 1 ;;
-    esac
-}
-
-detect_current_shell() {
-    local shell_name=""
-
-    # Prefer the shell that is actually running this script (its parent
-    # process) over $SHELL. $SHELL only reflects the user's configured
-    # *login* shell, which can silently diverge from the shell they're
-    # currently using -- e.g. `bash install.sh` run from an interactive zsh
-    # session, or `curl ... | bash` piped from zsh -- in which case trusting
-    # $SHELL would update the wrong rc file (.bashrc instead of .zshrc, or
-    # vice versa).
-    if command_exists ps; then
-        shell_name=$(ps -p "$PPID" -o comm= 2>/dev/null | tr -d '[:space:]')
-        # Login shells are often reported with a leading '-' (e.g. "-zsh").
-        shell_name="${shell_name#-}"
-        # Some platforms report a full path (e.g. "/usr/bin/zsh") rather
-        # than a bare name.
-        shell_name="$(basename "$shell_name" 2>/dev/null || true)"
-    fi
-
-    # Fall back to the configured login shell if parent-process detection
-    # didn't work (no `ps`, PPID unavailable, or the parent isn't a shell
-    # this installer recognizes -- e.g. the script was invoked from a
-    # Makefile or another non-interactive wrapper).
-    if [[ -z "$shell_name" ]] || ! is_known_shell "$shell_name"; then
-        shell_name=$(basename "${SHELL:-/bin/bash}")
-    fi
-
-    echo "$shell_name"
-}
-
-get_shell_config_path() {
-    local shell="$1"
-    case "$shell" in
-        bash) echo "$HOME/.bashrc" ;;
-        zsh) echo "$HOME/.zshrc" ;;
-        fish) echo "$HOME/.config/fish/config.fish" ;;
-        ksh|mksh) echo "$HOME/.kshrc" ;;
-        tcsh) echo "$HOME/.tcshrc" ;;
-        *) echo "" ;;
-    esac
-}
-
-# --- Core Installation Logic ---
-validate_install_dir() {
-    if [[ ! -d "$INSTALL_DIR" ]]; then
-        if ! mkdir -p "$INSTALL_DIR" 2>/dev/null; then
-            log_error "Cannot create install directory: $INSTALL_DIR"
-            exit 1
-        fi
-        log_info "Created install directory: $INSTALL_DIR"
-    fi
-
-    if [[ ! -w "$INSTALL_DIR" ]]; then
-        log_error "Install directory is not writable: $INSTALL_DIR"
-        exit 1
-    fi
-}
-
-# Verify a file's SHA-256 checksum against a ".sha256" sidecar file
-# (as produced by `sha256sum`/`shasum -a 256`). Returns:
-#   0  - verified OK
-#   1  - verification failed (checksum mismatch) -- caller should abort
-#   2  - could not verify (no tool available or no checksum file) -- caller
-#        should warn and continue, since verification is best-effort
+# --- Checksum Verification ---
 verify_checksum() {
-    local file="$1" sidecar_url="$2" tmp_dir="$3"
+    local target_file="$1" sidecar_url="$2"
+    [[ "$SKIP_VERIFY" == true ]] && return 0
 
-    if [[ "$SKIP_VERIFY" == true ]]; then
-        return 2
-    fi
+    log_info "Verifying SHA-256 checksum..."
+    local sidecar_content
+    sidecar_content="$(http_get "$sidecar_url")"
+    [[ -z "$sidecar_content" ]] && { log_warn "Checksum file unavailable. Skipping verification."; return 0; }
 
-    if ! command_exists sha256sum && ! command_exists shasum; then
-        return 2
-    fi
-
-    local sidecar
-    sidecar="$tmp_dir/$(basename "$file").sha256"
-    if ! fetch_to_file "$sidecar_url" "$sidecar" 2>/dev/null; then
-        return 2
-    fi
-
-    # The sidecar's recorded filename may not match our local path, so only
-    # compare the hash (first field) rather than running sha256sum -c directly.
     local expected actual
-    expected=$(awk '{print $1; exit}' "$sidecar")
-    if [[ -z "$expected" ]]; then
-        return 2
-    fi
+    expected="$(echo "$sidecar_content" | awk '{print $1; exit}')"
+    [[ -z "$expected" ]] && return 0
 
-    if command_exists sha256sum; then
-        actual=$(sha256sum "$file" | awk '{print $1}')
+    if has_cmd sha256sum; then
+        actual="$(sha256sum "$target_file" | awk '{print $1}')"
+    elif has_cmd shasum; then
+        actual="$(shasum -a 256 "$target_file" | awk '{print $1}')"
     else
-        actual=$(shasum -a 256 "$file" | awk '{print $1}')
-    fi
-
-    if [[ "$expected" == "$actual" ]]; then
+        log_warn "No sha256sum/shasum utility found. Skipping checksum verification."
         return 0
-    else
-        return 1
     fi
-}
 
-install_from_local() {
-    if [[ ! -e "$LOCAL_FILE" ]]; then
-        log_error "File not found: $LOCAL_FILE"
+    if [[ "$expected" != "$actual" ]]; then
+        log_error "Checksum mismatch! Expected $expected but calculated $actual."
         exit 1
     fi
 
-    local target_path="$INSTALL_DIR/${BIN_NAME}${EXE_EXT}"
-    local tmp_dir
-    tmp_dir=$(mktemp -d) || exit 1
-    # Double-quoted here so $tmp_dir's value is baked into the trap string
-    # immediately. A single-quoted trap would defer expansion to when the
-    # trap actually fires (script exit) -- by which point this function's
-    # `local tmp_dir` is out of scope, and `set -u` would abort with
-    # "unbound variable" instead of cleaning up.
-    # shellcheck disable=SC2064  # intentional: expand $tmp_dir now, not at signal time
-    trap "rm -rf '$tmp_dir'" EXIT
+    log_success "Checksum verified"
+}
 
-    case "$LOCAL_FILE" in
+# --- Extraction ---
+extract_archive() {
+    local src="$1" dest="$2"
+    case "$src" in
         *.tar.gz|*.tgz)
-            log_info "Installing from tar archive: $LOCAL_FILE"
-
-            if ! tar -xzf "$LOCAL_FILE" -C "$tmp_dir" 2>/dev/null; then
-                log_error "Failed to extract archive: $LOCAL_FILE"
-                exit 1
-            fi
-            ;;
-        *.zip)
-            log_info "Installing from zip archive: $LOCAL_FILE"
-
-            if ! command_exists unzip; then
-                log_error "'unzip' command is required to extract .zip archives. Please install it first."
-                exit 1
-            fi
-
-            if ! unzip -q "$LOCAL_FILE" -d "$tmp_dir" 2>/dev/null; then
-                log_error "Failed to extract archive: $LOCAL_FILE"
-                exit 1
-            fi
-            ;;
+            tar -xzf "$src" -C "$dest" ;;
         *)
-            log_info "Installing from raw binary: $LOCAL_FILE"
-            if [[ "$DRY_RUN" == false ]]; then
-                cp "$LOCAL_FILE" "$target_path"
-                chmod +x "$target_path"
-            fi
-            log_info "Binary installed to: $target_path"
-            return
+            cp "$src" "$dest/$BIN_NAME"
+            chmod +x "$dest/$BIN_NAME"
             ;;
     esac
-
-    local found_bin
-    found_bin=$(find "$tmp_dir" -maxdepth 2 -type f -name "${BIN_NAME}*" ! -name "*.txt" ! -name "*.md" ! -name "*.sha256" 2>/dev/null | head -n 1 || true)
-
-    if [[ -z "$found_bin" ]]; then
-        log_error "No '$BIN_NAME' binary found in archive"
-        exit 1
-    fi
-
-    if [[ "$DRY_RUN" == false ]]; then
-        cp "$found_bin" "$target_path"
-        chmod +x "$target_path"
-    fi
-
-    log_info "Binary installed to: $target_path"
 }
 
-install_from_release() {
-    local release_url
-    log_info "Detected platform: $PLATFORM"
+# --- Installation ---
+install_binary() {
+    local target="$INSTALL_DIR/$BIN_NAME"
 
-    local api_url
-    if [[ "$VERSION" == "latest" ]]; then
-        api_url="https://api.github.com/repos/$REPO/releases/latest"
+    if [[ ! -d "$INSTALL_DIR" ]]; then
+        if [[ "$DRY_RUN" == false ]]; then
+            mkdir -p "$INSTALL_DIR" || { log_error "Failed to create $INSTALL_DIR"; exit 1; }
+        fi
+        log_info "Target directory: $INSTALL_DIR"
+    fi
+
+    local source_archive=""
+    if [[ -n "$LOCAL_FILE" ]]; then
+        [[ ! -f "$LOCAL_FILE" ]] && { log_error "Local file not found: $LOCAL_FILE"; exit 1; }
+        source_archive="$LOCAL_FILE"
+        log_info "Installing from local file: $source_archive"
     else
-        api_url="https://api.github.com/repos/$REPO/releases/tags/$VERSION"
+        local api_url="https://api.github.com/repos/$REPO/releases/${VERSION/latest/latest}"
+        [[ "$VERSION" != "latest" ]] && api_url="https://api.github.com/repos/$REPO/releases/tags/$VERSION"
+
+        log_info "Fetching release info for $VERSION ($PLATFORM)..."
+        local api_res
+        api_res="$(http_get "$api_url")"
+
+        if echo "$api_res" | grep -qi "API rate limit exceeded"; then
+            log_error "GitHub API rate limit exceeded. Provide a file directly via --file."
+            exit 1
+        fi
+
+        local dl_url
+        dl_url="$(echo "$api_res" | grep -o "https://github.com/[^\"]*${PLATFORM}${ARCHIVE_EXT//./\\.}" | head -n 1 || true)"
+        if [[ -z "$dl_url" ]]; then
+            log_error "Could not find a downloadable release asset for $PLATFORM ($VERSION)."
+            exit 1
+        fi
+
+        source_archive="$TMP_DIR/download${ARCHIVE_EXT}"
+        http_download_with_progress "$dl_url" "$source_archive"
+        verify_checksum "$source_archive" "${dl_url}.sha256"
     fi
 
-    log_info "Fetching release information..."
-
-    local api_response
-    # `|| true` prevents a genuine connection failure (DNS, timeout, etc.)
-    # from tripping `set -e` here; the emptiness check below turns that
-    # case into the friendly error message instead of a silent abort.
-    api_response=$(fetch_api "$api_url") || true
-    if [[ -z "$api_response" ]]; then
-        log_error "Failed to reach GitHub API. Check your network connection or try again later."
-        exit 1
-    fi
-
-    # Use the POSIX [[:space:]] class instead of the GNU-only \s escape --
-    # macOS ships BSD-derived grep, which doesn't understand \s.
-    if echo "$api_response" | grep -qi '"message":[[:space:]]*"API rate limit exceeded'; then
-        log_error "GitHub API rate limit exceeded. Try again later, or set GITHUB_TOKEN and retry."
-        exit 1
-    fi
-
-    if echo "$api_response" | grep -qi '"message":[[:space:]]*"Not Found"'; then
-        log_error "Release '$VERSION' was not found for $REPO."
-        exit 1
-    fi
-
-    # Escape the archive extension's literal dot before using it in a
-    # regex-based grep match against the asset URL.
-    local archive_ext_re="${ARCHIVE_EXT//./\\.}"
-    release_url=$(echo "$api_response" | grep -o "https://github.com/[^\"]*${PLATFORM}${archive_ext_re}" | head -n 1 || true)
-
-    if [[ -z "$release_url" ]]; then
-        log_error "Could not find release asset for $PLATFORM (version: $VERSION)"
-        log_error "Install manually with: ./install.sh --file <path-to-binary-or-archive>"
-        exit 1
-    fi
-
-    log_info "Downloading from: $release_url"
-
-    local tmp_dir extract_dir target_path
-    tmp_dir=$(mktemp -d) || exit 1
-    # See the matching comment in install_from_local() -- must stay
-    # double-quoted so the path is baked in now, not resolved at exit time.
-    # shellcheck disable=SC2064  # intentional: expand $tmp_dir now, not at signal time
-    trap "rm -rf '$tmp_dir'" EXIT
-
-    # Extract into a dedicated subdirectory, kept separate from the
-    # downloaded archive itself (which also lives under $tmp_dir). If the
-    # archive were extracted directly into $tmp_dir, the archive file and
-    # the binary inside it would both match the `find ... -name
-    # "${BIN_NAME}*"` glob below, and `head -n 1` would pick whichever one
-    # the filesystem happens to list first -- an unspecified, platform-
-    # dependent order. That's exactly what caused the released .tar.gz to
-    # get installed verbatim in place of the real binary on some systems.
-    extract_dir="$tmp_dir/extracted"
+    local extract_dir="$TMP_DIR/extracted"
     mkdir -p "$extract_dir"
+    extract_archive "$source_archive" "$extract_dir"
 
-    local downloaded_file
-    downloaded_file="$tmp_dir/$(basename "$release_url")"
-    if ! fetch_to_file "$release_url" "$downloaded_file"; then
-        log_error "Failed to download release"
+    local binary_src
+    binary_src="$(find "$extract_dir" -type f -name "$BIN_NAME" | head -n 1 || true)"
+
+    if [[ -z "$binary_src" ]]; then
+        binary_src="$(find "$extract_dir" -maxdepth 2 -type f -perm -111 ! -name "*.*" | head -n 1 || true)"
+    fi
+
+    if [[ -z "$binary_src" || ! -f "$binary_src" ]]; then
+        log_error "Could not locate $BIN_NAME executable in archive."
         exit 1
     fi
 
-    # Best-effort checksum verification against the "<asset>.sha256" sidecar
-    # published by the release workflow.
-    #
-    # IMPORTANT: with `set -e` active, calling verify_checksum as a bare
-    # statement would abort the whole script the instant it returns 1 or 2 --
-    # before this case statement ever ran. Capturing the status via `||`
-    # keeps the overall command's exit status 0 so set -e doesn't fire.
-    local checksum_status=0
-    verify_checksum "$downloaded_file" "${release_url}.sha256" "$tmp_dir" || checksum_status=$?
-    case "$checksum_status" in
-        0) log_info "Checksum verified" ;;
-        1)
-            log_error "Checksum verification FAILED for $downloaded_file"
-            log_error "The downloaded file may be corrupted or tampered with. Aborting."
-            exit 1
-            ;;
-        2)
-            if [[ "$SKIP_VERIFY" == true ]]; then
-                log_warn "Skipping checksum verification (--no-verify)"
-            else
-                log_warn "Skipping checksum verification (no checksum tool or sidecar file available)"
-            fi
-            ;;
-    esac
-
-    if [[ "$ARCHIVE_EXT" == ".zip" ]]; then
-        if ! command_exists unzip; then
-            log_error "'unzip' command is required to extract Windows .zip releases. Please install it first."
-            exit 1
-        fi
-
-        if ! unzip -q "$downloaded_file" -d "$extract_dir"; then
-            log_error "Failed to extract zip archive"
-            exit 1
-        fi
-    else
-        if ! tar -xzf "$downloaded_file" -C "$extract_dir"; then
-            log_error "Failed to extract release archive"
-            exit 1
-        fi
-    fi
-
-    local found_bin
-    found_bin=$(find "$extract_dir" -maxdepth 2 -type f -name "${BIN_NAME}*" ! -name "*.txt" ! -name "*.md" ! -name "*.sha256" 2>/dev/null | head -n 1 || true)
-
-    if [[ -z "$found_bin" ]]; then
-        log_error "No '$BIN_NAME' binary found in release"
-        exit 1
-    fi
-
-    target_path="$INSTALL_DIR/${BIN_NAME}${EXE_EXT}"
     if [[ "$DRY_RUN" == false ]]; then
-        cp "$found_bin" "$target_path"
-        chmod +x "$target_path"
+        cp "$binary_src" "$target"
+        chmod +x "$target"
     fi
-
-    log_info "Binary installed to: $target_path"
+    log_success "Installed $BIN_NAME to ${C_BOLD}$target${C_RESET}"
 }
 
-# --- Shell Integration Engine ---
-update_shell_config() {
-    local shell config_file
-    shell=$(detect_current_shell)
-    config_file=$(get_shell_config_path "$shell")
+# --- Shell Detection & PATH Configuration ---
+detect_shell() {
+    local shell_bin=""
+    if has_cmd ps; then
+        shell_bin="$(ps -p "$PPID" -o comm= 2>/dev/null | tr -d '[:space:]-')"
+        shell_bin="$(basename "$shell_bin" 2>/dev/null || true)"
+    fi
+    if [[ -z "$shell_bin" ]]; then
+        shell_bin="$(basename "${SHELL:-bash}")"
+    fi
+    echo "$shell_bin"
+}
+
+get_shell_config_file() {
+    local current_shell="$1"
+    case "$current_shell" in
+        zsh)  echo "$HOME/.zshrc" ;;
+        bash) echo "$HOME/.bashrc" ;;
+        fish) echo "$HOME/.config/fish/config.fish" ;;
+        *)    echo "" ;;
+    esac
+}
+
+update_path_in_config() {
+    local current_shell config_file
+    current_shell="$(detect_shell)"
+    config_file="$(get_shell_config_file "$current_shell")"
 
     if [[ -z "$config_file" ]]; then
-        log_warn "Unsupported shell: $shell (no automatic config update)"
+        log_warn "Shell '$current_shell' configuration file not recognized. Please add '$INSTALL_DIR' to PATH manually."
         return 0
     fi
 
     if [[ ! -f "$config_file" ]]; then
-        log_warn "Shell config file not found: $config_file (skipping config update)"
+        mkdir -p "$(dirname "$config_file")" 2>/dev/null || true
+        touch "$config_file" 2>/dev/null || { log_warn "Could not create $config_file"; return 0; }
+    fi
+
+    if grep -qF "$INSTALL_DIR" "$config_file" 2>/dev/null; then
+        log_info "PATH configuration already present in $config_file"
         return 0
     fi
 
-    log_info "Detected shell: $shell"
+    if [[ "$DRY_RUN" == true ]]; then
+        log_info "[Dry-run] Would append PATH configuration to $config_file"
+        return 0
+    fi
 
-    local modified=false
-    case "$shell" in
-        fish) modified=$(update_fish_config "$config_file") ;;
-        *) modified=$(update_posix_config "$config_file") ;;
-    esac
-
-    if [[ "$modified" == "true" ]]; then
-        log_info "Updated shell configuration: $config_file"
+    if [[ "$current_shell" == "fish" ]]; then
+        echo -e "\n# Added by $BIN_NAME installer\nfish_add_path \"$INSTALL_DIR\"" >> "$config_file"
     else
-        log_info "Shell configuration already up-to-date: $config_file"
+        echo -e "\n# Added by $BIN_NAME installer\nexport PATH=\"$INSTALL_DIR:\$PATH\"" >> "$config_file"
     fi
+
+    log_success "Added ${C_BOLD}$INSTALL_DIR${C_RESET} to PATH in ${C_BOLD}$config_file${C_RESET}"
 }
 
-update_posix_config() {
-    local config_file="$1"
-    local modified=false
-
-    if ! grep -q "$(printf '%s\n' "$INSTALL_DIR" | sed 's/[[\.*^$/]/\\&/g')" "$config_file" 2>/dev/null; then
-        if [[ "$DRY_RUN" == false ]]; then
-            {
-                echo ""
-                echo "# Added by $BIN_NAME installer - Updates PATH for the CLI"
-                echo "export PATH=\"$INSTALL_DIR:\$PATH\""
-            } >> "$config_file"
-        fi
-        modified=true
-    fi
-
-    local marker="# >>> $BIN_NAME shell integration >>>"
-    if ! grep -qF "$marker" "$config_file" 2>/dev/null; then
-        if [[ "$DRY_RUN" == false ]]; then
-            {
-                echo ""
-                echo "$marker"
-                echo "$BIN_NAME() {"
-                echo "    if [ \"\$1\" = \"load\" ]; then"
-                echo "        _envseal_help=0"
-                echo "        for _arg in \"\$@\"; do"
-                echo "            if [ \"\$_arg\" = \"--help\" ] || [ \"\$_arg\" = \"-h\" ]; then"
-                echo "                _envseal_help=1"
-                echo "                break"
-                echo "            fi"
-                echo "        done"
-                echo "        if [ \"\$_envseal_help\" -eq 1 ]; then"
-                echo "            command $BIN_NAME \"\$@\""
-                echo "        else"
-                echo "            eval \"\$(command $BIN_NAME \"\$@\")\""
-                echo "        fi"
-                echo "        unset _envseal_help _arg"
-                echo "    else"
-                echo "        # Pass all other commands directly to the binary."
-                echo "        command $BIN_NAME \"\$@\""
-                echo "    fi"
-                echo "}"
-                echo "# <<< $BIN_NAME shell integration <<<"
-            } >> "$config_file"
-        fi
-        modified=true
-    fi
-
-    echo "$modified"
-}
-
-update_fish_config() {
-    local config_file="$1"
-    local modified=false
-
-    if ! grep -q "$(printf '%s\n' "$INSTALL_DIR" | sed 's/[[\.*^$/]/\\&/g')" "$config_file" 2>/dev/null; then
-        if [[ "$DRY_RUN" == false ]]; then
-            {
-                echo ""
-                echo "# Added by $BIN_NAME installer - Updates PATH for the CLI"
-                echo "fish_add_path $INSTALL_DIR"
-            } >> "$config_file"
-        fi
-        modified=true
-    fi
-
-    local marker="# >>> $BIN_NAME shell integration >>>"
-    if ! grep -qF "$marker" "$config_file" 2>/dev/null; then
-        if [[ "$DRY_RUN" == false ]]; then
-            {
-                echo ""
-                echo "$marker"
-                echo "function $BIN_NAME"
-                echo "    if test \"\$argv[1]\" = \"load\""
-                echo "        if contains -- --help \$argv; or contains -- -h \$argv"
-                echo "            command $BIN_NAME \$argv"
-                echo "        else"
-                echo "            eval (command $BIN_NAME \$argv)"
-                echo "        end"
-                echo "    else"
-                echo "        # Standard pass-through"
-                echo "        command $BIN_NAME \$argv"
-                echo "    end"
-                echo "end"
-                echo "# <<< $BIN_NAME shell integration <<<"
-            } >> "$config_file"
-        fi
-        modified=true
-    fi
-
-    echo "$modified"
-}
-
-# --- Post-Install Verification ---
-verify_installation() {
-    local binary_path="$INSTALL_DIR/${BIN_NAME}${EXE_EXT}"
-
-    if [[ ! -f "$binary_path" ]]; then
-        log_error "Binary not found: $binary_path"
-        return 1
-    fi
-
-    if [[ ! -x "$binary_path" ]]; then
-        log_error "Binary is not executable: $binary_path"
-        return 1
-    fi
-
-    local version_output=""
-    if "$binary_path" --version >/dev/null 2>&1; then
-        version_output=$("$binary_path" --version 2>&1)
-    elif "$binary_path" -V >/dev/null 2>&1; then
-        version_output=$("$binary_path" -V 2>&1)
-    elif "$binary_path" version >/dev/null 2>&1; then
-        version_output=$("$binary_path" version 2>&1)
-    elif "$binary_path" --help >/dev/null 2>&1; then
-        version_output=$("$binary_path" --help 2>&1 | head -n 1)
-    else
-        if command_exists file && file "$binary_path" | grep -iq "ELF\|Mach-O\|executable\|PE32"; then
-            log_warn "Binary exists but couldn't verify execution (missing version/help flags)"
-            log_info "Binary installed: $binary_path"
-            return 0
-        else
-            log_warn "Binary exists but execution could not be verified"
-            return 0
-        fi
-    fi
-
-    if [[ -n "$version_output" ]]; then
-        log_info "Binary verified: $binary_path"
-        log_info "Version info: $(echo "$version_output" | head -n 1)"
-    fi
-
-    return 0
-}
-
-# --- Main Entry Point ---
+# --- Main Entrypoint ---
 main() {
     parse_args "$@"
+    TMP_DIR="$(mktemp -d)"
 
+    echo -e "${C_BOLD}Installing ${BIN_NAME}...${C_RESET}"
+    [[ "$DRY_RUN" == true ]] && log_warn "Running in DRY-RUN mode. No files will be modified."
+
+    detect_platform
+    install_binary
+    update_path_in_config
+
+    echo ""
     if [[ "$DRY_RUN" == true ]]; then
-        log_warn "DRY RUN MODE - no files or configs will be modified"
+        log_info "Dry run complete. No modifications made."
+        return 0
+    fi
+
+    local current_shell config_file
+    current_shell="$(detect_shell)"
+    config_file="$(get_shell_config_file "$current_shell")"
+
+    log_success "${C_BOLD}Installation successful!${C_RESET}"
+    echo ""
+    echo -e "${C_BOLD}1. Apply PATH changes:${C_RESET}"
+    if [[ -n "$config_file" ]]; then
+        echo -e "   Run: ${C_CYA}source $config_file${C_RESET} (or restart your terminal)"
+    else
+        echo -e "   Add ${C_CYA}export PATH=\"$INSTALL_DIR:\$PATH\"${C_RESET} to your shell configuration."
     fi
 
     echo ""
-    log_info "Starting installation for $BIN_NAME..."
+    echo -e "${C_BOLD}2. (Optional) Shell Wrapper for 'envseal load':${C_RESET}"
+    echo -e "   To allow ${C_CYA}envseal load${C_RESET} to export variables directly into your current shell session,"
+    echo -e "   add the following function to your shell configuration file:\n"
 
-    set_platform_vars
-    validate_install_dir
-
-    if [[ -n "$LOCAL_FILE" ]]; then
-        install_from_local
-    else
-        install_from_release
-    fi
-
-    update_shell_config
-
-    if [[ "$DRY_RUN" == false ]]; then
-        echo ""
-
-        if verify_installation; then
-            log_info "Installation successful!"
+    case "$current_shell" in
+        fish)
+            echo -e "${C_BOLD}--- Fish configuration (~/.config/fish/config.fish) ---${C_RESET}"
+            cat <<'EOF'
+function envseal
+    if test "$argv[1]" = "load"
+        if contains -- --help $argv; or contains -- -h $argv
+            command envseal $argv
         else
-            log_warn "Could not fully verify the installation."
-        fi
-
-        echo ""
-        echo "Next steps:"
-        echo "  1. Reload your shell configuration to apply changes:"
-        echo "     source $(get_shell_config_path "$(detect_current_shell)")"
-        echo ""
-        echo "  2. Test the installation:"
-        echo "     $BIN_NAME --version"
-        echo ""
-        echo "  3. Use the CLI to load your environment variables:"
-        echo "     $BIN_NAME load <YOUR_KEYS>..."
+            eval (command envseal $argv)
+        end
     else
-        echo ""
-        log_info "Dry run complete - no changes were made."
+        command envseal $argv
+    end
+end
+EOF
+            ;;
+        *)
+            echo -e "${C_BOLD}--- Bash / Zsh configuration (~/.bashrc or ~/.zshrc) ---${C_RESET}"
+            cat <<'EOF'
+envseal() {
+    if [ "$1" = "load" ]; then
+        for _arg in "$@"; do
+            if [ "$_arg" = "--help" ] || [ "$_arg" = "-h" ]; then
+                command envseal "$@"
+                return
+            fi
+        done
+        eval "$(command envseal "$@")"
+    else
+        command envseal "$@"
     fi
+}
+EOF
+            ;;
+    esac
+
+    echo ""
+    echo -e "${C_BOLD}3. Verify installation:${C_RESET}"
+    echo -e "   ${C_CYA}$BIN_NAME --version${C_RESET}"
 }
 
 main "$@"
