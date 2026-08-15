@@ -4,7 +4,8 @@ use crate::utils::{
     unlock,
     vault::{Vault, BASE_TAG},
 };
-use anyhow::{anyhow, Result};
+use anyhow::{anyhow, Context, Result};
+use fs2::FileExt;
 use std::collections::{HashMap, HashSet};
 use std::fs::OpenOptions;
 use std::io::Write;
@@ -26,7 +27,10 @@ pub fn cmd_token(
 
     let group_name = vault.resolve_group_name(group)?;
     let active_tag = tag.unwrap_or(BASE_TAG);
-    let group_entry = vault.entries.get(&group_name).unwrap();
+    let group_entry = vault
+        .entries
+        .get(&group_name)
+        .context("Group not found!!")?;
 
     let base_scope_dek = crypto::derive_scope_dek(&master_keys.master_dek, &group_name, BASE_TAG);
 
@@ -52,7 +56,10 @@ pub fn cmd_token(
     }
 
     if let Some(tag_dek) = tag_scope_dek {
-        let tag_entry = group_entry.tags.get(active_tag).unwrap();
+        let tag_entry = group_entry
+            .tags
+            .get(active_tag)
+            .context("Group not found!!")?;
         for tag_key in tag_entry.entries.keys() {
             resolved_map.insert(tag_key.clone(), tag_dek);
         }
@@ -108,18 +115,18 @@ pub fn cmd_token(
 
         #[cfg(unix)]
         eprintln!(
-            "Token successfully written to '{}' (permissions set to 0600)",
+            "token successfully written to '{}' (permissions set to 0600)",
             path.display()
         );
 
         #[cfg(windows)]
         eprintln!(
-               "Token successfully written to '{}'. Note: on Windows, file permissions are not \
+               "token successfully written to '{}'. Note: on Windows, file permissions are not \
                 explicitly restricted — ensure the containing directory has appropriate access controls.",
                path.display()
            );
     } else {
-        eprintln!("Token generated successfully. Pass this via ENVSEAL_TOKEN or --token-file \n");
+        eprintln!("token generated successfully. Pass this via ENVSEAL_TOKEN or --token-file \n");
         println!("{}", token_string);
     }
 

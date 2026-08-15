@@ -1,7 +1,7 @@
 use crate::utils::{resolve, vault::Vault};
-use anyhow::{Context, Result};
+use anyhow::{Context, Ok, Result};
 use std::path::PathBuf;
-use std::process::{exit, Command};
+use std::process::Command;
 
 pub fn cmd_run(
     group: Option<&str>,
@@ -10,7 +10,7 @@ pub fn cmd_run(
     token_file: Option<&PathBuf>,
     global: bool,
     pref: Option<&str>,
-) -> Result<()> {
+) -> Result<i32> {
     let (cmd_name, cmd_args) = args.split_first().context("No command provided to run!!")?;
 
     let vault = Vault::load(global, pref)?;
@@ -31,8 +31,8 @@ pub fn cmd_run(
     let status = child.wait().context("Failed to wait on child process!!")?;
 
     if let Some(code) = status.code() {
-        exit(code);
+        Ok(code)
     } else {
-        exit(1);
+        Ok(1)
     }
 }

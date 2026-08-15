@@ -5,15 +5,13 @@ use directories::ProjectDirs;
 use ed25519_dalek::{Signature, Signer, SigningKey, Verifier, VerifyingKey};
 use fs2::FileExt;
 use serde::{Deserialize, Serialize};
+use sha2::{Digest, Sha256};
 use std::collections::{BTreeMap, HashSet};
 use std::env;
 use std::fmt;
 use std::fs;
 use std::fs::File;
 use std::fs::OpenOptions;
-use std::hash::DefaultHasher;
-use std::hash::Hash;
-use std::hash::Hasher;
 use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
 use tempfile::NamedTempFile;
@@ -75,12 +73,28 @@ pub struct Vault {
     pub file_path: Option<PathBuf>,
 }
 
+#[derive(Serialize)]
+struct SignableVault<'a> {
+    pub salt: &'a [u8],
+    pub public_key: &'a [u8],
+    pub wrapped_master_dek: &'a Entry,
+    pub link_index: &'a BTreeMap<PathBuf, String>,
+    pub entries: &'a BTreeMap<String, Group>,
+    pub signature: &'a [u8],
+}
+
 impl Vault {
     /// turns the vault into signable bytes
     fn signable_bytes(&self) -> Result<Vec<u8>> {
-        let mut clone = self.clone();
-        clone.signature = vec![];
-        Ok(rmp_serde::to_vec(&clone)?)
+        let sign = SignableVault {
+            salt: &self.salt,
+            public_key: &self.public_key,
+            wrapped_master_dek: &self.wrapped_master_dek,
+            link_index: &self.link_index,
+            entries: &self.entries,
+            signature: &[],
+        };
+        Ok(rmp_serde::to_vec(&sign)?)
     }
 
     /// Computes and updates the Ed25519 signature
@@ -144,7 +158,9 @@ impl Vault {
 
                 match crypto::decrypt(&entry_key, &entry.nonce, &entry.ciphertext) {
                     Ok(pt_bytes) => {
-                        let plaintext = String::from_utf8(pt_bytes).unwrap();
+                        let plaintext = String::from_utf8(pt_bytes).context(
+                            "Decrypted value conversion to UTF-8 failed, invalid string!!",
+                        )?;
                         decrypted_map.insert(var_name.clone(), Zeroizing::new(plaintext));
                     }
                     Err(_) => {
@@ -162,17 +178,10 @@ impl Vault {
 
     /// Generates a unique session cache scope string derived from the vault's path
     pub fn master_scope(&self) -> String {
-        if let Some(path) = &self.file_path {
-            let path_str = std::fs::canonicalize(path)
-                .unwrap_or_else(|_| path.clone())
-                .to_string_lossy()
-                .to_string();
-
-            let mut hasher = DefaultHasher::new();
-            path_str.hash(&mut hasher);
-            return format!("master_{:x}", hasher.finish());
-        }
-        "master_global".to_string()
+        let mut hasher = Sha256::new();
+        hasher.update(&self.public_key);
+        let hash = hasher.finalize();
+        format!("master_{}", hex::encode(hash))
     }
 
     /// Generates a unique session cache scope for a specific tag within this vault
@@ -193,6 +202,12 @@ impl Vault {
             let candidate = current_dir.join(env_name);
             if candidate.exists() {
                 return Some(candidate);
+            }
+            if current_dir.join(".git").exists()
+                || current_dir.join(".hg").exists()
+                || current_dir.join(".svn").exists()
+            {
+                break;
             }
             if !current_dir.pop() {
                 break;
@@ -315,7 +330,7 @@ impl Vault {
         file.read_to_end(&mut data)
             .with_context(|| format!("Failed to read vault data from '{}'", path.display()))?;
 
-        let _ = lock_file.unlock()?;
+        lock_file.unlock()?;
 
         let mut vault: Vault = rmp_serde::from_slice(&data).with_context(|| {
             format!("Failed to deserialize vault data from '{}'", path.display())
@@ -326,7 +341,7 @@ impl Vault {
 
     /// Atomically saves the structure using MessagePack (rmp_serde).
     pub fn save(&self) -> Result<()> {
-        let path = self.file_path.as_ref().unwrap();
+        let path = self.file_path.as_ref().context("File path not found!!")?;
         let lock_path = path.with_extension("lock");
 
         let lock_file = OpenOptions::new()
@@ -345,7 +360,7 @@ impl Vault {
         temp_file.flush()?;
         temp_file.persist(path)?;
 
-        let _ = lock_file.unlock()?;
+        lock_file.unlock()?;
         let _ = fs::remove_file(lock_path);
         Ok(())
     }
@@ -374,6 +389,41 @@ impl Vault {
 
             Ok(name.to_string())
         }
+    }
+
+    /// Rewraps the Master DEK under a new password without altering stored entries
+    pub fn change_master_password(
+        &mut self,
+        current_keys: &VaultKeys,
+        new_password: &str,
+    ) -> Result<()> {
+        let new_salt = crypto::generate_salt();
+        let (new_master_kek, new_signing_key) =
+            crypto::derive_master_keys(new_password, &new_salt)?;
+        let new_public_key = new_signing_key.verifying_key().to_bytes().to_vec();
+
+        let (nonce, ciphertext) = crypto::encrypt(&new_master_kek, &*current_keys.master_dek)?;
+
+        let old_scope = self.master_scope();
+        let _ = crate::utils::session::SessionManager::clear_session(&old_scope);
+
+        self.salt = new_salt.to_vec();
+        self.public_key = new_public_key;
+        self.wrapped_master_dek = Entry { nonce, ciphertext };
+
+        self.seal_integrity(&new_signing_key)?;
+        self.save()?;
+
+        let mut kek = [0u8; crypto::KEY_LEN];
+        kek.copy_from_slice(&*new_master_kek);
+        let mut seed = [0u8; crypto::KEY_LEN];
+        seed.copy_from_slice(new_signing_key.to_bytes().as_slice());
+        let _ = crate::utils::session::SessionManager::cache_keys(
+            &self.master_scope(),
+            crate::utils::session::CachedKeys::Master { kek, seed },
+        );
+
+        Ok(())
     }
 
     /// Rotate the DEK of a specific scope.
@@ -418,11 +468,20 @@ impl Vault {
                 );
             }
 
-            let group_entry = self.entries.get_mut(&group_name).unwrap();
-            let tag_entry = group_entry.tags.get_mut(active_tag).unwrap();
+            let group_entry = self
+                .entries
+                .get_mut(&group_name)
+                .context("Group not found!!")?;
+            let tag_entry = group_entry
+                .tags
+                .get_mut(active_tag)
+                .context("Tag not found!!")?;
 
             let tp = tag_password.ok_or_else(|| anyhow!("Tag password required!!"))?;
-            let salt = tag_entry.salt.as_ref().unwrap();
+            let salt = tag_entry
+                .salt
+                .as_ref()
+                .context("Tag salt not found, corrupted file!!")?;
             let tag_kek = crypto::derive_key(tp, salt)?;
 
             let new_tag_dek = crypto::generate_dek();
@@ -885,7 +944,10 @@ impl Vault {
         }
 
         if !name_str.is_empty() && active_tag != BASE_TAG {
-            let tag_entry = group_entry.tags.get_mut(active_tag).unwrap();
+            let tag_entry = group_entry
+                .tags
+                .get_mut(active_tag)
+                .context("Tag not found!!")?;
             tag_entry.entries.remove(name_str).ok_or_else(|| {
                 anyhow!(
                     "No entry named '{name_str}' in tag '{active_tag}' in group '{group_name}'!!"

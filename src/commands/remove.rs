@@ -28,8 +28,8 @@ pub fn cmd_remove(
     let confirmation = Confirm::new()
         .with_prompt(prompt)
         .default(false)
-        .interact()
-        .unwrap();
+        .interact()?;
+
     if confirmation {
         vault.remove_entry(
             &master_keys.signing_key,

@@ -30,8 +30,8 @@ pub struct SessionManager;
 
 impl SessionManager {
     /// Scope to diffrentiate between master and protected tag
-    fn get_entry(scope: &str) -> Result<Entry> {
-        Ok(Entry::new(SERVICE_NAME, scope)?)
+    fn get_entry(scope: &str) -> Option<Entry> {
+        Entry::new(SERVICE_NAME, scope).ok()
     }
 
     /// Caches the keys and sets/resets the 10 minute timer
@@ -39,25 +39,30 @@ impl SessionManager {
         let expires_at =
             SystemTime::now().duration_since(UNIX_EPOCH)?.as_secs() + SESSION_TIMEOUT_SEC;
         let session = SessionData { keys, expires_at };
-        let entry = Self::get_entry(scope)?;
 
-        let serialized =
-            base64::engine::general_purpose::STANDARD.encode(rmp_serde::to_vec(&session)?);
-        entry.set_password(&serialized)?;
+        let serialized_bytes = rmp_serde::to_vec(&session)?;
+        let serialized = base64::engine::general_purpose::STANDARD.encode(serialized_bytes);
+
+        if let Some(entry) = Self::get_entry(scope) {
+            let _ = entry.set_password(&serialized);
+        }
+
         Ok(())
     }
 
     /// Removes the cached keys
     pub fn clear_session(scope: &str) -> Result<()> {
-        let _ = Self::get_entry(scope)?.delete_credential();
+        if let Some(entry) = Self::get_entry(scope) {
+            let _ = entry.delete_credential();
+        }
         Ok(())
     }
 
     /// Retrieves the keys if it hasn't expired
     pub fn get_active_keys(scope: &str) -> Result<Option<CachedKeys>> {
         let entry = match Self::get_entry(scope) {
-            Ok(e) => e,
-            Err(_) => return Ok(None),
+            Some(e) => e,
+            None => return Ok(None),
         };
 
         let encoded = match entry.get_password() {

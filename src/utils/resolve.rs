@@ -55,13 +55,15 @@ pub fn resolve_secrets(
     let active_tag = tag.unwrap_or(BASE_TAG);
 
     if let Some(token_str) = fetch_token_from_diffrent_ends(token_file)? {
-        eprintln!("Secure token detected! Executing in Zero-Trust offline mode...");
+        eprintln!("secure token detected! executing in Zero-Trust offline mode...");
         let payload = TokenManager::verify_and_extract(&token_str, &vault.public_key)?;
 
         let expected_scope = vault.tag_scope(group, active_tag)?;
         if payload.scope != expected_scope {
             return Err(anyhow!("Access Denied: Token scope mismatch!"));
         }
+
+        vault.verify_integrity()?;
 
         // Return decrypted map directly from token
         return vault.decrypt_from_token(group, tag, &payload);
@@ -76,6 +78,8 @@ pub fn resolve_secrets(
     };
     let keys = vault.list_all_keys(group, tag)?;
     let mut decrypted_envs = BTreeMap::new();
+
+    vault.verify_integrity()?;
 
     for key in keys {
         match vault.get_entry(

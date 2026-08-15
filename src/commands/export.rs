@@ -3,6 +3,7 @@ use anyhow::{Context, Result};
 use std::collections::{BTreeMap, HashSet};
 use std::fs;
 use std::path::PathBuf;
+use zeroize::Zeroizing;
 
 pub fn cmd_export(
     group: Option<&str>,
@@ -53,10 +54,9 @@ pub fn cmd_export(
         }
     }
 
-    let mut sorted_envs: BTreeMap<String, String> = BTreeMap::new();
-    for (key, mut value) in decrypted_envs {
-        sorted_envs.insert(key, value.to_string());
-        zeroize::Zeroize::zeroize(&mut value);
+    let mut sorted_envs: BTreeMap<String, Zeroizing<String>> = BTreeMap::new();
+    for (key, value) in decrypted_envs {
+        sorted_envs.insert(key, value);
     }
 
     let mut buffer = String::new();

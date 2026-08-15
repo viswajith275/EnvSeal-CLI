@@ -6,6 +6,7 @@ pub mod init;
 pub mod link;
 pub mod list;
 pub mod load;
+pub mod passwd;
 pub mod protag;
 pub mod remove;
 pub mod rotate;

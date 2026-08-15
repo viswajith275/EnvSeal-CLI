@@ -13,7 +13,7 @@ fn main() -> Result<()> {
     if global && pref.is_some() {
         return Err(anyhow!(
                 "Conflict: Cannot use --env with --global.\n\
-                UseCase: The global vault uses 'Tags' to manage environments (e.g., `envseal protag prod`), \
+                UseCase: The global vault uses 'Tags' to manage environments (e.g., 'envseal protag prod'), \
                 whereas --env is strictly for managing multiple local files like .prod.envseal."
             ));
     }
@@ -75,14 +75,18 @@ fn main() -> Result<()> {
             tag,
             cmd_args,
             token_file,
-        } => commands::run::cmd_run(
-            group.as_deref(),
-            tag.as_deref(),
-            cmd_args.iter().map(|s| s.as_str()).collect(),
-            token_file.as_ref(),
-            global,
-            pref,
-        ),
+        } => {
+            let code = commands::run::cmd_run(
+                group.as_deref(),
+                tag.as_deref(),
+                cmd_args.iter().map(|s| s.as_str()).collect(),
+                token_file.as_ref(),
+                global,
+                pref,
+            )?;
+            std::process::exit(code);
+        }
+
         cli::Commands::Import { group, tag, path } => {
             commands::import::cmd_import(group.as_deref(), tag.as_deref(), &path, global, pref)
         }
@@ -128,5 +132,6 @@ fn main() -> Result<()> {
             commands::rotate::cmd_rotate(group.as_deref(), tag.as_deref(), global, pref)
         }
         cli::Commands::Clear => commands::clear::cmd_clear(global, pref),
+        cli::Commands::Passwd => commands::passwd::cmd_passwd(global, pref),
     }
 }

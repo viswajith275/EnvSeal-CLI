@@ -2,7 +2,7 @@ use crate::utils::{
     unlock,
     vault::{Vault, BASE_TAG},
 };
-use anyhow::Result;
+use anyhow::{Context, Result};
 use std::env;
 use zeroize::Zeroizing;
 
@@ -19,13 +19,17 @@ pub fn cmd_rotate(
 
     // Authenticate Tag (If Protected)
     let old_tag_dek = if vault.is_tag_protected(group, tag)? {
-        Some(unlock::sudo_unlock_tag(&vault, group, tag.unwrap())?)
+        Some(unlock::sudo_unlock_tag(
+            &vault,
+            group,
+            tag.context("Tag not found!!")?,
+        )?)
     } else {
         None
     };
 
     let tag_password = if vault.is_tag_protected(group, tag)? {
-        let active_tag = tag.unwrap();
+        let active_tag = tag.context("Tag not found!!")?;
         let env_tag_var = format!(
             "ENVSEAL_TAG_PASSWORD_{}",
             active_tag.to_uppercase().replace('-', "_")
@@ -70,7 +74,7 @@ pub fn cmd_rotate(
     );
 
     eprintln!(
-        "Successfully rotated DEK for group '{}' and tag '{}'. All old tokens are now invalid.",
+        "successfully rotated DEK for group '{}' and tag '{}'. All old tokens are now invalid.",
         group_name,
         tag.unwrap_or(BASE_TAG)
     );

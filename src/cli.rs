@@ -221,7 +221,7 @@ pub enum Commands {
         #[arg(short = 'o', long)]
         out: Option<PathBuf>,
         /// Expiration time in seconds (Added to the current time!!)
-        #[arg[long]]
+        #[arg(long)]
         exp: Option<u64>,
         /// Specific keys from the scope only
         keys: Vec<String>,
@@ -236,4 +236,9 @@ pub enum Commands {
         #[arg(short, long)]
         tag: Option<String>,
     },
+    /// Change the vault's master password
+    ///
+    /// Derives a fresh KEK and signing key, then re-encrypts the Master DEK
+    /// without modifying underlying secret entries.
+    Passwd,
 }

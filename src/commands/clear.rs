@@ -23,9 +23,9 @@ pub fn cmd_clear(global: bool, pref: Option<&str>) -> Result<()> {
         .unwrap_or_default();
 
     eprintln!(
-        "Cleared session cache for {location} vault {env_suffix} (master session + {tag_count} tag scope(s))."
+        "cleared session cache for {location} vault {env_suffix} (master session + {tag_count} tag scope(s))."
     );
-    eprintln!("Password authentication will be required for your next operation!!");
+    eprintln!("password authentication will be required for your next operation!!");
 
     Ok(())
 }

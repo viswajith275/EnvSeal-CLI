@@ -14,6 +14,10 @@ pub const KEY_LEN: usize = 32;
 pub const NONCE_LEN: usize = 12;
 pub const SALT_LEN: usize = 16;
 
+pub const ARGON2_M_COST: u32 = 65536; // 64 MiB
+pub const ARGON2_T_COST: u32 = 3; // 3 iterations
+pub const ARGON2_P_COST: u32 = 4; // 4 threads
+
 /// One-time salt generation.
 pub fn generate_salt() -> [u8; SALT_LEN] {
     let mut salt = [0u8; SALT_LEN];
@@ -27,13 +31,8 @@ fn run_argon2(password: &str, salt: &[u8], out_len: usize) -> Result<Zeroizing<V
         return Err(anyhow!("Argon2 output length must be greater than zero!!"));
     }
 
-    let params = Params::new(
-        Params::DEFAULT_M_COST,
-        Params::DEFAULT_T_COST,
-        Params::DEFAULT_P_COST,
-        Some(out_len),
-    )
-    .map_err(|e| anyhow!("Invalid Argon2 parameters: {e}"))?;
+    let params = Params::new(ARGON2_M_COST, ARGON2_T_COST, ARGON2_P_COST, Some(out_len))
+        .map_err(|e| anyhow!("Invalid Argon2 parameters: {e}"))?;
 
     let argon2 = Argon2::new(Algorithm::Argon2id, Version::V0x13, params);
 
@@ -49,10 +48,9 @@ fn run_argon2(password: &str, salt: &[u8], out_len: usize) -> Result<Zeroizing<V
 /// Derives a standard 32-byte key (Used for Tag KEKs)
 pub fn derive_key(password: &str, salt: &[u8]) -> Result<Zeroizing<[u8; KEY_LEN]>> {
     let derived = run_argon2(password, salt, KEY_LEN)?;
-    let mut key = [0u8; KEY_LEN];
+    let mut key = Zeroizing::new([0u8; KEY_LEN]);
     key.copy_from_slice(derived.as_ref());
-
-    Ok(Zeroizing::new(key))
+    Ok(key)
 }
 
 /// Derives master_kek and signing_key from master_password or tag_password
@@ -61,13 +59,15 @@ pub fn derive_master_keys(
     salt: &[u8],
 ) -> Result<(Zeroizing<[u8; KEY_LEN]>, SigningKey)> {
     let derived = run_argon2(password, salt, 64)?;
-    let mut kek = [0u8; KEY_LEN];
+
+    let mut kek = Zeroizing::new([0u8; KEY_LEN]);
     kek.copy_from_slice(&derived[0..32]);
 
-    let mut seed = [0u8; KEY_LEN];
+    let mut seed = Zeroizing::new([0u8; KEY_LEN]);
     seed.copy_from_slice(&derived[32..64]);
 
-    Ok((Zeroizing::new(kek), SigningKey::from_bytes(&seed)))
+    let signing_key = SigningKey::from_bytes(&seed);
+    Ok((kek, signing_key))
 }
 
 /// Derives an isolated Scope DEK from the Master DEK using the group and tag as context (for seperating the token from accessing out of scope items)
@@ -105,7 +105,7 @@ pub fn generate_dek() -> Zeroizing<[u8; KEY_LEN]> {
 
 /// Encrpts the plaintext bytes
 pub fn encrypt(key: &[u8; KEY_LEN], plaintext: &[u8]) -> Result<(Vec<u8>, Vec<u8>)> {
-    let cipher = Aes256Gcm::new((key).into());
+    let cipher = Aes256Gcm::new(key.into());
     let mut nonce_bytes = [0u8; NONCE_LEN];
     OsRng.fill_bytes(&mut nonce_bytes);
 
