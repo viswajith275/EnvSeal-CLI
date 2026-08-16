@@ -4,10 +4,9 @@ use std::path::PathBuf;
 #[derive(Parser)]
 #[command(
     name = "envseal",
-    about = "An encrypted vault for your API keys and secrets, because `.env` files have never once kept a secret.
-"
+    about = "An encrypted vault for your API keys and secrets, because `.env` files have never once kept a secret."
 )]
-#[command(version = "v5.0.0")]
+#[command(version = "v5.1.0")]
 #[command(propagate_version = true)]
 pub struct Cli {
     /// Target a specific local environment profile (e.g., 'prod' targets '.prod.envseal')

@@ -20,13 +20,23 @@ EnvSeal is a zero-trust secrets engine for local development, team collaboration
 
 ## Installation
 
+Windows (via WinGet)
+
+Install EnvSeal natively on Windows using the Windows Package Manager:
+
+```bash
+winget install --id viswajith275.EnvSeal -e
+```
+
+WinGet automatically manages binary placement, architecture detection, and adds EnvSeal to your system PATH.
+
+Linux & macOS
+
 ```bash
 curl -sSfL https://raw.githubusercontent.com/viswajith275/EnvSeal-CLI/master/scripts/install.sh | bash
 ```
 
-The installer detects your platform, places the binary in `~/.local/bin`, updates your `PATH`.
-
-Prefer to inspect a script before piping it into `bash`? Download it first:
+The installer detects your platform, places the binary in ~/.local/bin, and updates your PATH. Prefer to inspect the script before running it? Download it first:
 
 ```bash
 curl -sSfL https://raw.githubusercontent.com/viswajith275/EnvSeal-CLI/master/scripts/install.sh -o install.sh
@@ -421,7 +431,19 @@ cargo clippy
 
 ## Uninstall
 
-To completely remove EnvSeal, its binary, and the installed shell helper functions from your system:
+**Windows (via WinGet)**
+
+To completely remove EnvSeal and clean up its environment path entries:
+
+```bash
+winget uninstall --id viswajith275.EnvSeal -e
+```
+
+Alternatively, you can remove it via Windows Settings under Installed Apps (or Add or remove programs).
+
+**Linux and MacOS**
+
+To remove the envseal binary and shell configurations:
 
 ```bash
 curl -sSfL https://raw.githubusercontent.com/viswajith275/EnvSeal-CLI/master/scripts/uninstall.sh | bash
