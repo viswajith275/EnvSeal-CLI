@@ -382,7 +382,7 @@ impl Vault {
             return Ok(name.to_string());
         }
 
- i        let mut current = env::current_dir()?;
+        let mut current = env::current_dir()?;
         loop {
             if let Some(group_name) = self.link_index.get(&current) {
                 return Ok(group_name.clone());

@@ -14,7 +14,7 @@
 
 EnvSeal is a zero-trust secrets engine for local development, team collaboration, and production CI/CD. Secrets stay encrypted at rest, get injected only into the process that needs them, and never linger in your shell history or environment. Protected tags, scoped bearer tokens, and DEK rotation give you least-privilege access and a clean way to revoke things when something inevitably leaks.
 
-[Install](#installation) · [Why EnvSeal](#why-this-exists) · [Quick Start](#quick-start) · [Commands](#commands) · [Security Model](#cryptographic-hierarchy) · [Troubleshooting](#troubleshooting)
+[Install](#installation) · [Why EnvSeal](#why-this-exists) · [Quick Start](#quick-start) · [Commands](#commands) · [Security Model](#cryptographic-hierarchy) · [Troubleshooting](#troubleshooting) · [Uninstall](#uninstall)
 
 ---
 
@@ -24,7 +24,7 @@ EnvSeal is a zero-trust secrets engine for local development, team collaboration
 curl -sSfL https://raw.githubusercontent.com/viswajith275/EnvSeal-CLI/master/scripts/install.sh | bash
 ```
 
-The installer detects your platform, places the binary in `~/.local/bin`, updates your `PATH`, and adds a small shell helper so `envseal load` works without a manual `eval`. Bash, zsh, and fish are all supported.
+The installer detects your platform, places the binary in `~/.local/bin`, updates your `PATH`.
 
 Prefer to inspect a script before piping it into `bash`? Download it first:
 
@@ -38,9 +38,90 @@ Other install methods (pinned version, local binary, from source) are listed und
 
 ---
 
+## Shell Integration (Optional)
+
+Because a child process cannot modify the environment variables of its parent shell, envseal load emits raw export statements (export KEY="val"). To apply them without manually wrapping every invocation in eval "$(envseal load)", a shell wrapper intercepts calls to load and evaluates the output inside your current session.
+
+Add the snippet below to your shell configuration file (~/.bashrc, ~/.zshrc, or PowerShell $PROFILE) If you need to pollute your parent shell.
+
+**Security Note**
+
+**While envseal load is available for legacy workflows, envseal run is strongly recommended**
+
+**Process Isolation**: envseal run -- <CMD> exposes decrypted values solely to that single process tree. Secrets vanish the instant the process exits.
+
+**No Shell Pollution**: envseal load exports secrets directly into your active interactive shell, leaving them exposed to child commands, background tasks, and shoulder-surfing.
+
+Bash / Zsh (~/.bashrc, ~/.zshrc)
+
+```bash
+envseal() {
+    if [ "$1" = "load" ]; then
+        for _arg in "$@"; do
+            if [ "$_arg" = "--help" ] || [ "$_arg" = "-h" ]; then
+                command envseal "$@"
+                return
+            fi
+        done
+        eval "$(command envseal "$@")"
+    else
+        command envseal "$@"
+    fi
+}
+```
+
+Fish (~/.config/fish/config.fish or ~/.config/fish/functions/envseal.fish)
+
+```bash
+function envseal
+    if test "$argv[1]" = "load"
+        if contains -- --help $argv; or contains -- -h $argv
+            command envseal $argv
+        else
+            eval (command envseal $argv)
+        end
+    else
+        command envseal $argv
+    end
+end
+```
+PowerShell ($PROFILE)
+
+```bash
+function envseal {
+    param(
+        [Parameter(ValueFromRemainingArguments = $true)]
+        [string[]]$EnvsealArgs
+    )
+
+    $exe = Get-Command envseal -CommandType Application -ErrorAction SilentlyContinue |
+           Select-Object -First 1 -ExpandProperty Source
+
+    if (-not $exe) {
+        Write-Error "envseal: not found on PATH. Install it with: winget install viswajith275.envseal"
+        return
+    }
+
+    if ($EnvsealArgs.Count -gt 0 -and $EnvsealArgs[0] -eq 'load') {
+        if ($EnvsealArgs -contains '--help' -or $EnvsealArgs -contains '-h') {
+            & $exe @EnvsealArgs
+            return
+        }
+        & $exe @EnvsealArgs | Invoke-Expression
+    }
+    else {
+        & $exe @EnvsealArgs
+    }
+}
+```
+
+---
+
 ## Upcoming
 
 **Local proxy** : Securely handling secrets by injecting real credentials into network traffic via a local proxy, keeping them out of process memory and environment variables. This prevents sensitive credentials from being exposed in memory or environment variables, mitigating risks from memory dumps, malicious dependencies, or insecure configuration practices. (Normal variables will be injected as usual specially configured ones will be injected by the proxy)
+
+---
 
 ## Why This Exists
 
@@ -334,6 +415,24 @@ cargo build
 cargo test
 cargo fmt
 cargo clippy
+```
+
+---
+
+## Uninstall
+
+To completely remove EnvSeal, its binary, and the installed shell helper functions from your system:
+
+```bash
+curl -sSfL https://raw.githubusercontent.com/viswajith275/EnvSeal-CLI/master/scripts/uninstall.sh | bash
+```
+
+Prefer to inspect the script before running it? Download and review it first:
+
+```bash
+curl -sSfL https://raw.githubusercontent.com/viswajith275/EnvSeal-CLI/master/scripts/uninstall.sh -o uninstall.sh
+less uninstall.sh   # review it
+bash uninstall.sh
 ```
 
 ---
