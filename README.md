@@ -92,21 +92,21 @@ cat .token | envseal run --tag prod npm start
 ### Windows (WinGet)
 
 ```bash
-winget install --id viswajith275.EnvSeal -e
+winget install --id viswajith275.envseal -e
 
 ```
 
 ### Linux & macOS
 
 ```bash
-curl -sSfL [https://raw.githubusercontent.com/viswajith275/EnvSeal-CLI/master/scripts/install.sh](https://raw.githubusercontent.com/viswajith275/EnvSeal-CLI/master/scripts/install.sh) | bash
+curl -sSfL https://raw.githubusercontent.com/viswajith275/EnvSeal-CLI/master/scripts/install.sh | bash
 
 ```
 
 *Prefer to inspect the script before running it? Download and review it first:*
 
 ```bash
-curl -sSfL [https://raw.githubusercontent.com/viswajith275/EnvSeal-CLI/master/scripts/install.sh](https://raw.githubusercontent.com/viswajith275/EnvSeal-CLI/master/scripts/install.sh) -o install.sh
+curl -sSfL https://raw.githubusercontent.com/viswajith275/EnvSeal-CLI/master/scripts/install.sh -o install.sh
 less install.sh
 bash install.sh
 
@@ -117,7 +117,7 @@ bash install.sh
 **Specific Version**
 
 ```bash
-curl -sSfL [https://raw.githubusercontent.com/viswajith275/EnvSeal-CLI/master/scripts/install.sh](https://raw.githubusercontent.com/viswajith275/EnvSeal-CLI/master/scripts/install.sh) | bash -s -- --version v5.0.0
+curl -sSfL https://raw.githubusercontent.com/viswajith275/EnvSeal-CLI/master/scripts/install.sh | bash -s -- --version v5.0.0
 
 ```
 
@@ -131,7 +131,7 @@ curl -sSfL [https://raw.githubusercontent.com/viswajith275/EnvSeal-CLI/master/sc
 **Build From Source**
 
 ```bash
-git clone [https://github.com/viswajith275/EnvSeal-CLI.git](https://github.com/viswajith275/EnvSeal-CLI.git)
+git clone https://github.com/viswajith275/EnvSeal-CLI.git
 cd EnvSeal-CLI
 cargo build --release
 ./scripts/install.sh --file ./target/release/envseal
@@ -255,7 +255,7 @@ Passing secrets as command-line arguments is an invitation for `ps aux` to broad
 envseal() {
     if [ "$1" = "load" ]; then
         for _arg in "$@"; do
-            if [ "$_arg" = "--help" ] \vert{}\vert{} [ "$_arg" = "-h" ]; then
+            if [ "$_arg" = "--help" ] || [ "$_arg" = "-h" ]; then
                 command envseal "$@"
                 return
             fi
@@ -321,9 +321,13 @@ function envseal {
 ## Troubleshooting
 
 * **"Seal already exists"**: You are trying to `init` where a vault already lives. Re-sealing an already sealed vault is very meta, but unnecessary. Use the existing vault or delete it to start fresh.
+
 * **"No group linked to current directory"**: Run `envseal --global link <GROUP>` to associate this directory with your global vault group.
+
 * **Signature / integrity verification failed**: The `.envseal` file was modified by an external editor or corrupted. Restore from git/backup or re-import.
+
 * **Token decryption fails after a rotate**: Working as intended. When you rotate a DEK, older tokens become useless ciphertext. Mint a fresh token with `envseal token`.
+
 * **Repeated password prompts**: Check if your OS keyring daemon is running. If it is stuck, run `envseal clear` to reset the session.
 
 ---
@@ -337,7 +341,7 @@ function envseal {
 ## Contributing
 
 ```bash
-git clone [https://github.com/viswajith275/EnvSeal-CLI.git](https://github.com/viswajith275/EnvSeal-CLI.git)
+git clone https://github.com/viswajith275/EnvSeal-CLI.git
 cd EnvSeal-CLI
 cargo build
 cargo test
@@ -353,14 +357,14 @@ cargo clippy
 ### Windows (WinGet)
 
 ```bash
-winget uninstall --id viswajith275.EnvSeal -e
+winget uninstall --id viswajith275.envseal -e
 
 ```
 
 ### Linux & macOS
 
 ```bash
-curl -sSfL [https://raw.githubusercontent.com/viswajith275/EnvSeal-CLI/master/scripts/uninstall.sh](https://raw.githubusercontent.com/viswajith275/EnvSeal-CLI/master/scripts/uninstall.sh) | bash
+curl -sSfL https://raw.githubusercontent.com/viswajith275/EnvSeal-CLI/master/scripts/uninstall.sh | bash
 
 ```
 
