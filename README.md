@@ -1,3 +1,4 @@
+# EnvSeal
 ```text
  /$$$$$$$$                       /$$$$$$                      /$$
 | $$_____/                      /$$__  $$                    | $$
@@ -12,63 +13,249 @@
 
 **An encrypted vault for your API keys and secrets, because `.env` files have never once kept a secret.**
 
-EnvSeal is a zero-trust secrets engine for local development, team collaboration, and production CI/CD. Secrets stay encrypted at rest, get injected only into the process that needs them, and never linger in your shell history or environment. Protected tags, scoped bearer tokens, and DEK rotation give you least-privilege access and a clean way to revoke things when something inevitably leaks.
+We have all lived the classic developer horror story:
 
-[Install](#installation) · [Why EnvSeal](#why-this-exists) · [Quick Start](#quick-start) · [Commands](#commands) · [Security Model](#cryptographic-hierarchy) · [Troubleshooting](#troubleshooting) · [Uninstall](#uninstall)
+* **The 3 AM Hackathon Push:** You run `git add .`, push your semester project to a public GitHub repo, and wake up to 14 automated emails from AWS warning you that a bot in Frankfurt just racked up $3,400 mining crypto on your free-tier account.
+* **The "Organized" Solo Dev:** Your directory is a digital graveyard of `.env.local`, `.env.prod.bak`, `.env.FINAL.REAL`, and `.env.DO_NOT_DELETE_OR_SERVER_DIES`.
+* **The Group Project Strategy:** Passing around the live MongoDB connection string with `admin:password123` via Discord DMs followed by *"please delete this message after copying."*
+
+EnvSeal ends this chaos. It is a local-first, zero-trust secrets engine built for solo tinkerers, student hackers, and distributed teams. Your secrets remain encrypted at rest in a commit-safe `.envseal` file, are injected **exclusively** into the memory of child processes at runtime, and never touch your shell history, environment leaks, or Git trees.
+
+[Quick Start](#quick-start) · [Installation](#installation) · [Commands](#commands) · [Why EnvSeal](#why-this-exists) · [Features](#what-you-get) · [Troubleshooting](#troubleshooting) · [Uninstall](#uninstall)
+
+---
+
+## Quick Start
+
+### 1. Local Project (Teams)
+
+```bash
+# 1. Initialize a local vault (.envseal file safe to commit)
+envseal init --local
+
+# 2. Store development secrets (no more plaintext .env files)
+envseal set DATABASE_URL
+envseal set API_KEY
+
+# 3. Lock production keys behind a second password (so junior devs don't accidentally drop prod)
+envseal protag prod
+envseal set --tag prod STRIPE_SECRET
+
+# 4. Run your app (secrets exist ONLY for the duration of this command)
+envseal run npm start
+envseal run --tag prod npm start
+
+# 5. Lock up when stepping away for coffee
+envseal clear
+
+```
+
+### 2. Global Vault (Personal Scripts & One-Offs)
+
+```bash
+envseal --global init
+envseal --global link myapp
+envseal --global set AWS_ACCESS_KEY
+envseal --global run ./deploy.sh
+
+```
+
+### 3. Multi-Profile Environments
+
+```bash
+# For when 'staging' and 'production' need completely different universes
+envseal -e staging init --local
+envseal -e staging set API_URL
+envseal -e staging run npm start
+
+```
+
+### 4. CI/CD with Scoped Tokens
+
+```bash
+# Mint a scoped token on your machine (never put the master password in GitHub Actions!)
+envseal token -t prod -o ./.token --exp 7200 -n "ci-prod" -d "GitHub Actions deploy"
+
+# In your pipeline runner
+export ENVSEAL_TOKEN_FILE=./.token
+envseal run --tag prod --token-file ./.token npm run migrate
+
+# Or pipe it straight in via stdin
+cat .token | envseal run --tag prod npm start
+
+```
 
 ---
 
 ## Installation
 
-Windows (via WinGet)
-
-Install EnvSeal natively on Windows using the Windows Package Manager:
+### Windows (WinGet)
 
 ```bash
 winget install --id viswajith275.EnvSeal -e
+
 ```
 
-WinGet automatically manages binary placement, architecture detection, and adds EnvSeal to your system PATH.
-
-Linux & macOS
+### Linux & macOS
 
 ```bash
-curl -sSfL https://raw.githubusercontent.com/viswajith275/EnvSeal-CLI/master/scripts/install.sh | bash
+curl -sSfL [https://raw.githubusercontent.com/viswajith275/EnvSeal-CLI/master/scripts/install.sh](https://raw.githubusercontent.com/viswajith275/EnvSeal-CLI/master/scripts/install.sh) | bash
+
 ```
 
-The installer detects your platform, places the binary in ~/.local/bin, and updates your PATH. Prefer to inspect the script before running it? Download it first:
+*Prefer to inspect the script before running it? Download and review it first:*
 
 ```bash
-curl -sSfL https://raw.githubusercontent.com/viswajith275/EnvSeal-CLI/master/scripts/install.sh -o install.sh
-less install.sh   # review it
+curl -sSfL [https://raw.githubusercontent.com/viswajith275/EnvSeal-CLI/master/scripts/install.sh](https://raw.githubusercontent.com/viswajith275/EnvSeal-CLI/master/scripts/install.sh) -o install.sh
+less install.sh
 bash install.sh
+
 ```
 
-Other install methods (pinned version, local binary, from source) are listed under [Other Installation Options](#other-installation-options).
+### Other Installation Options
+
+**Specific Version**
+
+```bash
+curl -sSfL [https://raw.githubusercontent.com/viswajith275/EnvSeal-CLI/master/scripts/install.sh](https://raw.githubusercontent.com/viswajith275/EnvSeal-CLI/master/scripts/install.sh) | bash -s -- --version v5.0.0
+
+```
+
+**From a Local Binary**
+
+```bash
+./scripts/install.sh --file ./target/release/envseal
+
+```
+
+**Build From Source**
+
+```bash
+git clone [https://github.com/viswajith275/EnvSeal-CLI.git](https://github.com/viswajith275/EnvSeal-CLI.git)
+cd EnvSeal-CLI
+cargo build --release
+./scripts/install.sh --file ./target/release/envseal
+
+```
+
+---
+
+## Commands
+
+| Command | Description |
+| --- | --- |
+| `envseal init [--local]` | Create a new encrypted vault. |
+| `envseal set [-g GROUP] [-t TAG] KEY` | Store or update a secret. |
+| `envseal get [-g GROUP] [-t TAG] [--token-file PATH] KEY` | Print a single decrypted value. |
+| `envseal protag [-g GROUP] TAG` | Create a protected tag requiring a secondary password. |
+| `envseal passwd` | Change the vault master password (derives a fresh KEK and signing key, then re-encrypts the Master DEK without modifying secret entries). |
+| `envseal import [-g GROUP] [-t TAG] PATH` | Import a plaintext `.env` file into the vault (and safely delete the plaintext file). |
+| `envseal export [-g GROUP] [-t TAG] [--token-file PATH] [-o PATH] [KEYS...]` | Export secrets back to a `.env` file (if you must). |
+| `envseal run [-g GROUP] [-t TAG] [--token-file PATH] -- CMD` | Run a command with secrets injected exclusively into that process tree. |
+| `envseal load [-g GROUP] [-t TAG] [--token-file PATH] [KEYS...]` | Output shell export statements (useful for legacy setups, though `run` is preferred). |
+| `envseal list [-g GROUP] [-t TAG]` | List stored key names (values remain hidden). |
+| `envseal remove [-g GROUP] [-t TAG] [KEY]` | Delete a specific key, tag, or group. |
+| `envseal link GROUP` | Bind a global vault group to the current working directory. |
+| `envseal clear` | Flush cached session keys from the OS keyring cache. |
+| `envseal token [-g GROUP] [-t TAG] [-n NAME] [-d DESC] [-o PATH] [--exp SECS] [KEYS...]` | Mint a scoped zero-trust bearer token. |
+| `envseal rotate [-g GROUP] [-t TAG]` | Rotate the DEK for a scope and invalidate all existing tokens instantly. |
+
+### Global Flags
+
+| Flag | Description |
+| --- | --- |
+| `-e, --env <NAME>` | Target a specific profile (e.g., `-e prod` reads/writes `.prod.envseal`). |
+| `-G, --global` | Target the global system vault instead of the local directory vault. |
+
+---
+
+## Why This Exists
+
+Plaintext secrets have a habit of multiplying: copied into scripts, pasted into chats, and leaked to Git scrapers within 30 seconds of an accidental push.
+
+EnvSeal keeps the dead-simple ergonomics of `.env` files while giving you real cryptographic protection without forcing you into expensive cloud platforms.
+
+| Feature | `.env` files | dotenvx | SOPS | **EnvSeal** | Doppler |
+|---|---|---|---|---|---|
+| Cross-platform (macOS/Linux/Windows) | ✅ | ✅ | ✅ | ✅ | ✅ |
+| Encrypted at rest | ❌ Plaintext | ✅ | ✅ | ✅ | ✅ |
+| Works offline | ✅ | ✅ | ✅ | ✅ | ❌ |
+| Requires cloud account | ❌ No | ❌ No | ❌ No | ❌ No | ✅ Yes |
+| Local-first | ✅ | ✅ | ✅ | ✅ | ❌ |
+| Protected tags (second password for sensitive scopes) | ❌ | ❌ | ❌ | ✅ | ❌ |
+| Zero-trust scoped bearer tokens | ❌ | ❌ | ❌ | ✅ | — |
+| Instant token revocation via DEK rotation | ❌ | ❌ | ❌ | ✅ | — |
+
+---
+
+## What You Get
+
+* **Local & Global Vaults**: Store project-specific variables in a commit-safe .envseal file, or manage system-wide utility tokens for personal CLI scripts in a centralized global vault.
+
+* **Protected Tags**: Compartmentalize secrets within a single vault. Standard dev keys open with your master password; high-stakes tags (like prod or billing) stay locked behind independent secondary passwords.
+
+* **Zero-Trust Bearer Tokens**: Mint least-privilege tokens scoped to a single tag or an explicit whitelist of keys. Tokens compress via zstd, embed strict issuance/expiration claims (iat/exp), and carry zero master key material.
+
+* **Instant DEK Rotation**: envseal rotate generates a fresh Data Encryption Key for any scope and re-encrypts all underlying entries in place, instantly invalidating every token ever minted for that scope.
+Battle-Tested Cryptographic Hierarchy: Master Password → Argon2id → Key Encryption Key (KEK) → Master DEK → HKDF-derived Scope DEKs → Per-entry AES-GCM / ChaCha20-Poly1305 Keys. Vault integrity and state transitions are authenticated via Ed25519 signatures.
+
+* **In-Memory Zeroization**: Decrypted secrets never linger in RAM. All core cryptographic buffers and secret payloads implement strict Zeroize / ZeroizeOnDrop routines upon allocation teardown.
+
+* **OS Keyring Session Caching**: Derived cryptographic keys (never your raw master password) cache securely in your OS keyring for 10 minutes, cutting subsequent CLI response latency to single-digit milliseconds.
+
+* **Zero Cloud Dependencies & Cross-Platform**: 100% offline, local-first engine with first-class pre-built binaries for macOS (Apple Silicon), Linux, and Windows.
+
+---
+
+## Core Security Architecture
+
+* **Local & Global Vaults**: Encrypted `.envseal` files are completely safe to commit to version control. Global vaults manage personal keys for one-off CLI tools.
+
+* **Protected Tags**: Keep staging and production keys inside the same file without giving everyone production access. Production tags require their own independent password.
+
+* **Zero-Trust Bearer Tokens**: Generate scoped access tokens for CI/CD runners. Tokens carry zero master password or key-encryption-key data and only decrypt their scoped keys.
+
+* **Master Password Changes**: `envseal passwd` rotates the vault's Key Encryption Key (KEK) and signing key, re-encrypting the Master DEK in place without requiring individual secrets to be touched.
+
+* **Instant Revocation**: `envseal rotate` generates a new Data Encryption Key (DEK) for a specific scope, re-encrypts its secrets, and instantly invalidates every token ever minted for that scope.
+
+* **Cryptographic Hierarchy**: Master password -> Argon2id -> KEK -> Master DEK -> HKDF-derived Scope DEKs -> per-variable Entry Keys. Vault mutations are authenticated via Ed25519 signatures.
+
+* **Zero Memory Residue**: Sensitive memory buffers implement `Zeroize` / `ZeroizeOnDrop` so decrypted secrets do not linger in RAM.
+
+* **Fast Session Cache**: Derived cryptographic keys (never your plaintext password) are cached in your OS keyring for ~10 minutes, making subsequent commands instant.
+
+---
+
+## Token Ingestion (CI/CD)
+
+Passing secrets as command-line arguments is an invitation for `ps aux` to broadcast your keys to the world. EnvSeal ensures tokens are ingested safely:
+
+| Method | Syntax | Recommended For |
+| --- | --- | --- |
+| **Token File** | `--token-file /path/to/.token` | Kubernetes secrets, Docker volumes |
+| **Environment Variable** | `ENVSEAL_TOKEN` or `ENVSEAL_TOKEN_FILE` | GitHub Actions, GitLab CI |
+| **Stdin** | `cat .token | envseal run ...` | Shell pipes and automated deploy scripts |
+
+> **Security Note:** Token expiration (`--exp`) is a convenience, not a panic button. If a token is compromised:
+> 1. Run `envseal rotate --tag <TAG>` to immediately break the old token.
+> 2. Rotate the actual third-party credentials (database passwords, API keys) that were exposed.
+> 
+> 
 
 ---
 
 ## Shell Integration (Optional)
 
-Because a child process cannot modify the environment variables of its parent shell, envseal load emits raw export statements (export KEY="val"). To apply them without manually wrapping every invocation in eval "$(envseal load)", a shell wrapper intercepts calls to load and evaluates the output inside your current session.
+`envseal run -- <CMD>` is the gold standard because secrets disappear the second the process exits. If you genuinely want to export variables into your active interactive shell session, add the wrapper below:
 
-Add the snippet below to your shell configuration file (~/.bashrc, ~/.zshrc, or PowerShell $PROFILE) If you need to pollute your parent shell.
-
-**Security Note**
-
-**While envseal load is available for legacy workflows, envseal run is strongly recommended**
-
-**Process Isolation**: envseal run -- <CMD> exposes decrypted values solely to that single process tree. Secrets vanish the instant the process exits.
-
-**No Shell Pollution**: envseal load exports secrets directly into your active interactive shell, leaving them exposed to child commands, background tasks, and shoulder-surfing.
-
-Bash / Zsh (~/.bashrc, ~/.zshrc)
+### Bash / Zsh (`~/.bashrc`, `~/.zshrc`)
 
 ```bash
 envseal() {
     if [ "$1" = "load" ]; then
         for _arg in "$@"; do
-            if [ "$_arg" = "--help" ] || [ "$_arg" = "-h" ]; then
+            if [ "$_arg" = "--help" ] \vert{}\vert{} [ "$_arg" = "-h" ]; then
                 command envseal "$@"
                 return
             fi
@@ -78,14 +265,15 @@ envseal() {
         command envseal "$@"
     fi
 }
+
 ```
 
-Fish (~/.config/fish/config.fish or ~/.config/fish/functions/envseal.fish)
+### Fish (`~/.config/fish/config.fish`)
 
 ```bash
 function envseal
     if test "$argv[1]" = "load"
-        if contains -- --help $argv; or contains -- -h $argv
+        if contains -- --help $argv; or contains -- -h$argv
             command envseal $argv
         else
             eval (command envseal $argv)
@@ -94,10 +282,12 @@ function envseal
         command envseal $argv
     end
 end
-```
-PowerShell ($PROFILE)
 
-```bash
+```
+
+### PowerShell (`$PROFILE`)
+
+```powershell
 function envseal {
     param(
         [Parameter(ValueFromRemainingArguments = $true)]
@@ -112,8 +302,8 @@ function envseal {
         return
     }
 
-    if ($EnvsealArgs.Count -gt 0 -and $EnvsealArgs[0] -eq 'load') {
-        if ($EnvsealArgs -contains '--help' -or $EnvsealArgs -contains '-h') {
+    if ($EnvsealArgs.Count -gt 0 -and$EnvsealArgs[0] -eq 'load') {
+        if ($EnvsealArgs -contains '--help' -or$EnvsealArgs -contains '-h') {
             & $exe @EnvsealArgs
             return
         }
@@ -123,342 +313,59 @@ function envseal {
         & $exe @EnvsealArgs
     }
 }
+
 ```
-
----
-
-## Upcoming
-
-**Local proxy** : Securely handling secrets by injecting real credentials into network traffic via a local proxy, keeping them out of process memory and environment variables. This prevents sensitive credentials from being exposed in memory or environment variables, mitigating risks from memory dumps, malicious dependencies, or insecure configuration practices. (Normal variables will be injected as usual specially configured ones will be injected by the proxy)
-
----
-
-## Why This Exists
-
-Plaintext secrets get copied into `~/Downloads`, scattered across scripts, and occasionally pushed straight to GitHub. Scraper bots pick up newly committed keys within minutes. One misdirected key and a local script writes to production or emails real customers. Sourcing a `.env` file pollutes every process in your shell session. Sharing production credentials with a team usually means pasting them into Slack or committing a file helpfully named `prod.env.final`.
-
-EnvSeal encrypts everything at rest, scopes access tightly by tag and token, and injects secrets only for the lifetime of a single child process — never into your interactive shell unless you explicitly ask for that with `load`.
-
-
-
-| Feature                      | `.env`           | dotenvx          | SOPS                   | EnvSeal               | Doppler                  |
-| ---------------------------- | ---------------- | ---------------- | ---------------------- | --------------------- | ------------------------ |
-| Encrypted secrets            | No               | Yes              | Yes                    | Yes                   | Yes                      |
-| Works offline                | Yes              | Yes              | Yes                    | Yes                   | No                       |
-| Run a command with secrets   | Yes*             | Yes              | Limited                | Yes                   | Yes                      |
-| No cloud account needed      | Yes              | Yes              | Yes                    | Yes                   | No                       |
-| CI/CD support                | Limited          | Yes              | Yes                    | Yes                   | Yes                      |
-| Secret scopes / environments | No               | Limited          | No                     | Yes                   | Yes                      |
-| Built-in secret rotation     | No               | Limited          | No                     | Yes                   | Yes                      |
-| Local-first                  | Yes              | Yes              | Yes                    | **Yes**               | No                       |
-| Simple setup                 | **Very simple**  | Simple           | Moderate               | **Simple**            | Simple                   |
-| Main idea                    | Plaintext config | Encrypted `.env` | Encrypted config files | Encrypted env secrets | Hosted secret management |
-
-
-* `.env` can provide variables to a process, but the secrets remain stored as plaintext.
-
-
-* **EnvSeal keeps the simplicity of `.env` while encrypting secrets on disk and injecting them only when your application runs.**
-
-* No server. No account. No complicated setup.
-
-* That is the main difference from larger secret-management platforms: **EnvSeal is designed to stay small, local, and easy to use.**
-
-
----
-
-## Real-World Wins Over `.env`
-
-**Solo developer**
-
-Store personal keys in the global vault, link a project once, and run:
-
-```bash
-envseal run ./deploy.sh
-```
-
-No more hunting for the right file or accidentally committing one. If your laptop is stolen, the attacker gets ciphertext, not credentials.
-
-**Small team**
-
-Commit a local `.envseal` file to the repo. Everyone unlocks development secrets with a shared master password. Production Stripe and database credentials live under a protected tag that requires a second, separate password known only to whoever deploys. Junior developers get a fully working repo without ever touching production keys.
-
-**CI/CD without sharing the master password**
-
-Mint a short-lived, least-privilege token:
-
-```bash
-envseal token -t prod -o ./.token --exp 3600
-```
-
-Mount the token file (or inject it via `ENVSEAL_TOKEN` / `ENVSEAL_TOKEN_FILE`) into the runner. The pipeline can decrypt only what the token scopes it to. The master password never leaves the developer's machine.
-
-**Leaked token?**
-
-```bash
-envseal rotate --tag prod
-```
-
-Every token issued against that scope stops working immediately. Then rotate the underlying credentials the token could reach — database passwords, API keys, and so on. Expiration is a convenience, not a revocation mechanism, so don't wait for a token to time out on its own.
-
-**"Which `.env` is even loaded right now?"**
-
-Stop guessing and switch deliberately:
-
-```bash
-envseal -e staging run npm start
-envseal -e prod run npm start
-```
-
-Or use tags inside a single profile when only a handful of values differ between environments.
-
----
-
-## What You Get
-
-**Local & Global Vaults**
-
-Project-scoped `.envseal` files that are safe to commit, or a system-wide vault for personal scripts and one-off tooling.
-
-**Protected Tags**
-
-Share one vault for everyday development keys while locking high-stakes variables behind a completely separate secondary password.
-
-**Zero-Trust Bearer Tokens**
-
-Mint least-privilege tokens scoped to an entire tag or to specific keys. Tokens never embed the master password, the KEK, or the signing key. They're compressed with zstd, carry `iat`/`exp` claims, and are only ever ingested via file, environment variable, or stdin — never as a CLI flag, so they don't leak into `ps` output or shell history.
-
-**DEK Rotation**
-
-`envseal rotate` generates a fresh Data Encryption Key for a scope, re-encrypts everything under it, and immediately invalidates every existing token for that scope.
-
-**Cryptographic Hierarchy**
-
-Master password → Argon2id → KEK → Master DEK → HKDF-derived Scope DEKs → per-variable Entry Keys. Secrets are never encrypted directly under the password itself. Every vault mutation is signed with an Ed25519 key derived alongside the KEK, and unlocking the vault verifies that signature against the embedded public key.
-
-**Session Caching**
-
-Derived cryptographic material — never the raw password — is cached in the OS keyring for about 10 minutes, dropping subsequent command latency from hundreds of milliseconds to single digits.
-
-**Storage & Integrity**
-
-MessagePack encoding with deterministic ordering, raw binary payloads, and atomic filesystem writes. All sensitive in-memory buffers implement `Zeroize` / `ZeroizeOnDrop` so key material doesn't linger after use.
-
-**Cross-Platform**
-
-Linux, macOS (Apple Silicon), and Windows.
-
----
-
-## Quick Start
-
-### Local Project (Teams)
-
-```bash
-# 1. Create a local vault
-envseal init --local
-
-# 2. Store development secrets
-envseal set DATABASE_URL
-envseal set API_KEY
-
-# 3. Protect production behind a secondary password
-envseal protag prod
-envseal set --tag prod STRIPE_SECRET
-
-# 4. Run with secrets injected only into the child process
-envseal run npm start
-envseal run --tag prod npm start
-
-# 5. Clear the session when you step away
-envseal clear
-```
-
-### Global Vault (Personal Scripts)
-
-```bash
-envseal --global init
-envseal --global link myapp
-envseal --global set AWS_ACCESS_KEY
-envseal --global run ./deploy.sh
-```
-
-### Multi-Profile Files
-
-```bash
-envseal -e staging init --local
-envseal -e staging set API_URL
-envseal -e staging run npm start
-```
-
-### CI/CD with a Token
-
-```bash
-# On a developer machine (once)
-envseal token -t prod -o ./.token --exp 7200 -n "ci-prod" -d "GitHub Actions deploy"
-
-# In the pipeline
-export ENVSEAL_TOKEN_FILE=./.token
-envseal run --tag prod --token-file ./.token npm run migrate
-```
-
-Or pipe it in directly:
-
-```bash
-cat .token | envseal run --tag prod npm start
-```
-
----
-
-## Commands
-
-| Command | Description |
-|---|---|
-| `envseal init [--local]` | Create a new encrypted vault. |
-| `envseal set [-g GROUP] [-t TAG] KEY` | Store or update a secret. |
-| `envseal get [-g GROUP] [-t TAG] [--token-file PATH] KEY` | Print a single decrypted value. |
-| `envseal protag [-g GROUP] TAG` | Create a protected tag (secondary password). |
-| `envseal import [-g GROUP] [-t TAG] PATH` | Import a plaintext `.env` file. |
-| `envseal export [-g GROUP] [-t TAG] [--token-file PATH] [-o PATH] [KEYS...]` | Write secrets to a `.env` file. |
-| `envseal run [-g GROUP] [-t TAG] [--token-file PATH] -- CMD` | Run a command with secrets injected into that process only. |
-| `envseal load [-g GROUP] [-t TAG] [--token-file PATH] [KEYS...]` | Output shell export statements (prefer `run`). |
-| `envseal list [-g GROUP] [-t TAG]` | List key names (never values). |
-| `envseal remove [-g GROUP] [-t TAG] [KEY]` | Delete a key, tag, or group. |
-| `envseal link GROUP` | Bind a global group to the current directory. |
-| `envseal clear` | Flush cached cryptographic material from the OS keyring. |
-| `envseal token [-g GROUP] [-t TAG] [-n NAME] [-d DESC] [-o PATH] [--exp SECS] [KEYS...]` | Mint a zero-trust bearer token. |
-| `envseal rotate [-g GROUP] [-t TAG]` | Rotate the DEK for a scope and invalidate existing tokens. |
-
-**Global flags**
-
-| Flag | Description |
-|---|---|
-| `-e, --env <NAME>` | Target a profile (e.g. `-e prod` reads/writes `.prod.envseal`). |
-| `-G, --global` | Force the global system vault instead of a local one. |
-
----
-
-## Token Ingestion
-
-Tokens never appear as command-line arguments. Use one of the following instead:
-
-| Method | How | Best for |
-|---|---|---|
-| Token file | `--token-file /path/to/.token` | Kubernetes secrets, Docker volumes |
-| Environment | `ENVSEAL_TOKEN` or `ENVSEAL_TOKEN_FILE` | GitHub Actions, GitLab CI, and similar |
-| Stdin | `cat token.file \| envseal run ...` | Ad hoc scripts (uses `IsTerminal` checks so child processes still get their own stdin) |
-
-Token files created with `-o` receive `0600` permissions automatically.
-
-**Warning:** Treat token expiration (`--exp`) as a convenience, not a hard security boundary. Clocks drift, tokens get copied, and "it expires in an hour" is not a revocation strategy. If a token is compromised — or even just suspected of being compromised — always:
-
-1. Rotate the DEK for the affected scope: `envseal rotate ...`
-2. Rotate the actual credentials the token could reach (database passwords, API keys, and so on).
-
----
-
-## Best Practices
-
-- Prefer `envseal run` over `envseal load`. `load` leaves secrets sitting in your live shell; `run` scopes them to a single child process and nothing else.
-- Never put the master password in CI. Mint short-lived, least-privilege tokens instead.
-- Don't rely on token expiration alone. On any compromise, or even suspicion of one, rotate the DEK **and** the underlying credentials.
-- Keep production behind protected tags or separate profiles, and share those secondary passwords narrowly.
-- Run `envseal clear` when you step away from a shared or unattended machine.
-- Back up vault files — they're already encrypted, so a backup is not a new exposure.
 
 ---
 
 ## Troubleshooting
 
-**"Seal already exists"**
-You're trying to `init` where a vault is already present. Use the existing vault, or remove it first if you're sure you want to start over.
-
-**"No group linked to current directory"**
-Run `envseal --global link <groupname>` first.
-
-**Signature / integrity verification failed**
-The vault file was modified or corrupted outside of EnvSeal. Restore it from a backup or re-import your secrets.
-
-**Token decryption fails after a rotate**
-Expected — the old DEK is gone. Mint a new token against the updated vault, and make sure the underlying credentials have been rotated too if the old token was ever compromised.
-
-**Repeated password prompts**
-Confirm the OS keyring service is running. If it is and prompts still repeat, run `envseal clear` and try again.
+* **"Seal already exists"**: You are trying to `init` where a vault already lives. Re-sealing an already sealed vault is very meta, but unnecessary. Use the existing vault or delete it to start fresh.
+* **"No group linked to current directory"**: Run `envseal --global link <GROUP>` to associate this directory with your global vault group.
+* **Signature / integrity verification failed**: The `.envseal` file was modified by an external editor or corrupted. Restore from git/backup or re-import.
+* **Token decryption fails after a rotate**: Working as intended. When you rotate a DEK, older tokens become useless ciphertext. Mint a fresh token with `envseal token`.
+* **Repeated password prompts**: Check if your OS keyring daemon is running. If it is stuck, run `envseal clear` to reset the session.
 
 ---
 
-## Other Installation Options
+## Upcoming
 
-**Specific version**
-
-```bash
-curl -sSfL https://raw.githubusercontent.com/viswajith275/EnvSeal-CLI/master/scripts/install.sh | bash -s -- --version v5.0.0
-```
-
-**From a locally built binary**
-
-```bash
-./scripts/install.sh --file ./target/release/envseal
-```
-
-**From source**
-
-```bash
-git clone https://github.com/viswajith275/EnvSeal-CLI.git
-cd EnvSeal-CLI
-cargo build --release
-./scripts/install.sh --file ./target/release/envseal
-```
-
-Pre-built binaries for Linux (x86_64/ARM64), macOS (Apple Silicon), and Windows are available on the [Releases](https://github.com/viswajith275/EnvSeal-CLI/releases) page.
+* **Local Proxy**: Credential injection into outbound HTTP/network traffic via a local proxy, preventing third-party packages or memory-dump exploits from ever seeing raw secrets in process memory.
 
 ---
 
 ## Contributing
 
-Fork, branch, fix, open a PR. Bug reports, platform testing (especially Windows), and security reviews are all welcome.
-
 ```bash
-git clone https://github.com/viswajith275/EnvSeal-CLI.git
+git clone [https://github.com/viswajith275/EnvSeal-CLI.git](https://github.com/viswajith275/EnvSeal-CLI.git)
 cd EnvSeal-CLI
 cargo build
 cargo test
 cargo fmt
 cargo clippy
+
 ```
 
 ---
 
 ## Uninstall
 
-**Windows (via WinGet)**
-
-To completely remove EnvSeal and clean up its environment path entries:
+### Windows (WinGet)
 
 ```bash
 winget uninstall --id viswajith275.EnvSeal -e
+
 ```
 
-Alternatively, you can remove it via Windows Settings under Installed Apps (or Add or remove programs).
-
-**Linux and MacOS**
-
-To remove the envseal binary and shell configurations:
+### Linux & macOS
 
 ```bash
-curl -sSfL https://raw.githubusercontent.com/viswajith275/EnvSeal-CLI/master/scripts/uninstall.sh | bash
-```
+curl -sSfL [https://raw.githubusercontent.com/viswajith275/EnvSeal-CLI/master/scripts/uninstall.sh](https://raw.githubusercontent.com/viswajith275/EnvSeal-CLI/master/scripts/uninstall.sh) | bash
 
-Prefer to inspect the script before running it? Download and review it first:
-
-```bash
-curl -sSfL https://raw.githubusercontent.com/viswajith275/EnvSeal-CLI/master/scripts/uninstall.sh -o uninstall.sh
-less uninstall.sh   # review it
-bash uninstall.sh
 ```
 
 ---
 
 ## License
 
-MIT. Use it, fork it, ship it — just keep the license notice, and never put your master password (or a long-lived token) in a pull request.
+MIT
