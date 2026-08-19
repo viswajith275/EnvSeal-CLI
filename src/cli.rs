@@ -1,281 +1,319 @@
-use clap::{Parser, Subcommand};
+use clap::{ArgAction, Parser, Subcommand, ValueEnum, ValueHint};
 use std::path::PathBuf;
 
 #[derive(Parser)]
 #[command(
     name = "envseal",
-    about = "An encrypted vault for your API keys and secrets, because `.env` files have never once kept a secret."
+    about = "Encrypted vault for secrets and API keys stop committing plaintext .env files.",
+    version = "v5.1.0",
+    propagate_version = true
 )]
-#[command(version = "v5.1.0")]
-#[command(propagate_version = true)]
 pub struct Cli {
-    /// Target a specific local environment profile (e.g., 'prod' targets '.prod.envseal')
-    #[arg(short, long, global = true)]
+    /// Target a specific local environment profile (e.g., 'prod' -> '.prod.envseal')
+    #[arg(short, long, global = true, value_name = "PROFILE")]
     pub env: Option<String>,
 
-    /// Force operations on the global system vault, bypassing any local .envseal files
+    /// Force operations on the global system vault instead of local .envseal files
     #[arg(short = 'G', long, global = true)]
     pub global: bool,
 
-    /// Disable fetching passwords from predefined enviornment variables
-    #[arg(short, long, global = true, default_value_t = true)]
-    // actually false passing this in place of allow_env
-    pub disable_env: bool,
+    /// Disable loading fallback passwords from environment variables
+    #[arg(long, global = true, action = ArgAction::SetTrue)]
+    pub no_env: bool,
 
-    /// The subcommand to execute
     #[command(subcommand)]
     pub command: Commands,
 }
 
 #[derive(Subcommand)]
 pub enum Commands {
-    /// Initialize a new encrypted vault (seal) to store secrets
+    /// Initialize a new encrypted vault
     ///
-    /// Creates a new secure seal in the default location, encrypted by a master password.
-    /// (Generates custom git rules to handle merge and diffs, NOTE: You need to have git installed for this to work properly)
-    /// NOTE: This must be run before using any other envseal commands.
+    /// Creates an encrypted seal in the target location, configured with a master
+    /// password and automatic Git merge/diff attributes.
     Init {
-        /// To initialise a local enviornment (e.g, '.envseal' file in current directory)
+        /// Create a local vault ('.envseal') in the current directory
         #[arg(short, long)]
         local: bool,
-        /// Automatically initialize a new git repo ('git init') if not already inside one
+
+        /// Automatically run 'git init' if not already in a Git repository
         #[arg(short, long)]
         git: bool,
     },
 
     /// Configure Git merge and diff drivers for envseal
-    Setup {
-        /// Initialize git repo if not already inside one
+    ///
+    /// Configures custom diff and merge attributes so encrypted seals can be
+    /// tracked in Git without merge conflicts corrupting the ciphertext.
+    GitSetup {
+        /// Initialize a git repository if one does not exist
         #[arg(short, long)]
         init: bool,
     },
 
-    /// Clear the Master Password from the local session cache
+    /// Clear the master password from the session cache
     ///
-    /// Securely flushes the cached master password from memory. You will be
-    /// prompted to re-enter your password on your next envseal operation.
+    /// Securely wipes the cached master key from memory, requiring password
+    /// re-entry on the next operation.
     Clear,
 
-    /// Link a variable group to the current working directory
+    /// Link a variable group as default for the current directory
     ///
-    /// Binds a specific group of variables to the current directory so you
-    /// don't have to manually specify `--group` in future commands run from here.
+    /// Eliminates the need to pass `--group` on subsequent commands in this folder.
     Link {
-        /// The name of the group to link to this directory
+        /// Name of the group to bind to this directory
         group: String,
     },
 
-    /// Create or manage protected tags within a group
+    /// Create or configure a protected environment tag
     ///
-    /// Tags allow you to version or environment-scope your variables (e.g., 'dev', 'prod').
-    /// Protected tags require specific confirmation to modify or delete.
+    /// Tags scope variables (e.g., 'staging', 'prod'). Protected tags require
+    /// explicit confirmation before modification or deletion.
     Protag {
-        /// The group to apply the tag to (uses linked group if omitted)
+        /// Target group (defaults to linked group)
         #[arg(short, long)]
         group: Option<String>,
-        /// The name of the protected tag to create
+
+        /// Name of the protected tag to create
         tag: String,
     },
 
-    /// Export secrets to a standard .env file
+    /// Decrypt and export secrets to a standard .env file
     ///
-    /// Decrypts and writes the specified keys (or an entire group/tag) to a
-    /// local .env file. Useful for integrating with legacy tools that require
-    /// unencrypted files on disk.
+    /// Writes unencrypted key-value pairs to disk for legacy tools that require
+    /// plaintext files.
     Export {
-        /// The group to export from (uses linked group if omitted)
+        /// Target group (defaults to linked group)
         #[arg(short, long)]
         group: Option<String>,
-        /// The tag to export from
+
+        /// Target tag within the group
         #[arg(short, long)]
         tag: Option<String>,
-        /// Output path of .env file defaults to .env in current directory
-        #[arg(short, long)]
-        output_path: Option<String>,
-        /// Path to a file containing the zero-trust execution token
-        #[arg(long)]
+
+        /// Output path for the exported file
+        #[arg(
+            short,
+            long,
+            default_value = ".env",
+            value_name = "PATH",
+            value_hint = ValueHint::FilePath
+        )]
+        output_path: PathBuf,
+
+        /// Path to a zero-trust execution token file
+        #[arg(long, value_name = "FILE", value_hint = ValueHint::FilePath)]
         token_file: Option<PathBuf>,
-        /// Specific keys to export (exports all if empty)
+
+        /// Specific keys to export (exports all if omitted)
         keys: Vec<String>,
     },
 
     /// Import variables from an existing .env file into the vault
-    ///
-    /// Reads an unencrypted .env file and securely stores its key-value pairs
-    /// into the specified group or tag inside your encrypted seal.
     Import {
-        /// The group to import variables into (uses linked group if omitted)
+        /// Target group (defaults to linked group)
         #[arg(short, long)]
         group: Option<String>,
-        /// The tag to import variables into
+
+        /// Target tag within the group
         #[arg(short, long)]
         tag: Option<String>,
-        /// Path to the .env file to read from
-        path: String,
+
+        /// Path to the .env file to import
+        #[arg(value_hint = ValueHint::FilePath)]
+        path: PathBuf,
     },
 
     /// Securely store or update a secret key
     ///
-    /// Prompts for a value and encrypts it under the given key. Automatically
-    /// creates the specified group or tag if it doesn't already exist.
+    /// Prompts for the value interactively or reads from stdin to avoid leaking
+    /// secrets into shell history.
     Set {
-        /// The group to store the key in (uses linked group if omitted)
+        /// Target group (defaults to linked group)
         #[arg(short, long)]
         group: Option<String>,
-        /// The tag to scope the key to
+
+        /// Target tag within the group
         #[arg(short, long)]
         tag: Option<String>,
-        /// The name of the environment variable (e.g., API_KEY)
+
+        /// Secret key name (e.g., STRIPE_SECRET_KEY)
         key: String,
     },
 
-    /// Retrieve and decrypt the value of a specific key
-    ///
-    /// Fetches a single encrypted variable, decrypts it, and prints it to standard
-    /// output. Useful for piping specific secrets into other scripts.
+    /// Retrieve and decrypt a single key
     Get {
-        /// The group to fetch the key from (uses linked group if omitted)
+        /// Target group (defaults to linked group)
         #[arg(short, long)]
         group: Option<String>,
 
-        /// The tag to fetch the key from
+        /// Target tag within the group
         #[arg(short, long)]
         tag: Option<String>,
-        /// Path to a file containing the zero-trust execution token
-        #[arg(long)]
+
+        /// Path to a zero-trust execution token file
+        #[arg(long, value_name = "FILE", value_hint = ValueHint::FilePath)]
         token_file: Option<PathBuf>,
-        /// The name of the key to retrieve
+
+        /// Key name to retrieve
         key: String,
     },
 
-    /// Source variables directly into your current shell session
+    /// Print shell export commands for decrypted variables
     ///
-    /// Decrypts variables and outputs shell-compatible export commands. To use this,
-    /// evaluate it in your shell (e.g., 'eval $(envseal load)') normally automatically done by a function added to the shell config.
-    /// Warning!! For isolated execution, 'envseal run' is highly recommended instead.
+    /// Intended for shell evaluation: `eval $(envseal load)`. For isolated
+    /// execution without modifying shell state, prefer `envseal run`.
     Load {
-        /// The group to load variables from (uses linked group if omitted)
+        /// Target group (defaults to linked group)
         #[arg(short, long)]
         group: Option<String>,
-        /// The tag to load variables from
+
+        /// Target tag within the group
         #[arg(short, long)]
         tag: Option<String>,
-        /// Path to a file containing the zero-trust execution token
-        #[arg(long)]
+
+        /// Path to a zero-trust execution token file
+        #[arg(long, value_name = "FILE", value_hint = ValueHint::FilePath)]
         token_file: Option<PathBuf>,
-        /// Specific keys to load (loads all if empty)
+
+        /// Specific keys to load (loads all if omitted)
         keys: Vec<String>,
     },
 
     /// Delete a secret key, tag, or entire group
-    ///
-    /// Permanently removes the specified key from the vault. If no key is provided,
-    /// it deletes the entire group or tag. This action cannot be undone.
+    #[command(alias = "rm")]
     Remove {
-        /// The group to remove data from (uses linked group if omitted)
+        /// Target group (defaults to linked group)
         #[arg(short, long)]
         group: Option<String>,
-        /// The tag to remove data from
+
+        /// Target tag to remove
         #[arg(short, long)]
         tag: Option<String>,
-        /// The specific key to delete (deletes the group/tag if omitted)
+
+        /// Specific key to delete (deletes whole group/tag if omitted)
         key: Option<String>,
     },
 
-    /// View all stored keys and vault structure
-    ///
-    /// Displays a list of your configured groups, tags, and secret keys without
-    /// revealing their decrypted values to the screen.
+    /// List stored keys, groups, and tags without revealing secret values
+    #[command(alias = "ls")]
     List {
-        /// Filter the list by a specific group (uses linked group if omitted)
+        /// Filter by group (defaults to linked group if set)
         #[arg(short, long)]
         group: Option<String>,
-        /// Filter the list by a specific tag
+
+        /// Filter by tag
         #[arg(short, long)]
         tag: Option<String>,
     },
 
-    /// Execute a command with decrypted variables injected into its environment
+    /// Execute a command with decrypted secrets injected into its environment
     ///
-    /// Spawns a child process and injects the specified group's secrets securely
-    /// into its environment. Secrets never touch the disk and your main shell
-    /// remains perfectly clean.
+    /// Spawns a child process with injected variables. Secrets never touch disk
+    /// or persist in shell history.
+    #[command(alias = "exec")]
     Run {
-        /// The group of variables to inject (uses linked group if omitted)
+        /// Target group (defaults to linked group)
         #[arg(short, long)]
         group: Option<String>,
-        /// The tag of variables to inject
+
+        /// Target tag within the group
         #[arg(short, long)]
         tag: Option<String>,
-        /// Path to a file containing the zero-trust execution token
-        #[arg(long)]
+
+        /// Path to a zero-trust execution token file
+        #[arg(long, value_name = "FILE", value_hint = ValueHint::FilePath)]
         token_file: Option<PathBuf>,
-        /// The command and its arguments to execute (e.g., `npm start`)
-        #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
+
+        /// Command and arguments to execute (e.g., `npm start` or `-- python app.py`)
+        #[arg(
+            trailing_var_arg = true,
+            allow_hyphen_values = true,
+            required = true,
+            last = true
+        )]
         cmd_args: Vec<String>,
     },
-    /// Generate a zero-trust Bearer Token for CI/CD or offline execution
-    ///
-    /// Generates a read only token with specified scopes and access to gain more
-    /// control on who can access what. No more leakage of master password by sharing
-    /// it with everyone
+
+    /// Generate a scoped, read-only token for CI/CD or offline execution
     Token {
-        /// The group of which is included in scope
+        /// Group to include in scope
         #[arg(short = 'g', long)]
         group: Option<String>,
-        /// The tag which is included in scope
+
+        /// Tag to include in scope
         #[arg(short = 't', long)]
         tag: Option<String>,
-        /// Name given to token (creater name / reason for creating token)
+
+        /// Identifier for tracking token origin/purpose
         #[arg(short = 'n', long, default_value = "envseal-token")]
         name: String,
-        /// Description of token (whats the scope, what it is used for etc...)
+
+        /// Optional description of token usage scope
         #[arg(short = 'd', long)]
         desc: Option<String>,
-        /// Securely write the token directly to a file (restricted permissions)
-        #[arg(short = 'o', long)]
+
+        /// Write the generated token directly to a restricted-permission file
+        #[arg(short = 'o', long, value_name = "PATH", value_hint = ValueHint::FilePath)]
         out: Option<PathBuf>,
-        /// Expiration time in seconds (Added to the current time!!)
-        #[arg(long)]
+
+        /// Token validity duration in seconds from creation
+        #[arg(long, value_name = "SECONDS")]
         exp: Option<u64>,
-        /// Specific keys from the scope only
+
+        /// Restrict token to these specific keys
         keys: Vec<String>,
     },
+
     /// Rotate the Data Encryption Key (DEK) for a specific scope
     ///
-    /// Invalidates all existing zero-trust tokens for the target scope by re-encrypting
-    /// the variables with a freshly generated cryptographic key.
+    /// Re-encrypts secrets under a new key, immediately invalidating all existing
+    /// zero-trust tokens issued for this scope.
     Rotate {
+        /// Target group (defaults to linked group)
         #[arg(short, long)]
         group: Option<String>,
+
+        /// Target tag within the group
         #[arg(short, long)]
         tag: Option<String>,
     },
-    /// Change the vault's master password
-    ///
-    /// Derives a fresh KEK and signing key, then re-encrypts the Master DEK
-    /// without modifying underlying secret entries. Changes master password without revoking existing tokens
+
+    /// Change the vault's master password without revoking active tokens
     Passwd,
 
     /// Internal 3-way merge driver invoked by Git
+    #[command(hide = true)]
     Merge {
         /// Ancestor file path (%O)
-        #[arg(long)]
+        #[arg(long, value_hint = ValueHint::FilePath)]
         base: PathBuf,
-        /// Current branch file path (%A in git)
-        #[arg(long)]
+
+        /// Current branch file path (%A)
+        #[arg(long, value_hint = ValueHint::FilePath)]
         ours: PathBuf,
-        /// Incoming branch file path (%B in git)
-        #[arg(long)]
+
+        /// Incoming branch file path (%B)
+        #[arg(long, value_hint = ValueHint::FilePath)]
         theirs: PathBuf,
-        /// Conflict resolution strategy: "fail", "ours", "theirs"
-        #[arg(long, default_value = "fail")]
-        strategy: String,
+
+        /// Conflict resolution strategy
+        #[arg(long, value_enum, default_value_t = MergeStrategy::Fail)]
+        strategy: MergeStrategy,
     },
 
     /// Internal textconv diff generator invoked by Git
+    #[command(hide = true)]
     Diff {
         /// Path to the vault file
+        #[arg(value_hint = ValueHint::FilePath)]
         file: PathBuf,
     },
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, ValueEnum)]
+pub enum MergeStrategy {
+    Fail,
+    Ours,
+    Theirs,
 }

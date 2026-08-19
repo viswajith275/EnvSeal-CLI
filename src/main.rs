@@ -11,7 +11,7 @@ fn main() -> Result<()> {
     let cli = Cli::parse();
     let global = cli.global;
     let pref = cli.env.as_deref().filter(|s| !s.is_empty());
-    let allow_env = cli.disable_env;
+    let allow_env = !cli.no_env;
 
     if global && pref.is_some() {
         return Err(anyhow!(
@@ -120,7 +120,7 @@ fn main() -> Result<()> {
             token_file.as_ref(),
             global,
             pref,
-            output_path.as_deref(),
+            &output_path,
             allow_env,
         ),
         Commands::Link { group } => commands::link::cmd_link(&group, global, pref, allow_env),
@@ -159,7 +159,7 @@ fn main() -> Result<()> {
             theirs,
             strategy,
         } => commands::merge::cmd_merge(&base, &ours, &theirs, &strategy),
-        Commands::Setup { init } => {
+        Commands::GitSetup { init } => {
             git::sync_repo_git_conf(init)?;
             println!("git configuration successfull!!");
             Ok(())

@@ -12,7 +12,7 @@ pub fn cmd_export(
     token_file: Option<&PathBuf>,
     global: bool,
     pref: Option<&str>,
-    output_path: Option<&str>,
+    output_path: &PathBuf,
     allow_env: bool,
 ) -> Result<()> {
     let vault = Vault::load(global, pref)?;
@@ -65,18 +65,18 @@ pub fn cmd_export(
         buffer.push_str(&format!("{key}={}\n", format_env_value(value.as_str())));
     }
 
-    // Default target file to .env if not specified
-    let target_file = output_path.unwrap_or(".env");
-
     // Write file natively to disk
-    fs::write(target_file, buffer).with_context(|| {
-        format!("Failed to write exported environment variables to '{target_file}'")
+    fs::write(&output_path, buffer).with_context(|| {
+        format!(
+            "Failed to write exported environment variables to '{}'",
+            output_path.display()
+        )
     })?;
 
     eprintln!(
-        "successfully exported {} variable(s) to '{}'",
+        "Successfully exported {} variable(s) to '{}'",
         sorted_envs.len(),
-        target_file
+        output_path.display()
     );
 
     Ok(())

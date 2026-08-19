@@ -1,12 +1,12 @@
 use crate::utils::{unlock, vault::Vault};
 use anyhow::{anyhow, Context, Result};
 use dotenvy::from_path_iter;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 pub fn cmd_import(
     group: Option<&str>,
     tag: Option<&str>,
-    path: &str,
+    path: &PathBuf,
     global: bool,
     pref: Option<&str>,
     allow_env: bool,

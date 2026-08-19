@@ -1,3 +1,4 @@
+use crate::cli::MergeStrategy;
 use crate::utils::{crypto, unlock, vault::Group, vault::Vault, vault::BASE_TAG};
 use anyhow::{anyhow, Context, Result};
 use std::collections::{BTreeMap, BTreeSet};
@@ -9,7 +10,7 @@ pub fn cmd_merge(
     base_path: &PathBuf,
     ours_path: &PathBuf,
     theirs_path: &PathBuf,
-    strategy: &str,
+    strategy: &MergeStrategy,
 ) -> Result<()> {
     eprintln!("[envseal] Starting 3-way cryptographic merge driver...");
 
@@ -114,11 +115,11 @@ pub fn cmd_merge(
                     continue;
                 }
                 match strategy {
-                    "theirs" => {
+                    MergeStrategy::Theirs => {
                         ours_vault.entries.remove(&group_name);
                         continue;
                     }
-                    "ours" => continue,
+                    MergeStrategy::Ours => continue,
                     _ => {
                         conflicts.push(format!(
                             "Group '{group_name}' modified locally but deleted on incoming branch."
@@ -136,8 +137,8 @@ pub fn cmd_merge(
                     continue;
                 }
                 match strategy {
-                    "ours" => continue, // keep it deleted
-                    "theirs" => {
+                    MergeStrategy::Ours => continue, // keep it deleted
+                    MergeStrategy::Theirs => {
                         ours_vault
                             .entries
                             .insert(group_name.clone(), theirs_grp.unwrap().clone());
@@ -255,10 +256,10 @@ pub fn cmd_merge(
                 }
 
                 // Strategy overrides for protected tags
-                if strategy == "ours" {
+                if strategy == &MergeStrategy::Ours {
                     continue;
                 }
-                if strategy == "theirs" {
+                if strategy == &MergeStrategy::Theirs {
                     let group_entry = ours_vault.entries.get_mut(&group_name).unwrap();
                     if let Some(t_tag) = theirs_tag_raw {
                         group_entry.tags.insert(tag_name.clone(), t_tag.clone());
@@ -407,8 +408,8 @@ pub fn cmd_merge(
                     (b, None, t) if b == t => None,
                     // conflicting states
                     _ => match strategy {
-                        "ours" => v_ours.cloned(),
-                        "theirs" => v_theirs.cloned(),
+                        MergeStrategy::Ours => v_ours.cloned(),
+                        MergeStrategy::Theirs => v_theirs.cloned(),
                         _ => {
                             // redact actual plaintext values from logs to prevent terminal/scrollback leaks
                             conflicts.push(format!(
