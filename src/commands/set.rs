@@ -9,16 +9,17 @@ pub fn cmd_set(
     key: &str,
     global: bool,
     pref: Option<&str>,
+    allow_env: bool,
 ) -> Result<()> {
     let mut vault = Vault::load(global, pref)?;
 
     let group_name = vault.resolve_group_name(group)?;
-    let master_keys = unlock::sudo_unlock(&vault)?;
+    let master_keys = unlock::sudo_unlock(&vault, None, allow_env)?;
 
     let mut tag_key = None;
     if vault.is_tag_protected(group, tag)? {
         if let Some(t) = tag {
-            tag_key = Some(unlock::sudo_unlock_tag(&vault, group, t)?);
+            tag_key = Some(unlock::sudo_unlock_tag(&vault, group, t, None, allow_env)?);
         } else {
             return Err(anyhow!(
                 "A tag must be provided if the group's default tag is protected."

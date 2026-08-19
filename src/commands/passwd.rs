@@ -3,9 +3,9 @@ use anyhow::{bail, Result};
 use rpassword::prompt_password;
 use zeroize::Zeroizing;
 
-pub fn cmd_passwd(global: bool, pref: Option<&str>) -> Result<()> {
+pub fn cmd_passwd(global: bool, pref: Option<&str>, allow_env: bool) -> Result<()> {
     let mut vault = Vault::load(global, pref)?;
-    let master_keys = unlock::sudo_unlock(&vault)?;
+    let master_keys = unlock::sudo_unlock(&vault, None, allow_env)?;
 
     let new_password = Zeroizing::new(prompt_password("enter new master password: ")?);
     if new_password.trim().is_empty() {

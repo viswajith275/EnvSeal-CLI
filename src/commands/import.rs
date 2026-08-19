@@ -9,20 +9,21 @@ pub fn cmd_import(
     path: &str,
     global: bool,
     pref: Option<&str>,
+    allow_env: bool,
 ) -> Result<()> {
     let mut vault = Vault::load(global, pref)?;
     let group_name = vault.resolve_group_name(group)?;
-    let master_keys = unlock::sudo_unlock(&vault)?;
+    let master_keys = unlock::sudo_unlock(&vault, None, allow_env)?;
 
     let path = Path::new(path);
 
     let iter = from_path_iter(path)
-        .with_context(|| format!("Failed to load env file: {}", path.display()))?;
+        .with_context(|| format!("Failed to load .env file: {}", path.display()))?;
 
     let mut tag_key = None;
     if vault.is_tag_protected(group, tag)? {
         if let Some(t) = tag {
-            tag_key = Some(unlock::sudo_unlock_tag(&vault, group, t)?);
+            tag_key = Some(unlock::sudo_unlock_tag(&vault, group, t, None, allow_env)?);
         } else {
             return Err(anyhow!(
                 "A tag must be provided if the group's default tag is protected."

@@ -23,7 +23,7 @@ pub fn cmd_clear(global: bool, pref: Option<&str>) -> Result<()> {
         .unwrap_or_default();
 
     eprintln!(
-        "cleared session cache for {location} vault {env_suffix} (master session + {tag_count} tag scope(s))."
+        "cleared session cache for {location} vault {env_suffix} (master session + {tag_count} tag scope(s)."
     );
     eprintln!("password authentication will be required for your next operation!!");
 

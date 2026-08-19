@@ -10,9 +10,10 @@ pub fn cmd_get(
     token_file: Option<&PathBuf>,
     global: bool,
     pref: Option<&str>,
+    allow_env: bool,
 ) -> Result<()> {
     let vault = Vault::load(global, pref)?;
-    let mut decrypted_envs = resolve::resolve_secrets(&vault, group, tag, token_file)?;
+    let mut decrypted_envs = resolve::resolve_secrets(&vault, group, tag, token_file, allow_env)?;
 
     if let Some(mut value) = decrypted_envs.remove(key) {
         println!("{}: {}", key, value.as_str());

@@ -3,13 +3,13 @@ use crate::utils::{
     session::{CachedKeys, SessionManager},
     vault::{Vault, VaultKeys},
 };
-use anyhow::{anyhow, Result};
+use anyhow::Result;
 use ed25519_dalek::SigningKey;
 use std::env;
 use zeroize::Zeroizing;
 
 /// Unlocks the master vault, utilizing cached cryptographic keys if available
-pub fn sudo_unlock(vault: &Vault) -> Result<VaultKeys> {
+pub fn sudo_unlock(vault: &Vault, label: Option<&str>, allow_env: bool) -> Result<VaultKeys> {
     let scope = vault.master_scope();
 
     if let Some(CachedKeys::Master { kek, seed }) = SessionManager::get_active_keys(&scope)? {
@@ -33,18 +33,26 @@ pub fn sudo_unlock(vault: &Vault) -> Result<VaultKeys> {
         }
     }
 
-    let password = if let Ok(env_pass) = env::var("ENVSEAL_PASSWORD") {
-        if !env_pass.is_empty() {
-            Zeroizing::new(env_pass)
+    let prompt = match label {
+        Some(l) => format!("[sudo] master password for envseal ({l}): "),
+        None => "[sudo] master password for envseal: ".to_string(),
+    };
+
+    let password = if allow_env {
+        if let Ok(env_pass) = env::var("ENVSEAL_PASSWORD") {
+            if !env_pass.is_empty() {
+                Zeroizing::new(env_pass)
+            } else {
+                // if allow env and not env_pass
+                Zeroizing::new(rpassword::prompt_password(prompt)?)
+            }
         } else {
-            Zeroizing::new(rpassword::prompt_password(
-                "[sudo] master password for envseal: ",
-            )?)
+            // not env pass
+            Zeroizing::new(rpassword::prompt_password(prompt)?)
         }
     } else {
-        Zeroizing::new(rpassword::prompt_password(
-            "[sudo] master password for envseal: ",
-        )?)
+        // if not allow env
+        Zeroizing::new(rpassword::prompt_password(prompt)?)
     };
 
     let keys = vault.unlock(password.as_str())?;
@@ -65,6 +73,8 @@ pub fn sudo_unlock_tag(
     vault: &Vault,
     group: Option<&str>,
     tag: &str,
+    label: Option<&str>,
+    allow_env: bool,
 ) -> Result<Zeroizing<[u8; crypto::KEY_LEN]>> {
     let group_name = vault.resolve_group_name(group)?;
     let scope = vault.tag_scope(group, tag)?;
@@ -77,29 +87,30 @@ pub fn sudo_unlock_tag(
         }
     }
 
-    let env_tag_var = format!(
-        "ENVSEAL_TAG_PASSWORD_{}",
-        tag.to_uppercase().replace('-', "_")
-    );
+    let prompt = match label {
+        Some(l) => format!("[sudo] password for tag '{tag}' in group '{group_name}' ({l}): "),
+        None => format!("[sudo] password for tag '{tag}' in group '{group_name}': "),
+    };
 
-    let tag_password =
+    let tag_password = if allow_env {
+        let env_tag_var = format!(
+            "ENVSEAL_TAG_PASSWORD_{}",
+            tag.to_uppercase().replace('-', "_")
+        );
         if let Ok(pass) = env::var(&env_tag_var).or_else(|_| env::var("ENVSEAL_TAG_PASSWORD")) {
             if !pass.is_empty() {
                 Zeroizing::new(pass)
             } else {
-                Zeroizing::new(rpassword::prompt_password(format!(
-                    "[sudo] password for tag '{tag}' in group '{group_name}': "
-                ))?)
+                Zeroizing::new(rpassword::prompt_password(prompt)?)
             }
         } else {
-            Zeroizing::new(rpassword::prompt_password(format!(
-                "[sudo] password for tag '{tag}' in group '{group_name}': "
-            ))?)
-        };
+            Zeroizing::new(rpassword::prompt_password(prompt)?)
+        }
+    } else {
+        Zeroizing::new(rpassword::prompt_password(prompt)?)
+    };
 
-    let tag_dek = vault
-        .unlock_tag(group, tag, &tag_password)
-        .map_err(|_| anyhow!("Authentication failed for tag '{tag}'!"))?;
+    let tag_dek = vault.unlock_tag(group, tag, &tag_password)?;
 
     let mut dek = [0u8; crypto::KEY_LEN];
     dek.copy_from_slice(&*tag_dek);

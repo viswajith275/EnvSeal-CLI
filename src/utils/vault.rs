@@ -38,27 +38,27 @@ impl fmt::Debug for VaultKeys {
     }
 }
 
-#[derive(Serialize, Deserialize, Clone)]
+#[derive(Serialize, Deserialize, Default, Clone, PartialEq, Eq)]
 pub struct Entry {
     pub nonce: Vec<u8>,
     pub ciphertext: Vec<u8>,
 }
 
-#[derive(Serialize, Deserialize, Default, Clone)]
+#[derive(Serialize, Deserialize, Default, Clone, PartialEq, Eq)]
 pub struct Tag {
     pub salt: Option<Vec<u8>>,
     pub wrapped_tag_dek: Option<Entry>,
     pub entries: BTreeMap<String, Entry>,
 }
 
-#[derive(Serialize, Deserialize, Clone)]
+#[derive(Serialize, Deserialize, Default, Clone, PartialEq, Eq)]
 pub struct Group {
     pub link: PathBuf,
     pub base: BTreeMap<String, Entry>,
     pub tags: BTreeMap<String, Tag>,
 }
 
-#[derive(Serialize, Deserialize, Clone)]
+#[derive(Serialize, Deserialize, Default, Clone, PartialEq, Eq)]
 pub struct Vault {
     pub salt: Vec<u8>,
     pub public_key: Vec<u8>,
@@ -302,7 +302,7 @@ impl Vault {
         vault.save()
     }
 
-    /// loads json to structures
+    /// loads vault into memmory
     pub fn load(force_global: bool, pref: Option<&str>) -> Result<Self> {
         let path = Self::resolve_path(false, force_global, pref)?;
 
@@ -335,7 +335,29 @@ impl Vault {
         let mut vault: Vault = rmp_serde::from_slice(&data).with_context(|| {
             format!("Failed to deserialize vault data from '{}'", path.display())
         })?;
+
         vault.file_path = Some(path);
+        Ok(vault)
+    }
+    /// loads vault from a seperate path (helper for git)
+    pub fn load_from_file(path: &PathBuf) -> Result<Self> {
+        if !path.exists() {
+            anyhow::bail!("Vault file does not exist: {}", path.display());
+        }
+        let mut file = File::open(path)
+            .with_context(|| format!("Failed to open vault at '{}'", path.display()))?;
+
+        let mut data = Vec::new();
+
+        file.read_to_end(&mut data)
+            .with_context(|| format!("Failed to read vault data from '{}'", path.display()))?;
+
+        let mut vault: Vault = rmp_serde::from_slice(&data).with_context(|| {
+            format!("Failed to deserialize vault data from '{}'", path.display())
+        })?;
+
+        vault.file_path = Some(path.clone());
+
         Ok(vault)
     }
 

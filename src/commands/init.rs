@@ -1,9 +1,10 @@
+use crate::utils::git::sync_repo_git_conf;
 use crate::utils::vault::Vault;
 use anyhow::Result;
 use rpassword::prompt_password;
 use zeroize::Zeroizing;
 
-pub fn cmd_init(local: bool, global: bool, pref: Option<&str>) -> Result<()> {
+pub fn cmd_init(local: bool, global: bool, pref: Option<&str>, init_git: bool) -> Result<()> {
     if local && global {
         anyhow::bail!("Cannot specify both --local and --global flags!");
     }
@@ -36,5 +37,11 @@ pub fn cmd_init(local: bool, global: bool, pref: Option<&str>) -> Result<()> {
 
     Vault::init(&password, local, global, pref)?;
     eprintln!("seal created at {}", target_path.display());
+
+    if !global {
+        if let Err(e) = sync_repo_git_conf(init_git) {
+            eprintln!("Warning: Failed to configure Git integration: {e}");
+        }
+    }
     Ok(())
 }

@@ -2,10 +2,17 @@ use crate::utils::{unlock, vault::Vault};
 use anyhow::{bail, Result};
 use rpassword::prompt_password;
 use zeroize::Zeroizing;
-pub fn cmd_protag(group: Option<&str>, tag: &str, global: bool, pref: Option<&str>) -> Result<()> {
+
+pub fn cmd_protag(
+    group: Option<&str>,
+    tag: &str,
+    global: bool,
+    pref: Option<&str>,
+    allow_env: bool,
+) -> Result<()> {
     let mut vault = Vault::load(global, pref)?;
     let group_name = vault.resolve_group_name(group)?;
-    let master_keys = unlock::sudo_unlock(&vault)?;
+    let master_keys = unlock::sudo_unlock(&vault, None, allow_env)?;
 
     let tag_password = Zeroizing::new(prompt_password(format!(
         "password for tag '{}' in group '{}': ",

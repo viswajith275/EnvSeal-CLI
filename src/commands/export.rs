@@ -13,6 +13,7 @@ pub fn cmd_export(
     global: bool,
     pref: Option<&str>,
     output_path: Option<&str>,
+    allow_env: bool,
 ) -> Result<()> {
     let vault = Vault::load(global, pref)?;
     let group_name = vault.resolve_group_name(group)?;
@@ -21,24 +22,24 @@ pub fn cmd_export(
     let message = if let Some(t) = tag {
         match keys.is_empty() {
             true => format!(
-                "loading envs from tag '{}' inside group '{}' {} seal!",
+                "exporting variable(s) from tag '{}' inside group '{}' {} seal...",
                 t, group_name, location_label
             ),
             false => format!(
-                "loading envs '{:?}' from tag '{}' inside group '{}' {} seal!",
+                "exporting variable(s) '{:?}' from tag '{}' inside group '{}' {} seal...",
                 keys, t, group_name, location_label
             ),
         }
     } else {
         format!(
-            "loading envs from group '{}' {} seal!",
+            "exporting variable(s) from group '{}' {} seal...",
             group_name, location_label
         )
     };
 
     eprintln!("{}", message);
 
-    let mut decrypted_envs = resolve::resolve_secrets(&vault, group, tag, token_file)?;
+    let mut decrypted_envs = resolve::resolve_secrets(&vault, group, tag, token_file, allow_env)?;
 
     if !keys.is_empty() {
         let requested_set: HashSet<&str> = keys.iter().copied().collect();

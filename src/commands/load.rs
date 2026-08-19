@@ -35,6 +35,7 @@ pub fn cmd_load(
     token_file: Option<&PathBuf>, // Added for token support
     global: bool,
     pref: Option<&str>,
+    allow_env: bool,
 ) -> Result<()> {
     let vault = Vault::load(global, pref)?;
     let group_name = vault.resolve_group_name(group)?;
@@ -61,7 +62,7 @@ pub fn cmd_load(
 
     eprintln!("{}", message);
 
-    let mut decrypted_envs = resolve::resolve_secrets(&vault, group, tag, token_file)?;
+    let mut decrypted_envs = resolve::resolve_secrets(&vault, group, tag, token_file, allow_env)?;
 
     // filter derived to find specified keys
     if !keys.is_empty() {

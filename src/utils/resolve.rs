@@ -51,6 +51,7 @@ pub fn resolve_secrets(
     group: Option<&str>,
     tag: Option<&str>,
     token_file: Option<&PathBuf>,
+    allow_env: bool,
 ) -> Result<BTreeMap<String, Zeroizing<String>>> {
     let active_tag = tag.unwrap_or(BASE_TAG);
 
@@ -70,9 +71,11 @@ pub fn resolve_secrets(
     }
 
     // Fallback to Password Mode
-    let master_keys = unlock::sudo_unlock(vault)?;
+    let master_keys = unlock::sudo_unlock(vault, None, allow_env)?;
     let tag_key = if vault.is_tag_protected(group, tag)? {
-        Some(unlock::sudo_unlock_tag(vault, group, active_tag)?)
+        Some(unlock::sudo_unlock_tag(
+            vault, group, active_tag, None, true,
+        )?)
     } else {
         None
     };

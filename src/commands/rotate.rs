@@ -11,11 +11,12 @@ pub fn cmd_rotate(
     tag: Option<&str>,
     global: bool,
     pref: Option<&str>,
+    allow_env: bool,
 ) -> Result<()> {
     let mut vault = Vault::load(global, pref)?;
     let group_name = vault.resolve_group_name(group)?;
 
-    let master_keys = unlock::sudo_unlock(&vault)?;
+    let master_keys = unlock::sudo_unlock(&vault, None, allow_env)?;
 
     // Authenticate Tag (If Protected)
     let old_tag_dek = if vault.is_tag_protected(group, tag)? {
@@ -23,6 +24,8 @@ pub fn cmd_rotate(
             &vault,
             group,
             tag.context("Tag not found!!")?,
+            None,
+            allow_env,
         )?)
     } else {
         None

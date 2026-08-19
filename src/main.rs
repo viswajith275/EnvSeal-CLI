@@ -4,11 +4,13 @@ mod utils;
 
 use anyhow::{anyhow, Result};
 use clap::Parser;
+use cli::{Cli, Commands};
 
 fn main() -> Result<()> {
-    let clis = cli::Cli::parse();
-    let global = clis.global;
-    let pref = clis.env.as_deref().filter(|s| !s.is_empty());
+    let cli = Cli::parse();
+    let global = cli.global;
+    let pref = cli.env.as_deref().filter(|s| !s.is_empty());
+    let allow_env = cli.disable_env;
 
     if global && pref.is_some() {
         return Err(anyhow!(
@@ -29,12 +31,17 @@ fn main() -> Result<()> {
                 ));
         }
     }
-    match clis.command {
-        cli::Commands::Init { local } => commands::init::cmd_init(local, global, pref),
-        cli::Commands::Set { group, tag, key } => {
-            commands::set::cmd_set(group.as_deref(), tag.as_deref(), &key, global, pref)
-        }
-        cli::Commands::Get {
+    match cli.command {
+        Commands::Init { local, git } => commands::init::cmd_init(local, global, pref, git),
+        Commands::Set { group, tag, key } => commands::set::cmd_set(
+            group.as_deref(),
+            tag.as_deref(),
+            &key,
+            global,
+            pref,
+            allow_env,
+        ),
+        Commands::Get {
             group,
             tag,
             key,
@@ -46,8 +53,9 @@ fn main() -> Result<()> {
             token_file.as_ref(),
             global,
             pref,
+            allow_env,
         ),
-        cli::Commands::Load {
+        Commands::Load {
             group,
             tag,
             keys,
@@ -59,18 +67,20 @@ fn main() -> Result<()> {
             token_file.as_ref(),
             global,
             pref,
+            allow_env,
         ),
-        cli::Commands::Remove { group, tag, key } => commands::remove::cmd_remove(
+        Commands::Remove { group, tag, key } => commands::remove::cmd_remove(
             group.as_deref(),
             tag.as_deref(),
             key.as_deref(),
             global,
             pref,
+            allow_env,
         ),
-        cli::Commands::List { group, tag } => {
+        Commands::List { group, tag } => {
             commands::list::cmd_list(group.as_deref(), tag.as_deref(), global, pref)
         }
-        cli::Commands::Run {
+        Commands::Run {
             group,
             tag,
             cmd_args,
@@ -83,14 +93,20 @@ fn main() -> Result<()> {
                 token_file.as_ref(),
                 global,
                 pref,
+                allow_env,
             )?;
             std::process::exit(code);
         }
 
-        cli::Commands::Import { group, tag, path } => {
-            commands::import::cmd_import(group.as_deref(), tag.as_deref(), &path, global, pref)
-        }
-        cli::Commands::Export {
+        Commands::Import { group, tag, path } => commands::import::cmd_import(
+            group.as_deref(),
+            tag.as_deref(),
+            &path,
+            global,
+            pref,
+            allow_env,
+        ),
+        Commands::Export {
             group,
             tag,
             keys,
@@ -104,12 +120,13 @@ fn main() -> Result<()> {
             global,
             pref,
             output_path.as_deref(),
+            allow_env,
         ),
-        cli::Commands::Link { group } => commands::link::cmd_link(&group, global, pref),
-        cli::Commands::Protag { group, tag } => {
-            commands::protag::cmd_protag(group.as_deref(), &tag, global, pref)
+        Commands::Link { group } => commands::link::cmd_link(&group, global, pref, allow_env),
+        Commands::Protag { group, tag } => {
+            commands::protag::cmd_protag(group.as_deref(), &tag, global, pref, allow_env)
         }
-        cli::Commands::Token {
+        Commands::Token {
             group,
             tag,
             name,
@@ -127,11 +144,19 @@ fn main() -> Result<()> {
             exp,
             global,
             pref,
+            allow_env,
         ),
-        cli::Commands::Rotate { group, tag } => {
-            commands::rotate::cmd_rotate(group.as_deref(), tag.as_deref(), global, pref)
+        Commands::Rotate { group, tag } => {
+            commands::rotate::cmd_rotate(group.as_deref(), tag.as_deref(), global, pref, allow_env)
         }
-        cli::Commands::Clear => commands::clear::cmd_clear(global, pref),
-        cli::Commands::Passwd => commands::passwd::cmd_passwd(global, pref),
+        Commands::Clear => commands::clear::cmd_clear(global, pref),
+        Commands::Passwd => commands::passwd::cmd_passwd(global, pref, allow_env),
+        Commands::Diff { file } => commands::diff::cmd_diff(&file, allow_env),
+        Commands::Merge {
+            base,
+            ours,
+            theirs,
+            strategy,
+        } => commands::merge::cmd_merge(&base, &ours, &theirs, &strategy),
     }
 }

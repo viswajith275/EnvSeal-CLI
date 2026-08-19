@@ -1,4 +1,5 @@
 pub mod clear;
+pub mod diff;
 pub mod export;
 pub mod get;
 pub mod import;
@@ -6,6 +7,7 @@ pub mod init;
 pub mod link;
 pub mod list;
 pub mod load;
+pub mod merge;
 pub mod passwd;
 pub mod protag;
 pub mod remove;

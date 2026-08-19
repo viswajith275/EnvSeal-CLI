@@ -10,6 +10,7 @@ pub fn cmd_run(
     token_file: Option<&PathBuf>,
     global: bool,
     pref: Option<&str>,
+    allow_env: bool,
 ) -> Result<i32> {
     let (cmd_name, cmd_args) = args.split_first().context("No command provided to run!!")?;
 
@@ -18,7 +19,7 @@ pub fn cmd_run(
     let mut child_cmd = Command::new(cmd_name);
     child_cmd.args(cmd_args);
 
-    let decrypted_envs = resolve::resolve_secrets(&vault, group, tag, token_file)?;
+    let decrypted_envs = resolve::resolve_secrets(&vault, group, tag, token_file, allow_env)?;
 
     for (key, value) in decrypted_envs {
         child_cmd.env(&key, value.as_str());

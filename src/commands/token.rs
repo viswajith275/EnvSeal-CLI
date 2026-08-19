@@ -21,9 +21,10 @@ pub fn cmd_token(
     ttl_seconds: Option<u64>,
     global: bool,
     pref: Option<&str>,
+    allow_env: bool,
 ) -> Result<()> {
     let vault = Vault::load(global, pref)?;
-    let master_keys = unlock::sudo_unlock(&vault)?;
+    let master_keys = unlock::sudo_unlock(&vault, None, allow_env)?;
 
     let group_name = vault.resolve_group_name(group)?;
     let active_tag = tag.unwrap_or(BASE_TAG);
@@ -36,7 +37,7 @@ pub fn cmd_token(
 
     let tag_scope_dek = if active_tag != BASE_TAG {
         if vault.is_tag_protected(group, tag)? {
-            let unwrapped = unlock::sudo_unlock_tag(&vault, group, active_tag)?;
+            let unwrapped = unlock::sudo_unlock_tag(&vault, group, active_tag, None, allow_env)?;
             Some(*unwrapped)
         } else {
             Some(crypto::derive_scope_dek(

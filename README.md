@@ -148,7 +148,7 @@ cargo build --release
 | `envseal set [-g GROUP] [-t TAG] KEY` | Store or update a secret. |
 | `envseal get [-g GROUP] [-t TAG] [--token-file PATH] KEY` | Print a single decrypted value. |
 | `envseal protag [-g GROUP] TAG` | Create a protected tag requiring a secondary password. |
-| `envseal passwd` | Change the vault master password (derives a fresh KEK and signing key, then re-encrypts the Master DEK without modifying secret entries). |
+| `envseal passwd` | Change the vault master password (derives a fresh KEK and signing key, then re-encrypts the Master DEK without modifying secret entries) (NOTE: Doesnt invalidate existing tokens). |
 | `envseal import [-g GROUP] [-t TAG] PATH` | Import a plaintext `.env` file into the vault (and safely delete the plaintext file). |
 | `envseal export [-g GROUP] [-t TAG] [--token-file PATH] [-o PATH] [KEYS...]` | Export secrets back to a `.env` file (if you must). |
 | `envseal run [-g GROUP] [-t TAG] [--token-file PATH] -- CMD` | Run a command with secrets injected exclusively into that process tree. |

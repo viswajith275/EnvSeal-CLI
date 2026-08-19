@@ -17,6 +17,11 @@ pub struct Cli {
     #[arg(short = 'G', long, global = true)]
     pub global: bool,
 
+    /// Disable fetching passwords from predefined enviornment variables
+    #[arg(short, long, global = true, default_value_t = true)]
+    // actually false passing this in place of allow_env
+    pub disable_env: bool,
+
     /// The subcommand to execute
     #[command(subcommand)]
     pub command: Commands,
@@ -27,11 +32,15 @@ pub enum Commands {
     /// Initialize a new encrypted vault (seal) to store secrets
     ///
     /// Creates a new secure seal in the default location, encrypted by a master password.
+    /// (Generates custom git rules to handle merge and diffs, NOTE: You need to have git installed for this to work properly)
     /// NOTE: This must be run before using any other envseal commands.
     Init {
         /// To initialise a local enviornment (e.g, '.envseal' file in current directory)
         #[arg(short, long)]
         local: bool,
+        /// Automatically initialize a new git repo ('git init') if not already inside one
+        #[arg(short, long)]
+        git: bool,
     },
 
     /// Clear the Master Password from the local session cache
@@ -238,6 +247,28 @@ pub enum Commands {
     /// Change the vault's master password
     ///
     /// Derives a fresh KEK and signing key, then re-encrypts the Master DEK
-    /// without modifying underlying secret entries.
+    /// without modifying underlying secret entries. Changes master password without revoking existing tokens
     Passwd,
+
+    /// Internal 3-way merge driver invoked by Git
+    Merge {
+        /// Ancestor file path (%O)
+        #[arg(long)]
+        base: PathBuf,
+        /// Current branch file path (%A in git)
+        #[arg(long)]
+        ours: PathBuf,
+        /// Incoming branch file path (%B in git)
+        #[arg(long)]
+        theirs: PathBuf,
+        /// Conflict resolution strategy: "fail", "ours", "theirs"
+        #[arg(long, default_value = "fail")]
+        strategy: String,
+    },
+
+    /// Internal textconv diff generator invoked by Git
+    Diff {
+        /// Path to the vault file
+        file: PathBuf,
+    },
 }
