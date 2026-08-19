@@ -2,9 +2,10 @@ mod cli;
 mod commands;
 mod utils;
 
-use anyhow::{anyhow, Result};
+use anyhow::{anyhow, Ok, Result};
 use clap::Parser;
 use cli::{Cli, Commands};
+use envseal::utils::git;
 
 fn main() -> Result<()> {
     let cli = Cli::parse();
@@ -158,5 +159,10 @@ fn main() -> Result<()> {
             theirs,
             strategy,
         } => commands::merge::cmd_merge(&base, &ours, &theirs, &strategy),
+        Commands::Setup { init } => {
+            git::sync_repo_git_conf(init)?;
+            println!("git configuration successfull!!");
+            Ok(())
+        }
     }
 }

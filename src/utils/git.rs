@@ -37,27 +37,33 @@ fn find_repo_root() -> Option<PathBuf> {
 
 pub fn sync_repo_git_conf(init_git: bool) -> Result<()> {
     // Find repo path and create a .git folder accordingly
-    let repo_root = match find_repo_root() {
+    let repo_root: PathBuf = match find_repo_root() {
         Some(root) => root,
         None => {
             if init_git {
-                let cur_dir = env::current_dir()?;
-                let status = Command::new("git")
+                let cur_dir =
+                    std::env::current_dir().context("Failed to get current working directory")?;
+
+                let status = std::process::Command::new("git")
                     .current_dir(&cur_dir)
                     .arg("init")
                     .status()
-                    .context("Failed to run 'git init', Is git installed and in your PATH?")?;
+                    .context("Failed to execute 'git init'. Is git installed in PATH?")?;
 
                 if !status.success() {
-                    anyhow::bail!("'git init' failed with non-zero exit code!!! (Fix Git!!)");
+                    anyhow::bail!("'git init' exited with non-zero status.");
                 }
+
                 eprintln!(
-                    "[git] initialized a new git repository at {}",
+                    "[git] initialized a new repository at {}",
                     cur_dir.display()
                 );
+
                 cur_dir
             } else {
-                return Ok(());
+                anyhow::bail!(
+                        "Not a git repository (or any parent directory), Run with '--init' to initialize a new repository, or run inside an existing one!!"
+                    );
             }
         }
     };

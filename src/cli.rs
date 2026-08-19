@@ -43,6 +43,13 @@ pub enum Commands {
         git: bool,
     },
 
+    /// Configure Git merge and diff drivers for envseal
+    Setup {
+        /// Initialize git repo if not already inside one
+        #[arg(short, long)]
+        init: bool,
+    },
+
     /// Clear the Master Password from the local session cache
     ///
     /// Securely flushes the cached master password from memory. You will be
