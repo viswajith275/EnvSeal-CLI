@@ -301,6 +301,16 @@ git merge --abort
 git -c envseal.merge.strategy=theirs merge feature-branch
 ```
 
+If a `git pull` or `git rebase` halts due to a cryptographic conflict, you can use the exact same `-c` inline configuration to resolve it:
+
+```bash
+# Safely pull and accept incoming remote secrets
+git -c envseal.merge.strategy=theirs pull
+
+# Rebase your branch and prioritize your local secrets
+git -c envseal.merge.strategy=ours rebase main
+```
+
 ### Repository-Level Default
 
 To set a persistent merge strategy for your local repository so you don't have to use the -c flag, run:
