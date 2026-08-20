@@ -310,11 +310,11 @@ git config envseal.merge.strategy <strategy>
 ```
 ### Available Strategies
 
-> **fail (Default):** Halts the merge process immediately upon detecting a conflict. Best for strict local development. (To reset: git config --unset envseal.merge.strategy)
+**fail (Default):** Halts the merge process immediately upon detecting a conflict. Best for strict local development. (To reset: git config --unset envseal.merge.strategy)
 
-> **ours:**: If a conflict occurs, the variables in your current branch always win. Best for when you are actively rotating local keys.
+**ours:**: If a conflict occurs, the variables in your current branch always win. Best for when you are actively rotating local keys.
 
-> **theirs:**: If a conflict occurs, the variables from the incoming branch overwrite your local variables. Best for CI/CD runners or automated deployment servers pulling from main.
+**theirs:**: If a conflict occurs, the variables from the incoming branch overwrite your local variables. Best for CI/CD runners or automated deployment servers pulling from main.
 
 > **Tip:** Run `envseal git-setup` once per repository to register the custom merge and diff drivers. After that, the strategy above controls conflict resolution behaviour.
 
@@ -402,7 +402,7 @@ function envseal {
 
 * **Repeated password prompts**: Check if your OS keyring daemon is running. If it is stuck, run `envseal clear` to reset the session.
 
-* **Git merge halted on conflict**: EnvSeal’s default strategy is `fail`. See [Repository-Level Merge Strategies](#repository-level-merge-strategies) to configure `ours` or `theirs` if automatic resolution is appropriate for your workflow.
+* **Git merge halted on conflict**: EnvSeal’s default strategy is `fail`. See [Git Merge Conflict Strategies](#git-merge-conflict-strategies) to configure `ours` or `theirs` if automatic resolution is appropriate for your workflow.
 
 ---
 
