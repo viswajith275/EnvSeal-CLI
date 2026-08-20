@@ -30,8 +30,8 @@ pub struct SessionManager;
 
 impl SessionManager {
     /// Scope to diffrentiate between master and protected tag
-    fn get_entry(scope: &str) -> Option<Entry> {
-        Entry::new(SERVICE_NAME, scope).ok()
+    fn get_entry(scope: &str) -> Result<Entry, keyring::Error> {
+        Entry::new(SERVICE_NAME, scope)
     }
 
     /// Caches the keys and sets/resets the 10 minute timer
@@ -43,8 +43,15 @@ impl SessionManager {
         let serialized_bytes = rmp_serde::to_vec(&session)?;
         let serialized = base64::engine::general_purpose::STANDARD.encode(serialized_bytes);
 
-        if let Some(entry) = Self::get_entry(scope) {
-            let _ = entry.set_password(&serialized);
+        match Self::get_entry(scope) {
+            Ok(entry) => {
+                if let Err(e) = entry.set_password(&serialized) {
+                    eprintln!("[envseal] Warning: Failed to write to OS keyring: {e}, Session will not be cached!!");
+                }
+            }
+            Err(e) => {
+                eprintln!("[envseal] Warning: OS keyring unavailable (headless Linux/WSL?): {e}, Proceeding in-memory only.");
+            }
         }
 
         Ok(())
@@ -52,7 +59,7 @@ impl SessionManager {
 
     /// Removes the cached keys
     pub fn clear_session(scope: &str) -> Result<()> {
-        if let Some(entry) = Self::get_entry(scope) {
+        if let Ok(entry) = Self::get_entry(scope) {
             let _ = entry.delete_credential();
         }
         Ok(())
@@ -61,8 +68,8 @@ impl SessionManager {
     /// Retrieves the keys if it hasn't expired
     pub fn get_active_keys(scope: &str) -> Result<Option<CachedKeys>> {
         let entry = match Self::get_entry(scope) {
-            Some(e) => e,
-            None => return Ok(None),
+            Ok(e) => e,
+            Err(_) => return Ok(None),
         };
 
         let encoded = match entry.get_password() {

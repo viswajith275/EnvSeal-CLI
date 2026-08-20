@@ -56,7 +56,7 @@ pub fn cmd_merge(
         return Ok(());
     }
 
-    // 1. Load vaults and verify Ed25519 signatures
+    // Load vaults and verify Ed25519 signatures
     let base_vault = Vault::load_from_file(base_path)
         .context("Failed to load ancestor (base) vault from Git")?;
     let mut ours_vault = Vault::load_from_file(ours_path)
@@ -94,6 +94,86 @@ pub fn cmd_merge(
     }
     for g in theirs_vault.entries.keys() {
         all_groups.insert(g.clone());
+    }
+
+    // prefetch the required passwords first
+    let mut required: BTreeSet<(String, String)> = BTreeSet::new();
+
+    for group_name in &all_groups {
+        let mut tags_here = BTreeSet::new();
+        tags_here.insert(BASE_TAG.to_string());
+        for v in [&base_vault, &ours_vault, &theirs_vault] {
+            if let Some(g) = v.entries.get(group_name) {
+                for t in g.tags.keys() {
+                    tags_here.insert(t.clone());
+                }
+            }
+        }
+        for tag_name in tags_here {
+            if tag_name == BASE_TAG {
+                continue;
+            }
+            let tag_opt = Some(tag_name.as_str());
+            let needed = {
+                let mut protected = false;
+                for v in [&base_vault, &ours_vault, &theirs_vault] {
+                    if is_tag_present(v, group_name, &tag_name) {
+                        match v.is_tag_protected(Some(group_name), tag_opt) {
+                            Ok(true) => protected = true,
+                            Ok(false) => {}
+                            Err(e) => {
+                                return Err(anyhow!(
+                                    "Failed to determine protection status for tag '{tag_name}' in group '{group_name}': {e:#} "
+                                ));
+                            }
+                        }
+                    }
+                }
+                protected
+            };
+            if needed {
+                required.insert((group_name.clone(), tag_name));
+            }
+        }
+    }
+
+    eprintln!(
+        "[envseal] Merge requires {} protected key(s):",
+        required.len()
+    );
+    for (group, tag) in &required {
+        eprintln!("  - group '{group}', tag '{tag}' ");
+    }
+
+    let mut prefetch_failures = Vec::new();
+    for (group, tag) in &required {
+        for (v, label) in [
+            (&base_vault, "ancestor 'base'"),
+            (&ours_vault, "current branch 'ours'"),
+            (&theirs_vault, "incoming branch 'theirs'"),
+        ] {
+            if is_tag_present(v, group, tag)
+                && v.is_tag_protected(Some(group), Some(tag.as_str()))
+                    .unwrap_or(true)
+            {
+                if let Err(e) = unlock::sudo_unlock_tag(v, Some(group), tag, Some(label), false) {
+                    prefetch_failures.push(format!(
+                        "Cannot unlock protected tag '{tag}' in group '{group}' on {label}: {e:#}"
+                    ));
+                }
+            }
+        }
+    }
+
+    if !prefetch_failures.is_empty() {
+        eprintln!("[envseal] Unable to unlock all required keys:");
+        for f in &prefetch_failures {
+            eprintln!("  - {f}");
+        }
+        return Err(anyhow!(
+            "Merge halted: missing access to {} required key(s), Re-run with --strategy=ours or --strategy=theirs to skip them.",
+            prefetch_failures.len()
+        ));
     }
 
     let mut conflicts = Vec::new();
@@ -197,15 +277,36 @@ pub fn cmd_merge(
                 Some(tag_name.as_str())
             };
 
-            let theirs_is_protected = theirs_vault
-                .is_tag_protected(Some(&group_name), tag_opt)
-                .unwrap_or(false);
-            let ours_is_protected = ours_vault
-                .is_tag_protected(Some(&group_name), tag_opt)
-                .unwrap_or(false);
-            let base_is_protected = base_vault
-                .is_tag_protected(Some(&group_name), tag_opt)
-                .unwrap_or(false);
+            let tag_in_base = is_tag_present(&base_vault, &group_name, &tag_name);
+            let tag_in_ours = is_tag_present(&ours_vault, &group_name, &tag_name);
+            let tag_in_theirs = is_tag_present(&theirs_vault, &group_name, &tag_name);
+
+            let base_is_protected = if tag_in_base {
+                base_vault.is_tag_protected(Some(&group_name), tag_opt)
+                    .with_context(|| format!(
+                        "Failed to determine protection status for tag '{tag_name}' in group '{group_name}' (ancestor 'base')"
+                    ))?
+            } else {
+                false
+            };
+
+            let ours_is_protected = if tag_in_ours {
+                ours_vault.is_tag_protected(Some(&group_name), tag_opt)
+                    .with_context(|| format!(
+                        "Failed to determine protection status for tag '{tag_name}' in group '{group_name}' (current branch 'ours')"
+                    ))?
+            } else {
+                false
+            };
+
+            let theirs_is_protected = if tag_in_theirs {
+                theirs_vault.is_tag_protected(Some(&group_name), tag_opt)
+                    .with_context(|| format!(
+                        "Failed to determine protection status for tag '{tag_name}' in group '{group_name}' (incoming branch 'theirs')"
+                    ))?
+            } else {
+                false
+            };
 
             // Raw tag comparison and fast-path only apply to PROTECTED tags
             if base_is_protected || ours_is_protected || theirs_is_protected {
@@ -398,13 +499,13 @@ pub fn cmd_merge(
                 let resolution: Option<Zeroizing<String>> = match (v_base, v_ours, v_theirs) {
                     // both branches identical
                     (_, Some(o), Some(t)) if o == t => Some(o.clone()),
-                    // changed only in 'theirs' -> fast-forward
+                    // changed only in 'theirs':  fast-forward
                     (b, o, Some(t)) if b == o => Some(t.clone()),
-                    // deleted only in 'theirs' -> delete
+                    // deleted only in 'theirs': delete
                     (b, o, None) if b == o => None,
-                    // changed only in 'ours' -> keep ours
+                    // changed only in 'ours': keep ours
                     (b, Some(o), t) if b == t => Some(o.clone()),
-                    // deleted only in 'ours' -> keep deleted
+                    // deleted only in 'ours':  keep deleted
                     (b, None, t) if b == t => None,
                     // conflicting states
                     _ => match strategy {
@@ -433,13 +534,19 @@ pub fn cmd_merge(
                             )?;
                         }
                         None => {
-                            let _ = ours_vault.remove_entry(
-                                &ours_keys.signing_key,
-                                Some(&group_name),
-                                tag_opt,
-                                Some(&key),
-                                ours_tag_dek.as_deref(),
-                            );
+                            ours_vault
+                                .remove_entry(
+                                    &ours_keys.signing_key,
+                                    Some(&group_name),
+                                    tag_opt,
+                                    Some(&key),
+                                    ours_tag_dek.as_deref(),
+                                )
+                                .with_context(|| {
+                                    format!(
+                                        "Failed to remove entry '{key}' from group '{group_name}' "
+                                    )
+                                })?;
                         }
                     }
                 }
@@ -501,7 +608,6 @@ fn fetch_scope_map(
     let Some(group) = vault.entries.get(group_name) else {
         return Ok(map);
     };
-
     let keys: Vec<String> = match tag {
         None => group.base.keys().cloned().collect(),
         Some(t) => group
@@ -512,9 +618,11 @@ fn fetch_scope_map(
     };
 
     for key in keys {
-        if let Ok(val) = vault.get_entry(master_dek, Some(group_name), tag, &key, tag_dek) {
-            map.insert(key, val);
-        }
+        let val = vault.get_entry(master_dek, Some(group_name), tag, &key, tag_dek)
+            .with_context(|| format!(
+                "Failed to decrypt entry '{key}' in group '{group_name}' , vault may be corrupted or tampered!!"
+            ))?;
+        map.insert(key, val);
     }
 
     Ok(map)

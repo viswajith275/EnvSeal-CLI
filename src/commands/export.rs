@@ -65,8 +65,8 @@ pub fn cmd_export(
         buffer.push_str(&format!("{key}={}\n", format_env_value(value.as_str())));
     }
 
-    // Write file natively to disk
-    fs::write(&output_path, buffer).with_context(|| {
+    // write file natively to disk
+    fs::write(output_path, buffer).with_context(|| {
         format!(
             "Failed to write exported environment variables to '{}'",
             output_path.display()
