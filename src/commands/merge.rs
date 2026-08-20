@@ -4,15 +4,53 @@ use anyhow::{anyhow, Context, Result};
 use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
 use std::path::PathBuf;
+use std::process::Command;
 use zeroize::Zeroizing;
+
+/// parse statergy string
+fn parse_strategy_string(val: &str) -> Option<MergeStrategy> {
+    match val.trim().to_lowercase().as_str() {
+        "ours" => Some(MergeStrategy::Ours),
+        "theirs" => Some(MergeStrategy::Theirs),
+        "fail" => Some(MergeStrategy::Fail),
+        _ => None,
+    }
+}
+
+/// Dynamically resolves the merge strategy via CLI or Git Config
+fn resolve_strategy(cli_strategy: &MergeStrategy) -> MergeStrategy {
+    if cli_strategy != &MergeStrategy::Fail {
+        return *cli_strategy;
+    }
+
+    if let Ok(output) = Command::new("git")
+        .args(["config", "envseal.merge.strategy"])
+        .output()
+    {
+        if output.status.success() {
+            let config_val = String::from_utf8_lossy(&output.stdout).into_owned();
+            if let Some(strategy) = parse_strategy_string(&config_val) {
+                eprintln!(
+                    "[envseal] Using strategy '{}' from git config (envseal.merge.strategy)",
+                    config_val.trim()
+                );
+                return strategy;
+            }
+        }
+    }
+
+    MergeStrategy::Fail
+}
 
 pub fn cmd_merge(
     base_path: &PathBuf,
     ours_path: &PathBuf,
     theirs_path: &PathBuf,
-    strategy: &MergeStrategy,
+    cli_strategy: &MergeStrategy,
 ) -> Result<()> {
     eprintln!("[envseal] Starting 3-way cryptographic merge driver...");
+
+    let strategy = &resolve_strategy(cli_strategy);
 
     let base_bytes = fs::read(base_path)
         .with_context(|| format!("Failed to read ancestor vault: {}", base_path.display()))?;
@@ -570,6 +608,8 @@ pub fn cmd_merge(
     // reseal and persist into %A (ansester path)
     ours_vault.seal_integrity(&ours_keys.signing_key)?;
     ours_vault.save()?;
+
+    let _ = fs::remove_file(ours_path.with_extension("lock"));
 
     eprintln!(
         "[envseal] Successfully merged and resealed vault at '{}'",
