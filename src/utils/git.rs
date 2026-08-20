@@ -6,7 +6,7 @@ use std::path::PathBuf;
 use std::process::Command;
 
 fn find_repo_root() -> Option<PathBuf> {
-    // Path from git binary
+    // path from git binary
     if let Ok(output) = Command::new("git")
         .args(["rev-parse", "--show-toplevel"])
         .output()
@@ -19,7 +19,7 @@ fn find_repo_root() -> Option<PathBuf> {
         }
     }
 
-    // Fallback: traversing to top till a .git file is find
+    // fallback: traversing to top till a .git file is find
     let mut current = env::current_dir().ok()?;
     loop {
         let git_path = current.join(".git");
@@ -36,7 +36,7 @@ fn find_repo_root() -> Option<PathBuf> {
 }
 
 pub fn sync_repo_git_conf(init_git: bool) -> Result<()> {
-    // Find repo path and create a .git folder accordingly
+    // find repo path and create a .git folder accordingly
     let repo_root: PathBuf = match find_repo_root() {
         Some(root) => root,
         None => {
@@ -123,6 +123,24 @@ pub fn sync_repo_git_conf(init_git: bool) -> Result<()> {
 
         file.write_all(rule.as_bytes())?;
         eprintln!("[git] registered merge and diff attributes for '*.envseal'");
+    }
+
+    let gitignore_path = repo_root.join(".gitignore");
+    let existing_ignore = fs::read_to_string(&gitignore_path).unwrap_or_default();
+
+    let lock_rule = ".envseal*.lock";
+    if !existing_ignore.lines().any(|line| line.trim() == lock_rule) {
+        let mut file = OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(&gitignore_path)?;
+        let mut rule = String::new();
+        if !existing_ignore.is_empty() && !existing_ignore.ends_with('\n') {
+            rule.push('\n');
+        }
+        rule.push_str(&format!("{lock_rule}\n"));
+        file.write_all(rule.as_bytes())?;
+        eprintln!("[git] added '{lock_rule}' to .gitignore to keep your workspace clean!!");
     }
 
     Ok(())

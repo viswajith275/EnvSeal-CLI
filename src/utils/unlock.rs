@@ -34,8 +34,9 @@ pub fn sudo_unlock(vault: &Vault, label: Option<&str>, allow_env: bool) -> Resul
         }
     }
 
-    let vault_path = vault.file_path.as_ref().context("Vault path unknown")?;
-    let lock_path = vault_path.with_extension("prompt.lock");
+    let current_dir =
+        env::current_dir().context("Failed to determine current directory for locking!!")?;
+    let lock_path = current_dir.join(".envseal.prompt.lock");
     let lock = acquire_prompt_lock(&lock_path, 30)?;
 
     // Double-check cache post-lock
@@ -96,8 +97,9 @@ pub fn sudo_unlock_tag(
         return Ok(Zeroizing::new(dek));
     }
 
-    let vault_path = vault.file_path.as_ref().context("Vault path unknown")?;
-    let lock_path = vault_path.with_extension("prompt.lock");
+    let current_dir =
+        env::current_dir().context("Failed to determine current directory for locking!!")?;
+    let lock_path = current_dir.join(".envseal.prompt.lock");
     let lock = acquire_prompt_lock(&lock_path, 30)?;
 
     if let Some(CachedKeys::Tag { dek }) = SessionManager::get_active_keys(&scope)? {

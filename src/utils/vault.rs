@@ -383,7 +383,6 @@ impl Vault {
         temp_file.persist(path)?;
 
         lock_file.unlock()?;
-        let _ = fs::remove_file(lock_path);
         Ok(())
     }
 
