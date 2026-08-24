@@ -416,9 +416,19 @@ function envseal {
 
 ---
 
-## Upcoming
+## Upcoming Features
 
-* **Local Proxy**: Credential injection into outbound HTTP/network traffic via a local proxy, preventing third-party packages or memory-dump exploits from ever seeing raw secrets in process memory.
+* **Local Proxy Injection:** Injects credentials directly into outbound network traffic via a local proxy, preventing third-party packages or memory-dump exploits from exposing raw secrets in process memory.
+
+* **Per-User Asymmetric Identities:** Replaces shared master passwords with individual age-compatible key pairs for each developer.
+
+*	**Environment-Scoped Access:** Isolates secret access across environments (dev, staging, prod) to enforce least-privilege policies for developers and CI runners.
+
+*	**PR-Driven Access Governance:** Onboard, update, or offboard team members via standard pull requests with automated CI policy validation.
+
+* **Cryptographic Revocation:** Automatically rotates keys and re-encrypts environment secrets upon member removal to maintain forward secrecy.
+
+*	**Custom Git Merge Drivers:** Seamlessly resolves concurrent secret updates and policy changes without merge conflicts.
 
 ---
 
