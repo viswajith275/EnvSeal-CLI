@@ -75,7 +75,8 @@ pub fn derive_scope_dek(master_dek: &[u8; KEY_LEN], group: &str, tag: &str) -> [
     let hk = Hkdf::<Sha256>::new(None, master_dek);
     let mut scope_dek = [0u8; KEY_LEN];
 
-    let info = format!("scope_{group}_{tag}");
+    let info = format!("scope_{}:{}_{}:{}", group.len(), group, tag.len(), tag);
+
     hk.expand(info.as_bytes(), &mut scope_dek)
         .expect("HKDF expansion should never fail for 32 bytes!!");
 

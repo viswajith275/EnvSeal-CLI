@@ -33,29 +33,30 @@ pub fn cmd_rotate(
 
     let tag_password = if vault.is_tag_protected(group, tag)? {
         let active_tag = tag.context("Tag not found!!")?;
-        let env_tag_var = format!(
-            "ENVSEAL_TAG_PASSWORD_{}",
-            active_tag.to_uppercase().replace('-', "_")
+        let prompt = format!(
+            "[sudo] password for tag '{}' in group '{}': ",
+            active_tag, group_name
         );
 
-        let pass = if let Ok(env_pass) =
-            env::var(&env_tag_var).or_else(|_| env::var("ENVSEAL_TAG_PASSWORD"))
-        {
-            if !env_pass.is_empty() {
-                Zeroizing::new(env_pass)
+        let pass = if allow_env {
+            let env_tag_var = format!(
+                "ENVSEAL_TAG_PASSWORD_{}",
+                active_tag.to_uppercase().replace('-', "_")
+            );
+            if let Ok(env_pass) =
+                env::var(&env_tag_var).or_else(|_| env::var("ENVSEAL_TAG_PASSWORD"))
+            {
+                if !env_pass.is_empty() {
+                    Zeroizing::new(env_pass)
+                } else {
+                    Zeroizing::new(rpassword::prompt_password(prompt)?)
+                }
             } else {
-                Zeroizing::new(rpassword::prompt_password(format!(
-                    "[sudo] password for tag '{}' in group '{}': ",
-                    active_tag, group_name
-                ))?)
+                Zeroizing::new(rpassword::prompt_password(prompt)?)
             }
         } else {
-            Zeroizing::new(rpassword::prompt_password(format!(
-                "[sudo] password for tag '{}' in group '{}': ",
-                active_tag, group_name
-            ))?)
+            Zeroizing::new(rpassword::prompt_password(prompt)?)
         };
-
         Some(pass)
     } else {
         None

@@ -1,3 +1,4 @@
+use crate::utils::is_valid_env_key;
 use crate::utils::{resolve, vault::Vault};
 use anyhow::Result;
 use std::collections::{BTreeMap, HashSet};
@@ -92,6 +93,10 @@ pub fn cmd_load(
     let shell = ShellType::from_name(&shell_name);
 
     for (key, value) in sorted_envs {
+        if !is_valid_env_key(&key) {
+            eprintln!("Warning: Skipping invalid key '{key}' during load");
+            continue;
+        }
         match shell {
             ShellType::Posix => {
                 let escaped_val = value.replace('\'', "'\\''");

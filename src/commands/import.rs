@@ -1,3 +1,4 @@
+use crate::utils::is_valid_env_key;
 use crate::utils::{unlock, vault::Vault};
 use anyhow::{anyhow, Context, Result};
 use dotenvy::from_path_iter;
@@ -34,6 +35,10 @@ pub fn cmd_import(
     for item in iter {
         match item {
             Ok((key, value)) => {
+                if !is_valid_env_key(&key) {
+                    eprintln!("Warning: Skipping invalid environment variable name '{key}'");
+                    continue;
+                }
                 vault.set_entry(&master_keys, group, tag, &key, &value, tag_key.as_deref())?;
             }
             Err(e) => {

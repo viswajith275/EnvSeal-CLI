@@ -5,7 +5,7 @@ use std::path::PathBuf;
 #[command(
     name = "envseal",
     about = "Encrypted vault for secrets and API keys stop committing plaintext .env files.",
-    version = "v5.1.0",
+    version = "v5.2.0",
     propagate_version = true
 )]
 pub struct Cli {

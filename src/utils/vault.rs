@@ -164,10 +164,9 @@ impl Vault {
                         decrypted_map.insert(var_name.clone(), Zeroizing::new(plaintext));
                     }
                     Err(_) => {
-                        eprintln!(
-                            "Warning: Failed to decrypt '{}' , Token key may be outdated!!",
-                            var_name
-                        );
+                        anyhow::bail!(
+                                "Decryption failed for key '{var_name}'. Token is revoked, expired, or corrupted."
+                            );
                     }
                 }
             }
@@ -188,9 +187,11 @@ impl Vault {
     pub fn tag_scope(&self, group: Option<&str>, tag: &str) -> Result<String> {
         let group_name = self.resolve_group_name(group)?;
         Ok(format!(
-            "{}_group_{}_tag_{}",
+            "{}_group_{}:{}_tag_{}:{}",
             self.master_scope(),
+            group_name.len(),
             group_name,
+            tag.len(),
             tag
         ))
     }
@@ -310,7 +311,9 @@ impl Vault {
             anyhow::bail!("No vault found, hint: Run 'envseal init' first!!");
         }
 
-        let lock_path = path.with_extension("lock");
+        let mut lock_name = path.as_os_str().to_os_string();
+        lock_name.push(".lock");
+        let lock_path = PathBuf::from(lock_name);
 
         let lock_file = OpenOptions::new()
             .write(true)
@@ -364,7 +367,10 @@ impl Vault {
     /// Atomically saves the structure using MessagePack (rmp_serde).
     pub fn save(&self) -> Result<()> {
         let path = self.file_path.as_ref().context("File path not found!!")?;
-        let lock_path = path.with_extension("lock");
+
+        let mut lock_name = path.as_os_str().to_os_string();
+        lock_name.push(".lock");
+        let lock_path = PathBuf::from(lock_name);
 
         let lock_file = OpenOptions::new()
             .write(true)
@@ -679,6 +685,11 @@ impl Vault {
     pub fn unlock(&self, password: &str) -> Result<VaultKeys> {
         let salt = &self.salt;
         let (master_kek, signing_key) = crypto::derive_master_keys(password, salt)?;
+
+        let derived_public_key = signing_key.verifying_key().to_bytes();
+        if self.public_key.as_slice() != derived_public_key {
+            anyhow::bail!("Authentication failed: Master key does not match vault public key!!");
+        }
 
         self.verify_integrity()?;
 

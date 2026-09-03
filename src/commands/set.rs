@@ -1,3 +1,4 @@
+use crate::utils::is_valid_env_key;
 use crate::utils::{unlock, vault::Vault};
 use anyhow::{anyhow, Result};
 use rpassword::prompt_password;
@@ -11,6 +12,11 @@ pub fn cmd_set(
     pref: Option<&str>,
     allow_env: bool,
 ) -> Result<()> {
+    if !is_valid_env_key(key) {
+        anyhow::bail!(
+                "Invalid environment variable name '{key}'. Keys must start with a letter or underscore and contain only alphanumeric characters and underscores!!"
+            );
+    }
     let mut vault = Vault::load(global, pref)?;
 
     let group_name = vault.resolve_group_name(group)?;

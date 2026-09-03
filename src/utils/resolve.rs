@@ -6,38 +6,40 @@ use anyhow::{anyhow, Result};
 use std::collections::BTreeMap;
 use std::env;
 use std::fs;
-use std::io::{self, IsTerminal, Read};
+use std::io::{self, Read};
 use std::path::PathBuf;
 use zeroize::Zeroizing;
 
 /// Safely retrieves the token without exposing it to process monitors
-pub fn fetch_token_from_diffrent_ends(token_file_path: Option<&PathBuf>) -> Result<Option<String>> {
-    let file_path = token_file_path
-        .map(|p| p.to_path_buf())
-        .or_else(|| env::var("ENVSEAL_TOKEN_FILE").ok().map(|s| s.into()));
+pub fn fetch_token_from_diffrent_ends(
+    token_file_path: Option<&PathBuf>,
+    allow_env: bool,
+) -> Result<Option<String>> {
+    let file_path = token_file_path.map(|p| p.to_path_buf()).or_else(|| {
+        if allow_env {
+            env::var("ENVSEAL_TOKEN_FILE").ok().map(PathBuf::from)
+        } else {
+            None
+        }
+    });
 
     if let Some(path) = file_path {
+        if path.as_os_str() == "-" {
+            let mut buffer = String::new();
+            io::stdin().read_to_string(&mut buffer)?;
+            return Ok(Some(buffer.trim().to_string()));
+        }
         if !path.exists() {
             return Err(anyhow!("Token file not found at: {}", path.display()));
         }
-        let token =
-            fs::read_to_string(&path).map_err(|e| anyhow!("Failed to read token file: {}", e))?;
-
+        let token = fs::read_to_string(&path)?;
         return Ok(Some(token.trim().to_string()));
     }
 
-    if let Ok(token) = env::var("ENVSEAL_TOKEN") {
-        if !token.trim().is_empty() {
-            return Ok(Some(token.trim().to_string()));
-        }
-    }
-
-    if !io::stdin().is_terminal() {
-        let mut buffer = String::new();
-        if io::stdin().read_to_string(&mut buffer).is_ok() {
-            let token = buffer.trim().to_string();
-            if token.starts_with("envseal_") {
-                return Ok(Some(token));
+    if allow_env {
+        if let Ok(token) = env::var("ENVSEAL_TOKEN") {
+            if !token.trim().is_empty() {
+                return Ok(Some(token.trim().to_string()));
             }
         }
     }
@@ -55,7 +57,7 @@ pub fn resolve_secrets(
 ) -> Result<BTreeMap<String, Zeroizing<String>>> {
     let active_tag = tag.unwrap_or(BASE_TAG);
 
-    if let Some(token_str) = fetch_token_from_diffrent_ends(token_file)? {
+    if let Some(token_str) = fetch_token_from_diffrent_ends(token_file, allow_env)? {
         eprintln!("secure token detected! executing in Zero-Trust offline mode...");
         let payload = TokenManager::verify_and_extract(&token_str, &vault.public_key)?;
 

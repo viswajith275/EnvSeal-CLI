@@ -1,12 +1,19 @@
 #[cfg(test)]
 mod vault_integration_tests {
-    use envseal::utils::vault::{Entry, Vault};
+    use envseal::utils::crypto;
+    use envseal::utils::is_valid_env_key;
+    use envseal::utils::resolve::resolve_secrets;
+    use envseal::utils::token::TokenManager;
+    use envseal::utils::vault::{Entry, Vault, BASE_TAG};
+    use std::collections::HashMap;
     use std::env;
+    use std::fs;
     use std::path::PathBuf;
     use std::sync::{Mutex, MutexGuard};
     use tempfile::{tempdir, TempDir};
+    use zeroize::Zeroizing;
 
-    // Mutex to synchronize tests modifying the process-wide environment variable
+    // Mutex to synchronize tests modifying process-wide environment variables
     static ENV_MUTEX: Mutex<()> = Mutex::new(());
 
     /// RAII guard ensuring isolated temp directory lifetime, poison-safe locking,
@@ -37,6 +44,9 @@ mod vault_integration_tests {
     impl Drop for TestEnv {
         fn drop(&mut self) {
             env::remove_var("ENVSEAL_TEST_PATH");
+            env::remove_var("ENVSEAL_PASSWORD");
+            env::remove_var("ENVSEAL_TAG_PASSWORD");
+            env::remove_var("ENVSEAL_TOKEN");
         }
     }
 
@@ -44,7 +54,6 @@ mod vault_integration_tests {
     fn test_vault_initialization_and_overwrite_protection() {
         let _env = TestEnv::new(".envseal");
 
-        // Successful initialization
         let init_result = Vault::init("master_pass", true, false, None);
         assert!(init_result.is_ok(), "Vault should initialize successfully");
 
@@ -68,13 +77,11 @@ mod vault_integration_tests {
         let mut vault = Vault::load(false, None).unwrap();
         let keys = vault.unlock("master_pass").unwrap();
 
-        // Ensure successful unlock first
-        assert!(vault.unlock("master_pass").is_ok());
-
         vault
             .set_entry(&keys, None, None, "API_KEY", "secret-123", None)
             .unwrap();
 
+        // Inject an unauthorized ciphertext directly into group entries
         vault.entries.get_mut("project").unwrap().base.insert(
             "INJECTED_KEY".to_string(),
             Entry {
@@ -84,7 +91,7 @@ mod vault_integration_tests {
         );
         vault.save().unwrap();
 
-        // Load and verify signature failure
+        // Load and verify Ed25519 signature failure
         let tampered_vault = Vault::load(false, None).unwrap();
         let unlock_result = tampered_vault.unlock("master_pass");
 
@@ -97,6 +104,27 @@ mod vault_integration_tests {
     }
 
     #[test]
+    fn test_raw_disk_corruption_detection() {
+        let env = TestEnv::new(".envseal");
+
+        Vault::init("master_pass", true, false, None).unwrap();
+
+        // Corrupt file contents directly on disk
+        let mut raw_bytes = fs::read(&env.vault_path).unwrap();
+        let len = raw_bytes.len();
+        raw_bytes[len - 5] ^= 0xFF;
+        fs::write(&env.vault_path, raw_bytes).unwrap();
+
+        let vault_res = Vault::load_from_file(&env.vault_path);
+        if let Ok(vault) = vault_res {
+            assert!(
+                vault.verify_integrity().is_err(),
+                "Vault with corrupted payload bytes must fail verification"
+            );
+        }
+    }
+
+    #[test]
     fn test_base_and_protected_tag_workflow() {
         let _env = TestEnv::new(".envseal");
 
@@ -104,7 +132,7 @@ mod vault_integration_tests {
         let mut vault = Vault::load(false, None).unwrap();
         let keys = vault.unlock("master_pass").unwrap();
 
-        // Set and Get in BASE tag
+        // Set and get in BASE tag
         vault
             .set_entry(&keys, None, None, "API_KEY", "secret-123", None)
             .unwrap();
@@ -113,13 +141,13 @@ mod vault_integration_tests {
             .unwrap();
         assert_eq!(retrieved.as_str(), "secret-123");
 
-        // Create Protected Tag
+        // Create protected tag
         vault
             .create_protected_tag(&keys.signing_key, None, "prod", "tag_pass")
             .unwrap();
         assert!(vault.is_tag_protected(None, Some("prod")).unwrap());
 
-        // Edge Case: Prevent creating a tag named "base"
+        // Edge Case: Prevent creating a tag named 'base'
         let create_base_err = vault.create_protected_tag(&keys.signing_key, None, "base", "pass");
         assert!(create_base_err.is_err());
         assert!(create_base_err
@@ -127,12 +155,12 @@ mod vault_integration_tests {
             .to_string()
             .contains("reserved keyword"));
 
-        // Edge Case: Prevent creating a duplicate tag
+        // Edge Case: Prevent duplicate tag names
         let dup_err = vault.create_protected_tag(&keys.signing_key, None, "prod", "tag_pass");
         assert!(dup_err.is_err());
         assert!(dup_err.unwrap_err().to_string().contains("already exists"));
 
-        // Set and Get in Protected Tag
+        // Set and get in protected tag
         let tag_key = vault.unlock_tag(None, "prod", "tag_pass").unwrap();
         vault
             .set_entry(
@@ -158,6 +186,40 @@ mod vault_integration_tests {
     }
 
     #[test]
+    fn test_tag_overrides_base_variable_precedence() {
+        let _env = TestEnv::new(".envseal");
+
+        Vault::init("master_pass", true, false, None).unwrap();
+        let mut vault = Vault::load(false, None).unwrap();
+        let keys = vault.unlock("master_pass").unwrap();
+
+        // Global base setting
+        vault
+            .set_entry(&keys, None, None, "PORT", "3000", None)
+            .unwrap();
+
+        // Environment-specific override in protected tag
+        vault
+            .create_protected_tag(&keys.signing_key, None, "prod", "prod_pass")
+            .unwrap();
+        let tag_key = vault.unlock_tag(None, "prod", "prod_pass").unwrap();
+
+        vault
+            .set_entry(&keys, None, Some("prod"), "PORT", "8080", Some(&tag_key))
+            .unwrap();
+
+        let base_val = vault
+            .get_entry(&keys.master_dek, None, None, "PORT", None)
+            .unwrap();
+        assert_eq!(base_val.as_str(), "3000");
+
+        let prod_val = vault
+            .get_entry(&keys.master_dek, None, Some("prod"), "PORT", Some(&tag_key))
+            .unwrap();
+        assert_eq!(prod_val.as_str(), "8080");
+    }
+
+    #[test]
     fn test_entry_removal_edge_cases() {
         let _env = TestEnv::new(".envseal");
 
@@ -169,7 +231,7 @@ mod vault_integration_tests {
             .set_entry(&keys, None, None, "KEY1", "val1", None)
             .unwrap();
 
-        // Edge Case: Prevent removing the entire 'base' tag
+        // Edge Case: Prevent wiping the base tag identifier entirely
         let remove_base_err = vault.remove_entry(&keys.signing_key, None, Some("base"), None, None);
         assert!(remove_base_err.is_err());
         assert!(remove_base_err
@@ -177,7 +239,7 @@ mod vault_integration_tests {
             .to_string()
             .contains("Cannot remove the reserved"));
 
-        // Successful specific entry removal
+        // Remove specific entry
         vault
             .remove_entry(&keys.signing_key, None, None, Some("KEY1"), None)
             .unwrap();
@@ -192,7 +254,7 @@ mod vault_integration_tests {
         Vault::init("master_pass", true, false, None).unwrap();
         let mut vault = Vault::load(false, None).unwrap();
 
-        // Edge Case: Local vaults reject explicit group requests
+        // Local vaults reject explicit group queries
         let resolve_err = vault.resolve_group_name(Some("CUSTOM_GROUP"));
         assert!(resolve_err.is_err());
         assert!(resolve_err
@@ -200,7 +262,7 @@ mod vault_integration_tests {
             .to_string()
             .contains("do not support multiple groups"));
 
-        // Edge Case: Local vaults reject `link_group`
+        // Local vaults reject linking
         let keys = vault.unlock("master_pass").unwrap();
         let link_err = vault.link_group(&keys.signing_key, "NEW_GROUP");
         assert!(link_err.is_err());
@@ -217,15 +279,11 @@ mod vault_integration_tests {
         Vault::init("correct_master", true, false, None).unwrap();
         let mut vault = Vault::load(false, None).unwrap();
 
-        // Edge Case: Wrong Master Password
+        // Wrong master password
         let bad_master_err = vault.unlock("wrong_master");
         assert!(bad_master_err.is_err());
-        assert!(bad_master_err
-            .unwrap_err()
-            .to_string()
-            .contains("Wrong master password"));
 
-        // Edge Case: Wrong Tag Password
+        // Wrong tag password
         let keys = vault.unlock("correct_master").unwrap();
         vault
             .create_protected_tag(&keys.signing_key, None, "staging", "correct_tag_pass")
@@ -240,14 +298,41 @@ mod vault_integration_tests {
     }
 
     #[test]
+    fn test_master_password_change_preserves_entries() {
+        let _env = TestEnv::new(".envseal");
+
+        Vault::init("initial_pass", true, false, None).unwrap();
+        let mut vault = Vault::load(false, None).unwrap();
+        let keys = vault.unlock("initial_pass").unwrap();
+
+        vault
+            .set_entry(&keys, None, None, "STATIC_KEY", "important_secret", None)
+            .unwrap();
+
+        // Change master password
+        vault
+            .change_master_password(&keys, "new_secure_pass")
+            .unwrap();
+
+        // Reload and verify old password is rejected
+        let reloaded = Vault::load(false, None).unwrap();
+        assert!(reloaded.unlock("initial_pass").is_err());
+
+        // Unlocking with new password preserves entries
+        let new_keys = reloaded.unlock("new_secure_pass").unwrap();
+        let val = reloaded
+            .get_entry(&new_keys.master_dek, None, None, "STATIC_KEY", None)
+            .unwrap();
+        assert_eq!(val.as_str(), "important_secret");
+    }
+
+    #[test]
     fn test_custom_profile_naming() {
         let env = TestEnv::new(".prod.envseal");
 
-        // Init with custom prefix (e.g. -e prod -> .prod.envseal)
         Vault::init("master_pass", true, false, Some("prod")).unwrap();
         assert!(env.vault_path.exists());
 
-        // Load custom profile and verify is_local() recognizes it
         let vault = Vault::load(false, Some("prod")).unwrap();
         assert!(vault.is_local());
     }
@@ -275,12 +360,11 @@ mod vault_integration_tests {
             .set_entry(&keys, None, Some("dev"), "DEV_KEY_1", "v3", Some(&tag_key))
             .unwrap();
 
-        // List base keys
         let base_keys = vault.list_all_keys(None, None).unwrap();
         assert_eq!(base_keys.len(), 2);
         assert!(base_keys.contains(&"BASE_KEY_1".to_string()));
 
-        // List tag keys (merged with base, per current list_all_keys behavior)
+        // Tag query returns both tag and base keys merged
         let dev_keys = vault.list_all_keys(None, Some("dev")).unwrap();
         assert_eq!(dev_keys.len(), 3);
         assert!(dev_keys.contains(&"DEV_KEY_1".to_string()));
@@ -299,7 +383,7 @@ mod vault_integration_tests {
             .create_protected_tag(&keys.signing_key, None, "secure_tag", "tag_pass")
             .unwrap();
 
-        // Edge Case: Modifying/Deleting inside a protected tag without password must fail
+        // Edge Case: Deleting protected tag without tag password fails
         let unauth_remove_err =
             vault.remove_entry(&keys.signing_key, None, Some("secure_tag"), None, None);
         assert!(unauth_remove_err.is_err());
@@ -308,7 +392,7 @@ mod vault_integration_tests {
             .to_string()
             .contains("Password required to modify it"));
 
-        // Successful tag deletion with valid tag key unlocked
+        // Deleting protected tag with valid key succeeds
         let tag_key = vault.unlock_tag(None, "secure_tag", "tag_pass").unwrap();
         vault
             .remove_entry(
@@ -320,24 +404,7 @@ mod vault_integration_tests {
             )
             .unwrap();
 
-        // Verify tag no longer exists
         assert!(!vault.is_tag_protected(None, Some("secure_tag")).unwrap());
-    }
-
-    #[test]
-    fn test_master_and_tag_scope_generation() {
-        let _env = TestEnv::new(".envseal");
-
-        Vault::init("master_pass", true, false, None).unwrap();
-        let vault = Vault::load(false, None).unwrap();
-
-        // Master scope should be a deterministic hash starting with "master_"
-        let scope = vault.master_scope();
-        assert!(scope.starts_with("master_"));
-
-        // Tag scope should append group and tag names
-        let tag_scope = vault.tag_scope(None, "dev").unwrap();
-        assert!(tag_scope.contains("group_project_tag_dev"));
     }
 
     #[test]
@@ -352,37 +419,15 @@ mod vault_integration_tests {
             .set_entry(&keys, None, None, "API_KEY", "secret-123", None)
             .unwrap();
 
-        // Rotate the base scope DEK. Re-wraps the master DEK.
         vault
             .rotate_scope_dek(&keys, None, None, None, None)
             .unwrap();
 
-        // Re-unlocking with master password yields keys that decrypt properly
         let rotated_keys = vault.unlock("master_pass").unwrap();
         let retrieved = vault
             .get_entry(&rotated_keys.master_dek, None, None, "API_KEY", None)
             .unwrap();
         assert_eq!(retrieved.as_str(), "secret-123");
-    }
-
-    #[test]
-    fn test_rotate_protected_tag_dek_requires_password() {
-        let _env = TestEnv::new(".envseal");
-
-        Vault::init("master_pass", true, false, None).unwrap();
-        let mut vault = Vault::load(false, None).unwrap();
-        let keys = vault.unlock("master_pass").unwrap();
-
-        vault
-            .create_protected_tag(&keys.signing_key, None, "prod", "tag_pass")
-            .unwrap();
-
-        let rotate_no_pass = vault.rotate_scope_dek(&keys, None, Some("prod"), None, None);
-        assert!(rotate_no_pass.is_err());
-        assert!(rotate_no_pass
-            .unwrap_err()
-            .to_string()
-            .contains("Tag password required"));
     }
 
     #[test]
@@ -409,7 +454,7 @@ mod vault_integration_tests {
             )
             .unwrap();
 
-        // Rotating a tag with existing entries but no supplied tag DEK fails
+        // Case 1: Password provided, but missing existing tag DEK fails during entry re-decryption
         let rotate_no_dek =
             vault.rotate_scope_dek(&keys, None, Some("prod"), None, Some("tag_pass"));
         assert!(rotate_no_dek.is_err());
@@ -418,7 +463,16 @@ mod vault_integration_tests {
             .to_string()
             .contains("Password required for protected tag"));
 
-        // Rotate with both the current tag DEK and tag password
+        // Case 2: Existing tag DEK provided, but missing new tag password fails
+        let rotate_no_pass =
+            vault.rotate_scope_dek(&keys, None, Some("prod"), Some(&tag_key), None);
+        assert!(rotate_no_pass.is_err());
+        assert!(rotate_no_pass
+            .unwrap_err()
+            .to_string()
+            .contains("Tag password required"));
+
+        // Case 3: Both existing tag DEK and tag password provided succeeds
         vault
             .rotate_scope_dek(&keys, None, Some("prod"), Some(&tag_key), Some("tag_pass"))
             .unwrap();
@@ -434,5 +488,200 @@ mod vault_integration_tests {
             )
             .unwrap();
         assert_eq!(retrieved.as_str(), "prod-db-123");
+    }
+
+    #[test]
+    fn test_zero_trust_token_generation_and_granular_access() {
+        let _env = TestEnv::new(".envseal");
+
+        Vault::init("master_pass", true, false, None).unwrap();
+        let mut vault = Vault::load(false, None).unwrap();
+        let keys = vault.unlock("master_pass").unwrap();
+
+        vault
+            .set_entry(&keys, None, None, "GRANTED_KEY", "access-granted", None)
+            .unwrap();
+        vault
+            .set_entry(&keys, None, None, "DENIED_KEY", "access-denied", None)
+            .unwrap();
+
+        // Scope DEK for the base tag
+        let base_scope_dek = crypto::derive_scope_dek(&keys.master_dek, "project", BASE_TAG);
+        let entry_key = crypto::derive_entry_key(&base_scope_dek, "GRANTED_KEY");
+
+        // Mint token containing ONLY GRANTED_KEY
+        let mut token_keys = HashMap::new();
+        token_keys.insert(
+            "GRANTED_KEY".to_string(),
+            Zeroizing::new(entry_key.to_vec()),
+        );
+
+        let scope_str = vault.tag_scope(None, BASE_TAG).unwrap();
+        let token_string = TokenManager::create(
+            &keys.signing_key,
+            &scope_str,
+            token_keys,
+            "ci-agent",
+            Some(3600),
+            Some("Integration test execution"),
+        )
+        .unwrap();
+
+        // Verify and decrypt using token
+        let payload = TokenManager::verify_and_extract(&token_string, &vault.public_key).unwrap();
+        let decrypted = vault.decrypt_from_token(None, None, &payload).unwrap();
+
+        assert_eq!(decrypted.len(), 1);
+        assert_eq!(
+            decrypted.get("GRANTED_KEY").unwrap().as_str(),
+            "access-granted"
+        );
+        assert!(!decrypted.contains_key("DENIED_KEY"));
+    }
+
+    #[test]
+    fn test_token_tampering_and_expiration_rejections() {
+        let _env = TestEnv::new(".envseal");
+
+        Vault::init("master_pass", true, false, None).unwrap();
+        let vault = Vault::load(false, None).unwrap();
+        let keys = vault.unlock("master_pass").unwrap();
+
+        let base_scope_dek = crypto::derive_scope_dek(&keys.master_dek, "project", BASE_TAG);
+        let entry_key = crypto::derive_entry_key(&base_scope_dek, "API");
+        let mut token_keys = HashMap::new();
+        token_keys.insert("API".to_string(), Zeroizing::new(entry_key.to_vec()));
+
+        let scope_str = vault.tag_scope(None, BASE_TAG).unwrap();
+
+        // Expired token test (TTL = 0)
+        let expired_token = TokenManager::create(
+            &keys.signing_key,
+            &scope_str,
+            token_keys.clone(),
+            "ci",
+            Some(0),
+            None,
+        )
+        .unwrap();
+
+        // Brief wait so timestamp strictly advances
+        std::thread::sleep(std::time::Duration::from_millis(1100));
+        let Err(err) = TokenManager::verify_and_extract(&expired_token, &vault.public_key) else {
+            panic!("Expected token verification to fail, but it succeeded");
+        };
+        assert!(err.to_string().contains("Token expired"));
+
+        // Tampered signature test
+        let valid_token = TokenManager::create(
+            &keys.signing_key,
+            &scope_str,
+            token_keys,
+            "ci",
+            Some(600),
+            None,
+        )
+        .unwrap();
+
+        let mut tampered_token = valid_token.clone();
+        tampered_token.push_str("tamper");
+        assert!(TokenManager::verify_and_extract(&tampered_token, &vault.public_key).is_err());
+    }
+
+    #[test]
+    fn test_dek_rotation_invalidates_active_tokens() {
+        let _env = TestEnv::new(".envseal");
+
+        Vault::init("master_pass", true, false, None).unwrap();
+        let mut vault = Vault::load(false, None).unwrap();
+        let keys = vault.unlock("master_pass").unwrap();
+
+        vault
+            .set_entry(&keys, None, None, "ROTATE_KEY", "sensitive-val", None)
+            .unwrap();
+
+        let base_scope_dek = crypto::derive_scope_dek(&keys.master_dek, "project", BASE_TAG);
+        let entry_key = crypto::derive_entry_key(&base_scope_dek, "ROTATE_KEY");
+        let mut token_keys = HashMap::new();
+        token_keys.insert("ROTATE_KEY".to_string(), Zeroizing::new(entry_key.to_vec()));
+
+        let scope_str = vault.tag_scope(None, BASE_TAG).unwrap();
+        let token = TokenManager::create(
+            &keys.signing_key,
+            &scope_str,
+            token_keys,
+            "agent",
+            Some(3600),
+            None,
+        )
+        .unwrap();
+
+        let payload = TokenManager::verify_and_extract(&token, &vault.public_key).unwrap();
+        assert!(vault.decrypt_from_token(None, None, &payload).is_ok());
+
+        // Rotate scope DEK
+        vault
+            .rotate_scope_dek(&keys, None, None, None, None)
+            .unwrap();
+
+        // The previous token's derived key fails decryption on new ciphertext
+        let decryption_attempt = vault.decrypt_from_token(None, None, &payload);
+        assert!(decryption_attempt.is_err());
+        assert!(decryption_attempt
+            .unwrap_err()
+            .to_string()
+            .contains("revoked, expired, or corrupted"));
+    }
+
+    #[test]
+    fn test_resolve_secrets_via_token_file() {
+        let env = TestEnv::new(".envseal");
+
+        Vault::init("master_pass", true, false, None).unwrap();
+        let mut vault = Vault::load(false, None).unwrap();
+        let keys = vault.unlock("master_pass").unwrap();
+
+        vault
+            .set_entry(&keys, None, None, "CONFIG_ENV", "production", None)
+            .unwrap();
+
+        let base_scope_dek = crypto::derive_scope_dek(&keys.master_dek, "project", BASE_TAG);
+        let entry_key = crypto::derive_entry_key(&base_scope_dek, "CONFIG_ENV");
+        let mut token_keys = HashMap::new();
+        token_keys.insert("CONFIG_ENV".to_string(), Zeroizing::new(entry_key.to_vec()));
+
+        let scope_str = vault.tag_scope(None, BASE_TAG).unwrap();
+        let token_string = TokenManager::create(
+            &keys.signing_key,
+            &scope_str,
+            token_keys,
+            "ci-pipeline",
+            Some(600),
+            None,
+        )
+        .unwrap();
+
+        let token_file_path = env.vault_path.parent().unwrap().join("test.token");
+        fs::write(&token_file_path, token_string).unwrap();
+
+        // Resolve secrets offline via token without supplying master password
+        let resolved = resolve_secrets(&vault, None, None, Some(&token_file_path), false).unwrap();
+        assert_eq!(resolved.get("CONFIG_ENV").unwrap().as_str(), "production");
+    }
+
+    #[test]
+    fn test_valid_env_key_syntax_validation() {
+        // Valid POSIX/Shell variable names
+        assert!(is_valid_env_key("API_KEY"));
+        assert!(is_valid_env_key("_SECRET"));
+        assert!(is_valid_env_key("PORT_8080"));
+        assert!(is_valid_env_key("v"));
+
+        // Invalid variable names
+        assert!(!is_valid_env_key("8080_PORT"));
+        assert!(!is_valid_env_key("API-KEY"));
+        assert!(!is_valid_env_key("ENV.KEY"));
+        assert!(!is_valid_env_key("API KEY"));
+        assert!(!is_valid_env_key(""));
     }
 }

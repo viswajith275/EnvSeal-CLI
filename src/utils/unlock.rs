@@ -146,15 +146,13 @@ fn acquire_prompt_lock(lock_path: &Path, timeout_secs: u64) -> Result<std::fs::F
         .read(true)
         .write(true)
         .create(true)
-        .truncate(true)
         .open(lock_path)
         .context("Failed to open prompt lock file")?;
-
     let start = Instant::now();
     let timeout = Duration::from_secs(timeout_secs);
-
     loop {
         if file.try_lock_exclusive().is_ok() {
+            let _ = file.set_len(0);
             return Ok(file);
         }
         if start.elapsed() >= timeout {
@@ -169,12 +167,6 @@ fn acquire_prompt_lock(lock_path: &Path, timeout_secs: u64) -> Result<std::fs::F
 
 /// The interactive pipeline
 fn prompt_with_fallback(prompt_text: &str) -> Result<Zeroizing<String>> {
-    if let Ok(pass) = rpassword::prompt_password(prompt_text) {
-        if !pass.is_empty() {
-            return Ok(Zeroizing::new(pass));
-        }
-    }
-
     if let Ok(askpass) = env::var("GIT_ASKPASS").or_else(|_| env::var("SSH_ASKPASS")) {
         let askpass = askpass.trim();
         if !askpass.is_empty() {
@@ -188,6 +180,12 @@ fn prompt_with_fallback(prompt_text: &str) -> Result<Zeroizing<String>> {
                     }
                 }
             }
+        }
+    }
+
+    if let Ok(pass) = rpassword::prompt_password(prompt_text) {
+        if !pass.is_empty() {
+            return Ok(Zeroizing::new(pass));
         }
     }
 

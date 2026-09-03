@@ -7,6 +7,7 @@ use crate::utils::{
 use anyhow::{anyhow, Context, Result};
 use fs2::FileExt;
 use std::collections::{HashMap, HashSet};
+use std::fs;
 use std::fs::OpenOptions;
 use std::io::Write;
 use std::path::PathBuf;
@@ -104,6 +105,12 @@ pub fn cmd_token(
         }
 
         let mut file = options.open(path)?;
+
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let _ = fs::set_permissions(path, fs::Permissions::from_mode(0o600));
+        }
 
         file.lock_exclusive()?;
 

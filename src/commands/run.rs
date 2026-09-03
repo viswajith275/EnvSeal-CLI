@@ -19,7 +19,17 @@ pub fn cmd_run(
     let mut child_cmd = Command::new(cmd_name);
     child_cmd.args(cmd_args);
 
+    for (env_key, _) in std::env::vars() {
+        if env_key.starts_with("ENVSEAL_") {
+            child_cmd.env_remove(&env_key);
+        }
+    }
+
     let decrypted_envs = resolve::resolve_secrets(&vault, group, tag, token_file, allow_env)?;
+
+    if decrypted_envs.is_empty() && !vault.list_all_keys(group, tag)?.is_empty() {
+        anyhow::bail!("Execution aborted: No secrets could be decrypted for this scope!!");
+    }
 
     for (key, value) in decrypted_envs {
         child_cmd.env(&key, value.as_str());

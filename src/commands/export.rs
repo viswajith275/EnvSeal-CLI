@@ -2,6 +2,8 @@ use crate::utils::{resolve, vault::Vault};
 use anyhow::{Context, Result};
 use std::collections::{BTreeMap, HashSet};
 use std::fs;
+use std::fs::OpenOptions;
+use std::io::Write;
 use std::path::PathBuf;
 use zeroize::Zeroizing;
 
@@ -66,7 +68,29 @@ pub fn cmd_export(
     }
 
     // write file natively to disk
-    fs::write(output_path, buffer).with_context(|| {
+    let mut options = OpenOptions::new();
+    options.write(true).create(true).truncate(true);
+
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt;
+        options.mode(0o600);
+    }
+
+    let mut file = options.open(output_path).with_context(|| {
+        format!(
+            "Failed to open export file '{}' with restricted permissions",
+            output_path.display()
+        )
+    })?;
+
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let _ = fs::set_permissions(output_path, fs::Permissions::from_mode(0o600));
+    }
+
+    file.write_all(buffer.as_bytes()).with_context(|| {
         format!(
             "Failed to write exported environment variables to '{}'",
             output_path.display()
@@ -86,16 +110,12 @@ fn format_env_value(value: &str) -> String {
     if value.contains('\n')
         || value.contains(' ')
         || value.contains('"')
+        || value.contains('\'')
         || value.contains('#')
         || value.contains('$')
+        || value.contains('`')
     {
-        format!(
-            "\"{}\"",
-            value
-                .replace('\\', "\\\\")
-                .replace('"', "\\\"")
-                .replace('\n', "\\n")
-        )
+        format!("'{}'", value.replace('\'', "'\\''"))
     } else {
         value.to_string()
     }
