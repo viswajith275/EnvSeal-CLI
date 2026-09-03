@@ -162,15 +162,57 @@ http_download_with_progress() {
 
 # --- Platform Detection ---
 detect_platform() {
-    local os arch
+    local os arch libc
     os="$(uname -s)"
     arch="$(uname -m)"
 
+    # Detect libc on Linux (musl vs glibc)
+    is_musl() {
+        # Most reliable checks first
+        if [[ -f /lib/ld-musl-x86_64.so.1 || -f /lib/ld-musl-aarch64.so.1 ]]; then
+            return 0
+        fi
+        if command -v ldd >/dev/null 2>&1; then
+            if ldd --version 2>&1 | grep -qi musl; then
+                return 0
+            fi
+        fi
+        # Alpine / busybox fallback
+        if [[ -f /etc/alpine-release ]]; then
+            return 0
+        fi
+        return 1
+    }
+
     case "$os" in
         Linux)
+            if is_musl; then
+                libc="musl"
+            else
+                libc="gnu"
+            fi
+
             case "$arch" in
-                x86_64|amd64)  PLATFORM="linux-musl-x86_64" ;;
-                aarch64|arm64) PLATFORM="linux-aarch64" ;;
+                x86_64|amd64)
+                    if [[ "$libc" == "musl" ]]; then
+                        PLATFORM="linux-musl-x86_64"
+                    else
+                        PLATFORM="linux-musl-x86_64"
+                        log_info "No glibc x86_64 binary published; using static musl binary (works on glibc too)"
+                    fi
+                    ;;
+                aarch64|arm64)
+                    if [[ "$libc" == "musl" ]]; then
+                        log_error "No musl (Alpine) aarch64 binary is published yet."
+                        log_error "Available Linux assets: linux-musl-x86_64, linux-aarch64 (glibc only)"
+                        exit 1
+                    else
+                        PLATFORM="linux-aarch64"
+                    fi
+                    ;;
+                *)
+                    PLATFORM=""
+                    ;;
             esac
             ;;
         Darwin)
@@ -180,15 +222,21 @@ detect_platform() {
                     log_error "Intel Macs (x86_64) are not supported by prebuilt releases."
                     exit 1
                     ;;
+                *) PLATFORM="" ;;
             esac
+            ;;
+        *)
+            PLATFORM=""
             ;;
     esac
 
     if [[ -z "$PLATFORM" ]]; then
         log_error "Unsupported operating system/architecture: $os/$arch"
-        log_error "Supported: Linux (x86_64, aarch64) and macOS (Apple Silicon arm64)"
+        log_error "Supported: Linux (x86_64 musl/glibc, aarch64 glibc) and macOS (Apple Silicon)"
         exit 1
     fi
+
+    log_info "Detected platform: $PLATFORM"
 }
 
 # --- Checksum Verification ---
