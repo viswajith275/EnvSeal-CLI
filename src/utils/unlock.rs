@@ -34,14 +34,13 @@ pub fn sudo_unlock(vault: &Vault, label: Option<&str>, allow_env: bool) -> Resul
         }
     }
 
-    let current_dir =
-        env::current_dir().context("Failed to determine current directory for locking!!")?;
-    let lock_path = current_dir.join(".envseal.prompt.lock");
+    let lock_path = env::temp_dir().join("envseal_master_prompt.lock");
+    // timeout
     let lock = acquire_prompt_lock(&lock_path, 30)?;
 
     // Double-check cache post-lock
     if let Some(CachedKeys::Master { kek, seed }) = SessionManager::get_active_keys(&scope)? {
-        let signing_key = ed25519_dalek::SigningKey::from_bytes(&seed);
+        let signing_key = SigningKey::from_bytes(&seed);
         if let Ok(master_dek_bytes) = crypto::decrypt(
             &kek,
             &vault.wrapped_master_dek.nonce,
@@ -97,9 +96,8 @@ pub fn sudo_unlock_tag(
         return Ok(Zeroizing::new(dek));
     }
 
-    let current_dir =
-        env::current_dir().context("Failed to determine current directory for locking!!")?;
-    let lock_path = current_dir.join(".envseal.prompt.lock");
+    let lock_path = env::temp_dir().join(format!("envseal_tag_{tag}_prompt.lock"));
+    // timeout
     let lock = acquire_prompt_lock(&lock_path, 30)?;
 
     if let Some(CachedKeys::Tag { dek }) = SessionManager::get_active_keys(&scope)? {
@@ -156,12 +154,9 @@ fn acquire_prompt_lock(lock_path: &Path, timeout_secs: u64) -> Result<std::fs::F
             return Ok(file);
         }
         if start.elapsed() >= timeout {
-            anyhow::bail!(
-                "Timeout ({}s) waiting for envseal prompt lock.",
-                timeout_secs
-            );
+            anyhow::bail!("Timeout waiting for prompt lock!!");
         }
-        std::thread::sleep(Duration::from_millis(100));
+        std::thread::sleep(Duration::from_millis(50));
     }
 }
 
@@ -189,7 +184,5 @@ fn prompt_with_fallback(prompt_text: &str) -> Result<Zeroizing<String>> {
         }
     }
 
-    anyhow::bail!(
-        "Authentication required: No interactive terminal and GIT_ASKPASS is not available."
-    )
+    anyhow::bail!("Authentication required: no interactive terminal or ASKPASS available!!")
 }

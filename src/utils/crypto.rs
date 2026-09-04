@@ -1,6 +1,6 @@
 use aes_gcm::{
     aead::{Aead, KeyInit},
-    Aes256Gcm,
+    Aes256Gcm, Nonce,
 };
 use anyhow::{anyhow, Result};
 use argon2::{Algorithm, Argon2, Params, Version};
@@ -14,9 +14,9 @@ pub const KEY_LEN: usize = 32;
 pub const NONCE_LEN: usize = 12;
 pub const SALT_LEN: usize = 16;
 
-pub const ARGON2_M_COST: u32 = 65536; // 64 MiB
-pub const ARGON2_T_COST: u32 = 3; // 3 iterations
-pub const ARGON2_P_COST: u32 = 4; // 4 threads
+pub const ARGON2_M_COST: u32 = 65536;
+pub const ARGON2_T_COST: u32 = 3;
+pub const ARGON2_P_COST: u32 = 4;
 
 /// One-time salt generation.
 pub fn generate_salt() -> [u8; SALT_LEN] {
@@ -35,17 +35,13 @@ fn run_argon2(password: &str, salt: &[u8], out_len: usize) -> Result<Zeroizing<V
         .map_err(|e| anyhow!("Invalid Argon2 parameters: {e}"))?;
 
     let argon2 = Argon2::new(Algorithm::Argon2id, Version::V0x13, params);
-
     let mut hash = Zeroizing::new(vec![0u8; out_len]);
-
     argon2
         .hash_password_into(password.as_bytes(), salt, &mut hash)
         .map_err(|e| anyhow!("Failed to hash password: {e}"))?;
-
     Ok(hash)
 }
 
-/// Derives a standard 32-byte key (Used for Tag KEKs)
 pub fn derive_key(password: &str, salt: &[u8]) -> Result<Zeroizing<[u8; KEY_LEN]>> {
     let derived = run_argon2(password, salt, KEY_LEN)?;
     let mut key = Zeroizing::new([0u8; KEY_LEN]);
@@ -53,13 +49,11 @@ pub fn derive_key(password: &str, salt: &[u8]) -> Result<Zeroizing<[u8; KEY_LEN]
     Ok(key)
 }
 
-/// Derives master_kek and signing_key from master_password or tag_password
 pub fn derive_master_keys(
     password: &str,
     salt: &[u8],
 ) -> Result<(Zeroizing<[u8; KEY_LEN]>, SigningKey)> {
     let derived = run_argon2(password, salt, 64)?;
-
     let mut kek = Zeroizing::new([0u8; KEY_LEN]);
     kek.copy_from_slice(&derived[0..32]);
 
@@ -70,30 +64,25 @@ pub fn derive_master_keys(
     Ok((kek, signing_key))
 }
 
-/// Derives an isolated Scope DEK from the Master DEK using the group and tag as context (for seperating the token from accessing out of scope items)
-pub fn derive_scope_dek(master_dek: &[u8; KEY_LEN], group: &str, tag: &str) -> [u8; KEY_LEN] {
-    let hk = Hkdf::<Sha256>::new(None, master_dek);
-    let mut scope_dek = [0u8; KEY_LEN];
-
+pub fn derive_scope_dek(
+    master_dek: &[u8; KEY_LEN],
+    group: &str,
+    tag: &str,
+) -> Zeroizing<[u8; KEY_LEN]> {
+    let hk = Hkdf::<Sha256>::from_prk(master_dek).expect("PRK length is 32 bytes");
+    let mut scope_dek = Zeroizing::new([0u8; KEY_LEN]);
     let info = format!("scope_{}:{}_{}:{}", group.len(), group, tag.len(), tag);
-
-    hk.expand(info.as_bytes(), &mut scope_dek)
-        .expect("HKDF expansion should never fail for 32 bytes!!");
-
+    hk.expand(info.as_bytes(), scope_dek.as_mut())
+        .expect("HKDF expansion should not fail for 32 bytes");
     scope_dek
 }
 
-/// Derives a mathematically isolated 32-byte key for a specific environment variable
-pub fn derive_entry_key(scope_dek: &[u8; KEY_LEN], entry_name: &str) -> [u8; KEY_LEN] {
-    // Initial Keying Material ()
-    let hk = Hkdf::<Sha256>::new(None, scope_dek);
-    let mut entry_key = [0u8; KEY_LEN];
-
-    let scope = format!("var_{}", entry_name);
-    // Expand it into a unique key using the variable name as the contextual info
-    hk.expand(scope.as_bytes(), &mut entry_key)
-        .expect("HKDF expansion should never fail for 32 bytes!!");
-
+pub fn derive_entry_key(scope_dek: &[u8; KEY_LEN], entry_name: &str) -> Zeroizing<[u8; KEY_LEN]> {
+    let hk = Hkdf::<Sha256>::from_prk(scope_dek).expect("PRK length is 32 bytes");
+    let mut entry_key = Zeroizing::new([0u8; KEY_LEN]);
+    let scope = format!("var_{entry_name}");
+    hk.expand(scope.as_bytes(), entry_key.as_mut())
+        .expect("HKDF expansion should not fail for 32 bytes");
     entry_key
 }
 
@@ -105,27 +94,27 @@ pub fn generate_dek() -> Zeroizing<[u8; KEY_LEN]> {
 }
 
 /// Encrpts the plaintext bytes
-pub fn encrypt(key: &[u8; KEY_LEN], plaintext: &[u8]) -> Result<(Vec<u8>, Vec<u8>)> {
+pub fn encrypt(key: &[u8; KEY_LEN], plaintext: &[u8]) -> Result<([u8; NONCE_LEN], Vec<u8>)> {
     let cipher = Aes256Gcm::new(key.into());
     let mut nonce_bytes = [0u8; NONCE_LEN];
     OsRng.fill_bytes(&mut nonce_bytes);
 
+    let nonce =
+        Nonce::try_from(nonce_bytes.as_slice()).map_err(|_| anyhow!("Invalid nonce length"))?;
+
     let ciphertext = cipher
-        .encrypt(&nonce_bytes.into(), plaintext)
+        .encrypt(&nonce, plaintext)
         .map_err(|_| anyhow!("Encryption failed!!"))?;
 
-    Ok((nonce_bytes.to_vec(), ciphertext))
+    Ok((nonce_bytes, ciphertext))
 }
 
 /// decrypts the cipher text and returns plaintext as bytes
 pub fn decrypt(key: &[u8; KEY_LEN], nonce: &[u8], ciphertext: &[u8]) -> Result<Vec<u8>> {
     let cipher = Aes256Gcm::new(key.into());
-
-    let nonce_arr: &[u8; NONCE_LEN] = nonce
-        .try_into()
-        .map_err(|_| anyhow!("Invalid nonce length!!"))?;
+    let nonce = Nonce::try_from(nonce).map_err(|_| anyhow!("Invalid nonce length"))?;
 
     cipher
-        .decrypt(nonce_arr.into(), ciphertext)
+        .decrypt(&nonce, ciphertext)
         .map_err(|_| anyhow!("Decryption failed!!"))
 }

@@ -55,16 +55,30 @@ pub fn resolve_secrets(
     token_file: Option<&PathBuf>,
     allow_env: bool,
 ) -> Result<BTreeMap<String, Zeroizing<String>>> {
-    let active_tag = tag.unwrap_or(BASE_TAG);
-
     if let Some(token_str) = fetch_token_from_diffrent_ends(token_file, allow_env)? {
         eprintln!("secure token detected! executing in Zero-Trust offline mode...");
         let payload = TokenManager::verify_and_extract(&token_str, &vault.public_key)?;
 
-        let expected_scope = vault.tag_scope(group, active_tag)?;
-        if payload.scope != expected_scope {
-            return Err(anyhow!("Access Denied: Token scope mismatch!"));
-        }
+        let active_tag = match tag {
+            Some(t) => {
+                let expected_scope = vault.tag_scope(group, t)?;
+                if payload.scope != expected_scope {
+                    return Err(anyhow!("Access Denied: Token scope mismatch!"));
+                }
+                t.to_string()
+            }
+            None => {
+                let (token_group, token_tag) =
+                    vault.parse_scope(&payload.scope).ok_or_else(|| {
+                        anyhow!("Access Denied: Token was not issued for this vault!")
+                    })?;
+                let resolved_group = vault.resolve_group_name(group)?;
+                if token_group != resolved_group {
+                    return Err(anyhow!("Access Denied: Token group mismatch!"));
+                }
+                token_tag.to_string()
+            }
+        };
 
         vault.verify_integrity()?;
 
@@ -73,10 +87,11 @@ pub fn resolve_secrets(
     }
 
     // Fallback to Password Mode
+    let active_tag = tag.unwrap_or(BASE_TAG);
     let master_keys = unlock::sudo_unlock(vault, None, allow_env)?;
-    let tag_key = if vault.is_tag_protected(group, tag)? {
+    let tag_key = if vault.is_tag_protected(group, Some(active_tag))? {
         Some(unlock::sudo_unlock_tag(
-            vault, group, active_tag, None, true,
+            vault, group, active_tag, None, allow_env,
         )?)
     } else {
         None

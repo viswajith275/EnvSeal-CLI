@@ -1,14 +1,10 @@
 use crate::utils::{
-    crypto,
-    token::TokenManager,
     unlock,
     vault::{Vault, BASE_TAG},
 };
-use anyhow::{anyhow, Context, Result};
+use anyhow::Result;
 use fs2::FileExt;
-use std::collections::{HashMap, HashSet};
-use std::fs;
-use std::fs::OpenOptions;
+use std::fs::{self, OpenOptions};
 use std::io::Write;
 use std::path::PathBuf;
 
@@ -27,71 +23,32 @@ pub fn cmd_token(
     let vault = Vault::load(global, pref)?;
     let master_keys = unlock::sudo_unlock(&vault, None, allow_env)?;
 
-    let group_name = vault.resolve_group_name(group)?;
     let active_tag = tag.unwrap_or(BASE_TAG);
-    let group_entry = vault
-        .entries
-        .get(&group_name)
-        .context("Group not found!!")?;
-
-    let base_scope_dek = crypto::derive_scope_dek(&master_keys.master_dek, &group_name, BASE_TAG);
-
-    let tag_scope_dek = if active_tag != BASE_TAG {
-        if vault.is_tag_protected(group, tag)? {
-            let unwrapped = unlock::sudo_unlock_tag(&vault, group, active_tag, None, allow_env)?;
-            Some(*unwrapped)
-        } else {
-            Some(crypto::derive_scope_dek(
-                &master_keys.master_dek,
-                &group_name,
-                active_tag,
-            ))
-        }
+    let tag_dek = if active_tag != BASE_TAG && vault.is_tag_protected(group, Some(active_tag))? {
+        Some(unlock::sudo_unlock_tag(
+            &vault, group, active_tag, None, allow_env,
+        )?)
     } else {
         None
     };
 
-    let mut resolved_map: HashMap<String, [u8; 32]> = HashMap::new();
+    let filter = if allowed_keys.is_empty() {
+        None
+    } else {
+        Some(allowed_keys.as_slice())
+    };
 
-    for base_key in group_entry.base.keys() {
-        resolved_map.insert(base_key.clone(), base_scope_dek);
-    }
-
-    if let Some(tag_dek) = tag_scope_dek {
-        let tag_entry = group_entry
-            .tags
-            .get(active_tag)
-            .context("Group not found!!")?;
-        for tag_key in tag_entry.entries.keys() {
-            resolved_map.insert(tag_key.clone(), tag_dek);
-        }
-    }
-
-    if !allowed_keys.is_empty() {
-        let explicit_set: HashSet<String> = allowed_keys.into_iter().collect();
-        resolved_map.retain(|k, _| explicit_set.contains(k));
-    }
-
-    if resolved_map.is_empty() {
-        return Err(anyhow!(
-            "Cannot create token: No variables found or allowed for this scope."
-        ));
-    }
-
-    let mut final_token_keys = HashMap::new();
-    for (var_name, active_scope_dek) in resolved_map {
-        let entry_key = crypto::derive_entry_key(&active_scope_dek, &var_name);
-        final_token_keys.insert(var_name, zeroize::Zeroizing::new(entry_key.to_vec()));
-    }
-
-    let scope_string = vault.tag_scope(group, active_tag)?;
-    let token_string = TokenManager::create(
+    // Delegates scope creation, base inheritance, tag overriding, and signing
+    let token_string = vault.create_token(
         &master_keys.signing_key,
-        &scope_string,
-        final_token_keys,
+        &master_keys.master_dek,
+        group,
+        tag,
+        tag_dek.as_deref(),
         name,
         ttl_seconds,
         desc,
+        filter,
     )?;
 
     if let Some(path) = out_file {
@@ -104,7 +61,8 @@ pub fn cmd_token(
             options.mode(0o600);
         }
 
-        let mut file = options.open(path)?;
+        let file = options.open(path)?;
+        file.lock_exclusive()?;
 
         #[cfg(unix)]
         {
@@ -112,30 +70,26 @@ pub fn cmd_token(
             let _ = fs::set_permissions(path, fs::Permissions::from_mode(0o600));
         }
 
-        file.lock_exclusive()?;
+        let mut writer = std::io::BufWriter::new(&file);
+        writer.write_all(token_string.as_bytes())?;
+        writer.flush()?;
 
-        let write_result = file.write_all(token_string.as_bytes());
-
-        let unlock_result = file.unlock();
-
-        write_result?;
-        unlock_result?;
+        let _ = file.unlock();
 
         #[cfg(unix)]
         eprintln!(
-            "token successfully written to '{}' (permissions set to 0600)",
+            "Token successfully written to '{}' (permissions 0600).",
             path.display()
         );
 
         #[cfg(windows)]
         eprintln!(
-               "token successfully written to '{}'. Note: on Windows, file permissions are not \
-                explicitly restricted — ensure the containing directory has appropriate access controls.",
-               path.display()
-           );
+            "Token successfully written to '{}'. Ensure folder permissions are restricted.",
+            path.display()
+        );
     } else {
-        eprintln!("token generated successfully. Pass this via ENVSEAL_TOKEN or --token-file \n");
-        println!("{}", token_string);
+        eprintln!("Token generated successfully. Pass via ENVSEAL_TOKEN or --token-file\n");
+        println!("{token_string}");
     }
 
     Ok(())

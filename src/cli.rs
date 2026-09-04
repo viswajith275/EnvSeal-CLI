@@ -191,6 +191,10 @@ pub enum Commands {
         #[arg(short, long)]
         tag: Option<String>,
 
+        /// Bypass confirmation prompt
+        #[arg(short, long)]
+        force: bool,
+
         /// Specific key to delete (deletes whole group/tag if omitted)
         key: Option<String>,
     },
@@ -226,35 +230,30 @@ pub enum Commands {
         token_file: Option<PathBuf>,
 
         /// Command and arguments to execute (e.g., `npm start` or `-- python app.py`)
-        #[arg(
-            trailing_var_arg = true,
-            allow_hyphen_values = true,
-            required = true,
-            last = true
-        )]
+        #[arg(trailing_var_arg = true, allow_hyphen_values = true, required = true)]
         cmd_args: Vec<String>,
     },
 
     /// Generate a scoped, read-only token for CI/CD or offline execution
     Token {
         /// Group to include in scope
-        #[arg(short = 'g', long)]
+        #[arg(short, long)]
         group: Option<String>,
 
         /// Tag to include in scope
-        #[arg(short = 't', long)]
+        #[arg(short, long)]
         tag: Option<String>,
 
         /// Identifier for tracking token origin/purpose
-        #[arg(short = 'n', long, default_value = "envseal-token")]
+        #[arg(short, long, default_value = "envseal-token")]
         name: String,
 
         /// Optional description of token usage scope
-        #[arg(short = 'd', long)]
+        #[arg(short, long)]
         desc: Option<String>,
 
         /// Write the generated token directly to a restricted-permission file
-        #[arg(short = 'o', long, value_name = "PATH", value_hint = ValueHint::FilePath)]
+        #[arg(short, long, value_name = "PATH", value_hint = ValueHint::FilePath)]
         out: Option<PathBuf>,
 
         /// Token validity duration in seconds from creation

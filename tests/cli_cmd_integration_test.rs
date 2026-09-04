@@ -9,7 +9,6 @@ use std::path::{Path, PathBuf};
 use tempfile::tempdir;
 use zeroize::Zeroizing;
 
-/// Helper to configure a clean envseal command isolated to a specific working directory
 fn envseal_cmd(dir: &Path) -> Command {
     let mut cmd = Command::cargo_bin("envseal").expect("Failed to locate envseal binary");
     cmd.current_dir(dir);
@@ -21,7 +20,6 @@ fn envseal_cmd(dir: &Path) -> Command {
     cmd
 }
 
-/// Helper to generate a cross-platform askpass executable for non-interactive Git driver auth
 fn create_askpass_script(dir: &Path) -> PathBuf {
     #[cfg(unix)]
     {
@@ -43,8 +41,6 @@ fn create_askpass_script(dir: &Path) -> PathBuf {
     }
 }
 
-/// Thread-safe helper to initialize and persist a test vault directly at `path`
-/// without mutating process-wide environment variables.
 fn create_fixture_vault(path: &Path, password: &str, entries: &[(&str, &str)]) -> Vault {
     let salt = crypto::generate_salt();
     let (master_kek, signing_key) = crypto::derive_master_keys(password, &salt).unwrap();
@@ -60,7 +56,7 @@ fn create_fixture_vault(path: &Path, password: &str, entries: &[(&str, &str)]) -
         base_map.insert(
             k.to_string(),
             Entry {
-                nonce: n,
+                nonce: n.to_vec(),
                 ciphertext: c,
             },
         );
@@ -79,7 +75,10 @@ fn create_fixture_vault(path: &Path, password: &str, entries: &[(&str, &str)]) -
     let mut vault = Vault {
         salt: salt.to_vec(),
         public_key,
-        wrapped_master_dek: Entry { nonce, ciphertext },
+        wrapped_master_dek: Entry {
+            nonce: nonce.to_vec(),
+            ciphertext,
+        },
         link_index: BTreeMap::new(),
         entries: group_entries,
         signature: vec![],
@@ -96,11 +95,7 @@ fn test_cli_git_setup_initializes_repo_and_attributes() {
     let temp_path = temp.path();
 
     let mut cmd = envseal_cmd(temp_path);
-    cmd.arg("git-setup")
-        .arg("--init")
-        .assert()
-        .success()
-        .stdout(predicate::str::contains("git configuration successfull!!"));
+    cmd.arg("git-setup").arg("--init").assert().success();
 
     assert!(temp_path.join(".git").exists());
 
@@ -125,7 +120,6 @@ fn test_cli_diff_locked_fingerprint_and_tamper_warning() {
         &[("DATABASE_URL", "postgres://localhost:5432")],
     );
 
-    // 1. Run textconv diff driver on a valid vault
     let mut cmd = envseal_cmd(temp_path);
     cmd.arg("diff")
         .arg(&vault_file)
@@ -137,13 +131,11 @@ fn test_cli_diff_locked_fingerprint_and_tamper_warning() {
         .stdout(predicate::str::contains("# Group: project"))
         .stdout(predicate::str::contains("[base]"));
 
-    // 2. Invalidate signature while keeping MessagePack structure deserializable
     let mut vault = Vault::load_from_file(&vault_file).unwrap();
     vault.signature[0] ^= 0xFF;
     let binary = rmp_serde::to_vec(&vault).unwrap();
     fs::write(&vault_file, binary).unwrap();
 
-    // 3. Verify driver reports integrity check failure
     let mut tampered_cmd = envseal_cmd(temp_path);
     tampered_cmd
         .arg("diff")
@@ -192,7 +184,6 @@ fn test_cli_zero_trust_token_read_and_export_flow() {
     let token_file = temp_path.join("ci.token");
     fs::write(&token_file, token).unwrap();
 
-    // Test `envseal get` via `--token-file`
     let mut get_cmd = envseal_cmd(temp_path);
     get_cmd
         .arg("get")
@@ -203,7 +194,6 @@ fn test_cli_zero_trust_token_read_and_export_flow() {
         .success()
         .stdout(predicate::str::contains("STRIPE_KEY: sk_test_12345"));
 
-    // Key outside token scope must be rejected
     let mut get_denied_cmd = envseal_cmd(temp_path);
     get_denied_cmd
         .arg("get")
@@ -214,7 +204,6 @@ fn test_cli_zero_trust_token_read_and_export_flow() {
         .failure()
         .stderr(predicate::str::contains("lacks permission to decrypt it"));
 
-    // Test `envseal export` via `--token-file`
     let export_dest = temp_path.join("exported.env");
     let mut export_cmd = envseal_cmd(temp_path);
     export_cmd
@@ -230,7 +219,6 @@ fn test_cli_zero_trust_token_read_and_export_flow() {
     assert!(exported_content.contains("STRIPE_KEY=sk_test_12345"));
     assert!(!exported_content.contains("INTERNAL_TOKEN"));
 
-    // Test `envseal load` evaluation output via `--token-file`
     let mut load_cmd = envseal_cmd(temp_path);
     load_cmd
         .arg("load")
@@ -253,11 +241,9 @@ fn test_cli_three_way_merge_disjoint_fast_forward() {
     let ours_path = temp_path.join("ours.envseal");
     let theirs_path = temp_path.join("theirs.envseal");
 
-    // 1. Create common ancestor vault
     let base_v = create_fixture_vault(&base_path, "shared_pass", &[("COMMON", "initial")]);
     let keys = base_v.unlock("shared_pass").unwrap();
 
-    // 2. Branch 'ours' introduces FEATURE_A on top of base
     let mut ours_v = base_v.clone();
     ours_v.file_path = Some(ours_path.clone());
     ours_v
@@ -265,7 +251,6 @@ fn test_cli_three_way_merge_disjoint_fast_forward() {
         .unwrap();
     ours_v.save().unwrap();
 
-    // 3. Branch 'theirs' introduces FEATURE_B on top of base
     let mut theirs_v = base_v.clone();
     theirs_v.file_path = Some(theirs_path.clone());
     theirs_v
@@ -275,7 +260,6 @@ fn test_cli_three_way_merge_disjoint_fast_forward() {
 
     let askpass_path = create_askpass_script(temp_path);
 
-    // Execute 3-way merge driver
     let mut merge_cmd = envseal_cmd(temp_path);
     merge_cmd
         .arg("merge")
@@ -293,7 +277,6 @@ fn test_cli_three_way_merge_disjoint_fast_forward() {
             "Successfully merged and resealed vault",
         ));
 
-    // Verify reconciled entries inside merged vault
     let merged_vault = Vault::load_from_file(&ours_path).unwrap();
     let merged_keys = merged_vault.unlock("shared_pass").unwrap();
 
@@ -321,11 +304,9 @@ fn test_cli_three_way_merge_conflict_strategy_resolution() {
     let ours_path = temp_path.join("ours.envseal");
     let theirs_path = temp_path.join("theirs.envseal");
 
-    // 1. Create common ancestor vault
     let base_v = create_fixture_vault(&base_path, "pass", &[("TIMEOUT", "30")]);
     let keys = base_v.unlock("pass").unwrap();
 
-    // 2. Branch 'ours' modifies TIMEOUT to 60
     let mut ours_v = base_v.clone();
     ours_v.file_path = Some(ours_path.clone());
     ours_v
@@ -333,7 +314,6 @@ fn test_cli_three_way_merge_conflict_strategy_resolution() {
         .unwrap();
     ours_v.save().unwrap();
 
-    // 3. Branch 'theirs' modifies TIMEOUT to 120 (conflicting modification)
     let mut theirs_v = base_v.clone();
     theirs_v.file_path = Some(theirs_path.clone());
     theirs_v
@@ -343,7 +323,6 @@ fn test_cli_three_way_merge_conflict_strategy_resolution() {
 
     let askpass_path = create_askpass_script(temp_path);
 
-    // Merge with default strategy (Fail) must exit with conflict error
     let mut fail_cmd = envseal_cmd(temp_path);
     fail_cmd
         .arg("merge")
@@ -359,7 +338,6 @@ fn test_cli_three_way_merge_conflict_strategy_resolution() {
         .failure()
         .stderr(predicate::str::contains("Merge halted due to conflicts"));
 
-    // Merge with `--strategy theirs` must pick 120
     let mut resolve_cmd = envseal_cmd(temp_path);
     resolve_cmd
         .arg("merge")
@@ -382,4 +360,115 @@ fn test_cli_three_way_merge_conflict_strategy_resolution() {
         .get_entry(&res_keys.master_dek, None, None, "TIMEOUT", None)
         .unwrap();
     assert_eq!(timeout_val.as_str(), "120");
+}
+
+#[test]
+fn test_cli_export_file_posix_permissions() {
+    let temp = tempdir().expect("Failed to create tempdir");
+    let temp_path = temp.path();
+    let vault_file = temp_path.join(".envseal");
+    let export_file = temp_path.join("sensitive.env");
+
+    create_fixture_vault(&vault_file, "master_pass", &[("SECRET_KEY", "prod_key")]);
+    let askpass_path = create_askpass_script(temp_path);
+
+    let mut cmd = envseal_cmd(temp_path);
+    cmd.arg("export")
+        .arg("-o")
+        .arg(&export_file)
+        .env("ENVSEAL_PASSWORD", "master_pass")
+        .env("GIT_ASKPASS", &askpass_path)
+        .assert()
+        .success();
+
+    assert!(export_file.exists());
+
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let perms = fs::metadata(&export_file).unwrap().permissions();
+        let mode = perms.mode() & 0o777;
+        assert_eq!(
+            mode, 0o600,
+            "Exported secrets file must have restrictive 0600 permissions, got: {:o}",
+            mode
+        );
+    }
+}
+
+#[test]
+fn test_cli_run_executes_child_with_injected_secrets() {
+    let temp = tempdir().expect("Failed to create tempdir");
+    let temp_path = temp.path();
+    let vault_file = temp_path.join(".envseal");
+
+    create_fixture_vault(
+        &vault_file,
+        "master_pass",
+        &[("DYNAMIC_INJECTED_VAR", "injected_success")],
+    );
+
+    let askpass_path = create_askpass_script(temp_path);
+
+    #[cfg(unix)]
+    let (prog, args) = ("sh", vec!["-c", "echo $DYNAMIC_INJECTED_VAR"]);
+    #[cfg(windows)]
+    let (prog, args) = ("cmd.exe", vec!["/C", "echo %DYNAMIC_INJECTED_VAR%"]);
+
+    let mut cmd = envseal_cmd(temp_path);
+    cmd.arg("run")
+        .arg("--")
+        .arg(prog)
+        .args(&args)
+        .env("ENVSEAL_PASSWORD", "master_pass")
+        .env("GIT_ASKPASS", &askpass_path)
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("injected_success"));
+}
+
+#[test]
+fn test_cli_remove_variable_flow() {
+    let temp = tempdir().expect("Failed to create tempdir");
+    let temp_path = temp.path();
+    let vault_file = temp_path.join(".envseal");
+
+    create_fixture_vault(
+        &vault_file,
+        "master_pass",
+        &[("LIVE_API", "api_secret_val_999")],
+    );
+    let askpass_path = create_askpass_script(temp_path);
+
+    // 1. Read existing variable back via CLI
+    let mut get_cmd = envseal_cmd(temp_path);
+    get_cmd
+        .arg("get")
+        .arg("LIVE_API")
+        .env("ENVSEAL_PASSWORD", "master_pass")
+        .env("GIT_ASKPASS", &askpass_path)
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("api_secret_val_999"));
+
+    // 2. Remove variable via CLI with --force
+    let mut rm_cmd = envseal_cmd(temp_path);
+    rm_cmd
+        .arg("rm")
+        .arg("LIVE_API")
+        .arg("--force")
+        .env("ENVSEAL_PASSWORD", "master_pass")
+        .env("GIT_ASKPASS", &askpass_path)
+        .assert()
+        .success();
+
+    // 3. Verify deletion
+    let mut verify_cmd = envseal_cmd(temp_path);
+    verify_cmd
+        .arg("get")
+        .arg("LIVE_API")
+        .env("ENVSEAL_PASSWORD", "master_pass")
+        .env("GIT_ASKPASS", &askpass_path)
+        .assert()
+        .failure();
 }

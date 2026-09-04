@@ -70,12 +70,18 @@ fn main() -> Result<()> {
             pref,
             allow_env,
         ),
-        Commands::Remove { group, tag, key } => commands::remove::cmd_remove(
+        Commands::Remove {
+            group,
+            tag,
+            key,
+            force,
+        } => commands::remove::cmd_remove(
             group.as_deref(),
             tag.as_deref(),
             key.as_deref(),
             global,
             pref,
+            force,
             allow_env,
         ),
         Commands::List { group, tag } => {

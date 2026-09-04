@@ -1,6 +1,6 @@
 use crate::utils::{unlock, vault::Vault};
 use anyhow::{anyhow, Result};
-use dialoguer::Confirm;
+use std::io::IsTerminal;
 
 pub fn cmd_remove(
     group: Option<&str>,
@@ -8,6 +8,7 @@ pub fn cmd_remove(
     key: Option<&str>,
     global: bool,
     pref: Option<&str>,
+    force: bool,
     allow_env: bool,
 ) -> Result<()> {
     let mut vault = Vault::load(global, pref)?;
@@ -24,26 +25,28 @@ pub fn cmd_remove(
         }
     }
 
-    let prompt = "do you want to delete these variables?".to_string();
+    if !force && std::io::stdin().is_terminal() {
+        let target = key.unwrap_or(tag.unwrap_or("group"));
+        let confirmed = dialoguer::Confirm::new()
+            .with_prompt(format!("Are you sure you want to remove '{target}'?"))
+            .default(false)
+            .interact()?;
 
-    let confirmation = Confirm::new()
-        .with_prompt(prompt)
-        .default(false)
-        .interact()?;
-
-    if confirmation {
-        vault.remove_entry(
-            &master_keys.signing_key,
-            group,
-            tag,
-            key,
-            tag_key.as_deref(),
-        )?;
-        vault.save()?;
-        eprintln!("deletion successful!!");
-    } else {
-        eprintln!("operation canceled by user!!");
+        if !confirmed {
+            println!("Aborted by user");
+            return Ok(());
+        }
     }
+
+    vault.remove_entry(
+        &master_keys.signing_key,
+        group,
+        tag,
+        key,
+        tag_key.as_deref(),
+    )?;
+    vault.save()?;
+    eprintln!("deletion successful!!");
 
     Ok(())
 }

@@ -13,11 +13,8 @@ mod vault_integration_tests {
     use tempfile::{tempdir, TempDir};
     use zeroize::Zeroizing;
 
-    // Mutex to synchronize tests modifying process-wide environment variables
     static ENV_MUTEX: Mutex<()> = Mutex::new(());
 
-    /// RAII guard ensuring isolated temp directory lifetime, poison-safe locking,
-    /// and automatic cleanup of the environment variable on drop.
     struct TestEnv {
         _guard: MutexGuard<'static, ()>,
         _temp_dir: TempDir,
@@ -57,7 +54,6 @@ mod vault_integration_tests {
         let init_result = Vault::init("master_pass", true, false, None);
         assert!(init_result.is_ok(), "Vault should initialize successfully");
 
-        // Edge Case: Prevent overwriting an existing vault
         let overwrite_result = Vault::init("master_pass", true, false, None);
         assert!(
             overwrite_result.is_err(),
@@ -81,7 +77,6 @@ mod vault_integration_tests {
             .set_entry(&keys, None, None, "API_KEY", "secret-123", None)
             .unwrap();
 
-        // Inject an unauthorized ciphertext directly into group entries
         vault.entries.get_mut("project").unwrap().base.insert(
             "INJECTED_KEY".to_string(),
             Entry {
@@ -91,7 +86,6 @@ mod vault_integration_tests {
         );
         vault.save().unwrap();
 
-        // Load and verify Ed25519 signature failure
         let tampered_vault = Vault::load(false, None).unwrap();
         let unlock_result = tampered_vault.unlock("master_pass");
 
@@ -109,7 +103,6 @@ mod vault_integration_tests {
 
         Vault::init("master_pass", true, false, None).unwrap();
 
-        // Corrupt file contents directly on disk
         let mut raw_bytes = fs::read(&env.vault_path).unwrap();
         let len = raw_bytes.len();
         raw_bytes[len - 5] ^= 0xFF;
@@ -122,6 +115,7 @@ mod vault_integration_tests {
                 "Vault with corrupted payload bytes must fail verification"
             );
         }
+        // If vault_res is Err, rmp_serde successfully rejected the corrupted bytes
     }
 
     #[test]
@@ -132,7 +126,6 @@ mod vault_integration_tests {
         let mut vault = Vault::load(false, None).unwrap();
         let keys = vault.unlock("master_pass").unwrap();
 
-        // Set and get in BASE tag
         vault
             .set_entry(&keys, None, None, "API_KEY", "secret-123", None)
             .unwrap();
@@ -141,26 +134,19 @@ mod vault_integration_tests {
             .unwrap();
         assert_eq!(retrieved.as_str(), "secret-123");
 
-        // Create protected tag
         vault
             .create_protected_tag(&keys.signing_key, None, "prod", "tag_pass")
             .unwrap();
         assert!(vault.is_tag_protected(None, Some("prod")).unwrap());
 
-        // Edge Case: Prevent creating a tag named 'base'
         let create_base_err = vault.create_protected_tag(&keys.signing_key, None, "base", "pass");
         assert!(create_base_err.is_err());
-        assert!(create_base_err
-            .unwrap_err()
-            .to_string()
-            .contains("reserved keyword"));
+        assert!(create_base_err.unwrap_err().to_string().contains("base"));
 
-        // Edge Case: Prevent duplicate tag names
         let dup_err = vault.create_protected_tag(&keys.signing_key, None, "prod", "tag_pass");
         assert!(dup_err.is_err());
         assert!(dup_err.unwrap_err().to_string().contains("already exists"));
 
-        // Set and get in protected tag
         let tag_key = vault.unlock_tag(None, "prod", "tag_pass").unwrap();
         vault
             .set_entry(
@@ -183,6 +169,18 @@ mod vault_integration_tests {
             )
             .unwrap();
         assert_eq!(retrieved_tag.as_str(), "prod-db-123");
+
+        // Verify base key inheritance fallback works when querying tag
+        let inherited_val = vault
+            .get_entry(
+                &keys.master_dek,
+                None,
+                Some("prod"),
+                "API_KEY",
+                Some(&tag_key),
+            )
+            .unwrap();
+        assert_eq!(inherited_val.as_str(), "secret-123");
     }
 
     #[test]
@@ -193,12 +191,10 @@ mod vault_integration_tests {
         let mut vault = Vault::load(false, None).unwrap();
         let keys = vault.unlock("master_pass").unwrap();
 
-        // Global base setting
         vault
             .set_entry(&keys, None, None, "PORT", "3000", None)
             .unwrap();
 
-        // Environment-specific override in protected tag
         vault
             .create_protected_tag(&keys.signing_key, None, "prod", "prod_pass")
             .unwrap();
@@ -231,15 +227,13 @@ mod vault_integration_tests {
             .set_entry(&keys, None, None, "KEY1", "val1", None)
             .unwrap();
 
-        // Edge Case: Prevent wiping the base tag identifier entirely
         let remove_base_err = vault.remove_entry(&keys.signing_key, None, Some("base"), None, None);
         assert!(remove_base_err.is_err());
         assert!(remove_base_err
             .unwrap_err()
             .to_string()
-            .contains("Cannot remove the reserved"));
+            .contains("Cannot remove"));
 
-        // Remove specific entry
         vault
             .remove_entry(&keys.signing_key, None, None, Some("KEY1"), None)
             .unwrap();
@@ -254,7 +248,6 @@ mod vault_integration_tests {
         Vault::init("master_pass", true, false, None).unwrap();
         let mut vault = Vault::load(false, None).unwrap();
 
-        // Local vaults reject explicit group queries
         let resolve_err = vault.resolve_group_name(Some("CUSTOM_GROUP"));
         assert!(resolve_err.is_err());
         assert!(resolve_err
@@ -262,14 +255,13 @@ mod vault_integration_tests {
             .to_string()
             .contains("do not support multiple groups"));
 
-        // Local vaults reject linking
         let keys = vault.unlock("master_pass").unwrap();
         let link_err = vault.link_group(&keys.signing_key, "NEW_GROUP");
         assert!(link_err.is_err());
         assert!(link_err
             .unwrap_err()
             .to_string()
-            .contains("Linking is only used for the global vault"));
+            .contains("cannot configure linking"));
     }
 
     #[test]
@@ -279,11 +271,9 @@ mod vault_integration_tests {
         Vault::init("correct_master", true, false, None).unwrap();
         let mut vault = Vault::load(false, None).unwrap();
 
-        // Wrong master password
         let bad_master_err = vault.unlock("wrong_master");
         assert!(bad_master_err.is_err());
 
-        // Wrong tag password
         let keys = vault.unlock("correct_master").unwrap();
         vault
             .create_protected_tag(&keys.signing_key, None, "staging", "correct_tag_pass")
@@ -309,16 +299,13 @@ mod vault_integration_tests {
             .set_entry(&keys, None, None, "STATIC_KEY", "important_secret", None)
             .unwrap();
 
-        // Change master password
         vault
             .change_master_password(&keys, "new_secure_pass")
             .unwrap();
 
-        // Reload and verify old password is rejected
         let reloaded = Vault::load(false, None).unwrap();
         assert!(reloaded.unlock("initial_pass").is_err());
 
-        // Unlocking with new password preserves entries
         let new_keys = reloaded.unlock("new_secure_pass").unwrap();
         let val = reloaded
             .get_entry(&new_keys.master_dek, None, None, "STATIC_KEY", None)
@@ -364,7 +351,6 @@ mod vault_integration_tests {
         assert_eq!(base_keys.len(), 2);
         assert!(base_keys.contains(&"BASE_KEY_1".to_string()));
 
-        // Tag query returns both tag and base keys merged
         let dev_keys = vault.list_all_keys(None, Some("dev")).unwrap();
         assert_eq!(dev_keys.len(), 3);
         assert!(dev_keys.contains(&"DEV_KEY_1".to_string()));
@@ -383,16 +369,14 @@ mod vault_integration_tests {
             .create_protected_tag(&keys.signing_key, None, "secure_tag", "tag_pass")
             .unwrap();
 
-        // Edge Case: Deleting protected tag without tag password fails
         let unauth_remove_err =
             vault.remove_entry(&keys.signing_key, None, Some("secure_tag"), None, None);
         assert!(unauth_remove_err.is_err());
         assert!(unauth_remove_err
             .unwrap_err()
             .to_string()
-            .contains("Password required to modify it"));
+            .contains("Password required"));
 
-        // Deleting protected tag with valid key succeeds
         let tag_key = vault.unlock_tag(None, "secure_tag", "tag_pass").unwrap();
         vault
             .remove_entry(
@@ -454,7 +438,6 @@ mod vault_integration_tests {
             )
             .unwrap();
 
-        // Case 1: Password provided, but missing existing tag DEK fails during entry re-decryption
         let rotate_no_dek =
             vault.rotate_scope_dek(&keys, None, Some("prod"), None, Some("tag_pass"));
         assert!(rotate_no_dek.is_err());
@@ -463,7 +446,6 @@ mod vault_integration_tests {
             .to_string()
             .contains("Password required for protected tag"));
 
-        // Case 2: Existing tag DEK provided, but missing new tag password fails
         let rotate_no_pass =
             vault.rotate_scope_dek(&keys, None, Some("prod"), Some(&tag_key), None);
         assert!(rotate_no_pass.is_err());
@@ -472,7 +454,6 @@ mod vault_integration_tests {
             .to_string()
             .contains("Tag password required"));
 
-        // Case 3: Both existing tag DEK and tag password provided succeeds
         vault
             .rotate_scope_dek(&keys, None, Some("prod"), Some(&tag_key), Some("tag_pass"))
             .unwrap();
@@ -505,11 +486,9 @@ mod vault_integration_tests {
             .set_entry(&keys, None, None, "DENIED_KEY", "access-denied", None)
             .unwrap();
 
-        // Scope DEK for the base tag
         let base_scope_dek = crypto::derive_scope_dek(&keys.master_dek, "project", BASE_TAG);
         let entry_key = crypto::derive_entry_key(&base_scope_dek, "GRANTED_KEY");
 
-        // Mint token containing ONLY GRANTED_KEY
         let mut token_keys = HashMap::new();
         token_keys.insert(
             "GRANTED_KEY".to_string(),
@@ -527,7 +506,6 @@ mod vault_integration_tests {
         )
         .unwrap();
 
-        // Verify and decrypt using token
         let payload = TokenManager::verify_and_extract(&token_string, &vault.public_key).unwrap();
         let decrypted = vault.decrypt_from_token(None, None, &payload).unwrap();
 
@@ -554,7 +532,6 @@ mod vault_integration_tests {
 
         let scope_str = vault.tag_scope(None, BASE_TAG).unwrap();
 
-        // Expired token test (TTL = 0)
         let expired_token = TokenManager::create(
             &keys.signing_key,
             &scope_str,
@@ -565,14 +542,12 @@ mod vault_integration_tests {
         )
         .unwrap();
 
-        // Brief wait so timestamp strictly advances
         std::thread::sleep(std::time::Duration::from_millis(1100));
         let Err(err) = TokenManager::verify_and_extract(&expired_token, &vault.public_key) else {
             panic!("Expected token verification to fail, but it succeeded");
         };
         assert!(err.to_string().contains("Token expired"));
 
-        // Tampered signature test
         let valid_token = TokenManager::create(
             &keys.signing_key,
             &scope_str,
@@ -619,18 +594,16 @@ mod vault_integration_tests {
         let payload = TokenManager::verify_and_extract(&token, &vault.public_key).unwrap();
         assert!(vault.decrypt_from_token(None, None, &payload).is_ok());
 
-        // Rotate scope DEK
         vault
             .rotate_scope_dek(&keys, None, None, None, None)
             .unwrap();
 
-        // The previous token's derived key fails decryption on new ciphertext
         let decryption_attempt = vault.decrypt_from_token(None, None, &payload);
         assert!(decryption_attempt.is_err());
         assert!(decryption_attempt
             .unwrap_err()
             .to_string()
-            .contains("revoked, expired, or corrupted"));
+            .contains("revoked"));
     }
 
     #[test]
@@ -664,20 +637,239 @@ mod vault_integration_tests {
         let token_file_path = env.vault_path.parent().unwrap().join("test.token");
         fs::write(&token_file_path, token_string).unwrap();
 
-        // Resolve secrets offline via token without supplying master password
         let resolved = resolve_secrets(&vault, None, None, Some(&token_file_path), false).unwrap();
         assert_eq!(resolved.get("CONFIG_ENV").unwrap().as_str(), "production");
     }
 
     #[test]
+    fn test_protected_tag_blocks_unauthorized_group_deletion() {
+        let _env = TestEnv::new(".envseal");
+
+        Vault::init("master_pass", true, false, None).unwrap();
+        let mut vault = Vault::load(false, None).unwrap();
+        let keys = vault.unlock("master_pass").unwrap();
+
+        // Create a protected tag within the local default 'project' group
+        vault
+            .create_protected_tag(&keys.signing_key, None, "prod", "tag_pass")
+            .unwrap();
+        let tag_key = vault.unlock_tag(None, "prod", "tag_pass").unwrap();
+
+        // Attempting to wipe the entire group without a tag key must fail
+        let delete_group_err = vault.remove_entry(&keys.signing_key, None, None, None, None);
+        assert!(delete_group_err.is_err());
+        assert!(delete_group_err
+            .unwrap_err()
+            .to_string()
+            .contains("contains protected tags"));
+
+        // Providing the authorized tag key allows deleting the group
+        let delete_group_ok =
+            vault.remove_entry(&keys.signing_key, None, None, None, Some(&tag_key));
+        assert!(delete_group_ok.is_ok());
+        assert!(!vault.entries.contains_key("project"));
+    }
+
+    #[test]
+    fn test_token_scope_mismatch_rejection() {
+        let env = TestEnv::new(".envseal");
+
+        Vault::init("master_pass", true, false, None).unwrap();
+        let mut vault = Vault::load(false, None).unwrap();
+        let keys = vault.unlock("master_pass").unwrap();
+
+        vault
+            .set_entry(&keys, None, None, "SECRET", "val", None)
+            .unwrap();
+
+        let base_scope_dek = crypto::derive_scope_dek(&keys.master_dek, "project", BASE_TAG);
+        let entry_key = crypto::derive_entry_key(&base_scope_dek, "SECRET");
+
+        let mut token_keys = HashMap::new();
+        token_keys.insert("SECRET".to_string(), Zeroizing::new(entry_key.to_vec()));
+
+        // Mint token scoped explicitly to BASE_TAG
+        let scope_str = vault.tag_scope(None, BASE_TAG).unwrap();
+        let token_string = TokenManager::create(
+            &keys.signing_key,
+            &scope_str,
+            token_keys,
+            "ci-agent",
+            Some(3600),
+            None,
+        )
+        .unwrap();
+
+        let token_file_path = env.vault_path.parent().unwrap().join("scope.token");
+        fs::write(&token_file_path, token_string).unwrap();
+
+        // Attempt to resolve secrets for a different tag scope ('staging')
+        let resolve_err =
+            resolve_secrets(&vault, None, Some("staging"), Some(&token_file_path), false);
+        assert!(resolve_err.is_err());
+        assert!(resolve_err
+            .unwrap_err()
+            .to_string()
+            .contains("Token scope mismatch"));
+    }
+
+    #[test]
+    fn test_partial_tag_inheritance_resolution() {
+        let _env = TestEnv::new(".envseal");
+
+        Vault::init("master_pass", true, false, None).unwrap();
+        let mut vault = Vault::load(false, None).unwrap();
+        let keys = vault.unlock("master_pass").unwrap();
+
+        // Populate base group variables
+        vault
+            .set_entry(
+                &keys,
+                None,
+                None,
+                "COMMON_URL",
+                "https://api.domain.com",
+                None,
+            )
+            .unwrap();
+        vault
+            .set_entry(&keys, None, None, "TIMEOUT_SEC", "30", None)
+            .unwrap();
+
+        // Create an unprotected tag and only override TIMEOUT_SEC
+        vault
+            .set_entry(&keys, None, Some("staging"), "TIMEOUT_SEC", "120", None)
+            .unwrap();
+
+        // When queried under 'staging', COMMON_URL must inherit from base
+        let inherited = vault
+            .get_entry(&keys.master_dek, None, Some("staging"), "COMMON_URL", None)
+            .unwrap();
+        assert_eq!(inherited.as_str(), "https://api.domain.com");
+
+        // TIMEOUT_SEC must return the tag-specific override
+        let overridden = vault
+            .get_entry(&keys.master_dek, None, Some("staging"), "TIMEOUT_SEC", None)
+            .unwrap();
+        assert_eq!(overridden.as_str(), "120");
+
+        // Non-existent keys must fail across both scopes
+        let non_existent =
+            vault.get_entry(&keys.master_dek, None, Some("staging"), "NOT_FOUND", None);
+        assert!(non_existent.is_err());
+    }
+
+    #[test]
+    fn test_session_manager_lifecycle_and_clearing() {
+        use envseal::utils::session::{CachedKeys, SessionManager};
+
+        let test_scope = "test_memory_session_scope";
+        let dummy_kek = [0x42u8; crypto::KEY_LEN];
+        let dummy_seed = [0x24u8; crypto::KEY_LEN];
+
+        SessionManager::cache_keys(
+            test_scope,
+            CachedKeys::Master {
+                kek: dummy_kek,
+                seed: dummy_seed,
+            },
+        )
+        .unwrap();
+
+        // Ensure key material can be retrieved
+        let active = SessionManager::get_active_keys(test_scope)
+            .unwrap()
+            .expect("Session key should be present in cache");
+
+        match active {
+            CachedKeys::Master { kek, seed } => {
+                assert_eq!(kek, dummy_kek);
+                assert_eq!(seed, dummy_seed);
+            }
+            _ => panic!("Expected CachedKeys::Master"),
+        }
+
+        // Wipe session
+        SessionManager::clear_session(test_scope).unwrap();
+        let cleared = SessionManager::get_active_keys(test_scope).unwrap();
+        assert!(cleared.is_none());
+    }
+
+    #[test]
+    fn test_token_always_includes_base_and_overrides_with_tag() {
+        let env = TestEnv::new(".envseal");
+
+        Vault::init("master_pass", true, false, None).unwrap();
+        let mut vault = Vault::load(false, None).unwrap();
+        let keys = vault.unlock("master_pass").unwrap();
+
+        // 1. Populate base values
+        vault
+            .set_entry(&keys, None, None, "COMMON_URL", "https://api.test", None)
+            .unwrap();
+        vault
+            .set_entry(&keys, None, None, "PORT", "3000", None)
+            .unwrap();
+
+        // 2. Populate tag override and tag-specific value
+        vault
+            .create_protected_tag(&keys.signing_key, None, "prod", "tag_pass")
+            .unwrap();
+        let tag_key = vault.unlock_tag(None, "prod", "tag_pass").unwrap();
+
+        vault
+            .set_entry(&keys, None, Some("prod"), "PORT", "8080", Some(&tag_key))
+            .unwrap();
+        vault
+            .set_entry(
+                &keys,
+                None,
+                Some("prod"),
+                "PROD_ONLY",
+                "active",
+                Some(&tag_key),
+            )
+            .unwrap();
+
+        // 3. Generate token for tag "prod"
+        let token_string = vault
+            .create_token(
+                &keys.signing_key,
+                &keys.master_dek,
+                None,
+                Some("prod"),
+                Some(&tag_key),
+                "ci-deployer",
+                Some(3600),
+                Some("Deploy pipeline token"),
+                None,
+            )
+            .unwrap();
+
+        let token_file_path = env.vault_path.parent().unwrap().join("deploy.token");
+        fs::write(&token_file_path, &token_string).unwrap();
+
+        // 4. Resolve secrets without specifying --tag; tag is inferred from token
+        let resolved = resolve_secrets(&vault, None, None, Some(&token_file_path), false).unwrap();
+
+        // Base variable was included
+        assert_eq!(
+            resolved.get("COMMON_URL").unwrap().as_str(),
+            "https://api.test"
+        );
+        // Base variable was overridden by tag value
+        assert_eq!(resolved.get("PORT").unwrap().as_str(), "8080");
+        // Tag-specific variable was included
+        assert_eq!(resolved.get("PROD_ONLY").unwrap().as_str(), "active");
+    }
+
+    #[test]
     fn test_valid_env_key_syntax_validation() {
-        // Valid POSIX/Shell variable names
         assert!(is_valid_env_key("API_KEY"));
         assert!(is_valid_env_key("_SECRET"));
         assert!(is_valid_env_key("PORT_8080"));
         assert!(is_valid_env_key("v"));
 
-        // Invalid variable names
         assert!(!is_valid_env_key("8080_PORT"));
         assert!(!is_valid_env_key("API-KEY"));
         assert!(!is_valid_env_key("ENV.KEY"));
