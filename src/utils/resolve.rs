@@ -1,8 +1,7 @@
 use super::token::TokenManager;
 use super::unlock;
-use super::vault::Vault;
-use super::vault::BASE_TAG;
-use anyhow::{anyhow, Result};
+use super::vault::{Vault, BASE_TAG};
+use anyhow::{anyhow, Context, Result};
 use std::collections::BTreeMap;
 use std::env;
 use std::fs;
@@ -10,12 +9,12 @@ use std::io::{self, Read};
 use std::path::PathBuf;
 use zeroize::Zeroizing;
 
-/// Safely retrieves the token without exposing it to process monitors
-pub fn fetch_token_from_diffrent_ends(
+/// Safely retrieves the token from disk, environment, or stdin without leaking into memory dumps.
+pub fn fetch_token(
     token_file_path: Option<&PathBuf>,
     allow_env: bool,
-) -> Result<Option<String>> {
-    let file_path = token_file_path.map(|p| p.to_path_buf()).or_else(|| {
+) -> Result<Option<Zeroizing<String>>> {
+    let file_path = token_file_path.cloned().or_else(|| {
         if allow_env {
             env::var("ENVSEAL_TOKEN_FILE").ok().map(PathBuf::from)
         } else {
@@ -24,22 +23,29 @@ pub fn fetch_token_from_diffrent_ends(
     });
 
     if let Some(path) = file_path {
-        if path.as_os_str() == "-" {
+        let mut raw = Zeroizing::new(if path.as_os_str() == "-" {
             let mut buffer = String::new();
             io::stdin().read_to_string(&mut buffer)?;
-            return Ok(Some(buffer.trim().to_string()));
-        }
-        if !path.exists() {
-            return Err(anyhow!("Token file not found at: {}", path.display()));
-        }
-        let token = fs::read_to_string(&path)?;
-        return Ok(Some(token.trim().to_string()));
+            buffer
+        } else {
+            if !path.exists() {
+                return Err(anyhow!("Token file not found at: {}", path.display()));
+            }
+            fs::read_to_string(&path)?
+        });
+
+        let trimmed = raw.trim();
+        let trimmed_len = trimmed.len();
+        raw.truncate(trimmed_len);
+        return Ok(Some(raw));
     }
 
     if allow_env {
-        if let Ok(token) = env::var("ENVSEAL_TOKEN") {
-            if !token.trim().is_empty() {
-                return Ok(Some(token.trim().to_string()));
+        if let Ok(mut token) = env::var("ENVSEAL_TOKEN") {
+            let trimmed_len = token.trim().len();
+            token.truncate(trimmed_len);
+            if !token.is_empty() {
+                return Ok(Some(Zeroizing::new(token)));
             }
         }
     }
@@ -55,8 +61,12 @@ pub fn resolve_secrets(
     token_file: Option<&PathBuf>,
     allow_env: bool,
 ) -> Result<BTreeMap<String, Zeroizing<String>>> {
-    if let Some(token_str) = fetch_token_from_diffrent_ends(token_file, allow_env)? {
-        eprintln!("secure token detected! executing in Zero-Trust offline mode...");
+    // Verify file integrity upfront before querying entries or public keys
+    vault.verify_integrity()?;
+
+    // Zero-Trust Token Mode
+    if let Some(token_str) = fetch_token(token_file, allow_env)? {
+        eprintln!("Secure token detected! Executing in Zero-Trust offline mode...");
         let payload = TokenManager::verify_and_extract(&token_str, &vault.public_key)?;
 
         let active_tag = match tag {
@@ -80,13 +90,11 @@ pub fn resolve_secrets(
             }
         };
 
-        vault.verify_integrity()?;
-
-        // Return decrypted map directly from token
-        return vault.decrypt_from_token(group, tag, &payload);
+        // Pass Some(&active_tag) to ensure inferred tag overrides are applied
+        return vault.decrypt_from_token(group, Some(&active_tag), &payload);
     }
 
-    // Fallback to Password Mode
+    // Password Mode
     let active_tag = tag.unwrap_or(BASE_TAG);
     let master_keys = unlock::sudo_unlock(vault, None, allow_env)?;
     let tag_key = if vault.is_tag_protected(group, Some(active_tag))? {
@@ -96,24 +104,22 @@ pub fn resolve_secrets(
     } else {
         None
     };
-    let keys = vault.list_all_keys(group, tag)?;
+
+    let keys = vault.list_all_keys(group, Some(active_tag))?;
     let mut decrypted_envs = BTreeMap::new();
 
-    vault.verify_integrity()?;
-
     for key in keys {
-        match vault.get_entry(
-            &master_keys.master_dek,
-            group,
-            tag,
-            &key,
-            tag_key.as_deref(),
-        ) {
-            Ok(value) => {
-                decrypted_envs.insert(key, value);
-            }
-            Err(_) => continue,
-        }
+        let value = vault
+            .get_entry(
+                &master_keys.master_dek,
+                group,
+                Some(active_tag),
+                &key,
+                tag_key.as_deref(),
+            )
+            .with_context(|| format!("Failed to decrypt secret '{key}'"))?;
+
+        decrypted_envs.insert(key, value);
     }
 
     Ok(decrypted_envs)

@@ -358,6 +358,89 @@ mod vault_integration_tests {
     }
 
     #[test]
+    fn test_regression_resolve_secrets_infers_tag_and_overrides_without_cli_flag() {
+        let env = TestEnv::new(".envseal");
+
+        Vault::init("master_pass", true, false, None).unwrap();
+        let mut vault = Vault::load(false, None).unwrap();
+        let keys = vault.unlock("master_pass").unwrap();
+
+        // 1. Configure base entries
+        vault
+            .set_entry(&keys, None, None, "SHARED_HOST", "base.internal", None)
+            .unwrap();
+        vault
+            .set_entry(&keys, None, None, "PORT", "3000", None)
+            .unwrap();
+
+        // 2. Configure protected tag with an override (PORT) and an exclusive key (PROD_SECRET)
+        vault
+            .create_protected_tag(&keys.signing_key, None, "prod", "tag_pass")
+            .unwrap();
+        let tag_key = vault.unlock_tag(None, "prod", "tag_pass").unwrap();
+
+        vault
+            .set_entry(&keys, None, Some("prod"), "PORT", "8080", Some(&tag_key))
+            .unwrap();
+        vault
+            .set_entry(
+                &keys,
+                None,
+                Some("prod"),
+                "PROD_SECRET",
+                "super-secure-token",
+                Some(&tag_key),
+            )
+            .unwrap();
+
+        // 3. Mint token scoped to "prod" (inherits base, overrides PORT)
+        let token_string = vault
+            .create_token(
+                &keys.signing_key,
+                &keys.master_dek,
+                None,
+                Some("prod"),
+                Some(&tag_key),
+                "ci-worker",
+                Some(1800),
+                Some("Automated regression test token"),
+                None,
+            )
+            .unwrap();
+
+        let token_file_path = env.vault_path.parent().unwrap().join("scoped.token");
+        fs::write(&token_file_path, &token_string).unwrap();
+
+        // 4. Resolve secrets passing `None` as the tag parameter
+        let resolved = resolve_secrets(
+            &vault,
+            None,
+            None, // Inferred automatically from token scope
+            Some(&token_file_path),
+            false,
+        )
+        .expect("resolve_secrets must infer tag from token payload when CLI tag is None");
+
+        // 5. Validate inheritance, overrides, and tag-only entries
+        assert_eq!(
+            resolved.get("SHARED_HOST").map(|s| s.as_str()),
+            Some("base.internal"),
+            "Unmodified base secret should be present"
+        );
+        assert_eq!(
+            resolved.get("PORT").map(|s| s.as_str()),
+            Some("8080"),
+            "Tag override must take precedence over the base secret value"
+        );
+        assert_eq!(
+            resolved.get("PROD_SECRET").map(|s| s.as_str()),
+            Some("super-secure-token"),
+            "Tag-specific secret must be decrypted"
+        );
+        assert_eq!(resolved.len(), 3);
+    }
+
+    #[test]
     fn test_protected_tag_deletion_rules() {
         let _env = TestEnv::new(".envseal");
 
