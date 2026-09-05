@@ -23,7 +23,7 @@ pub fn fetch_token(
     });
 
     if let Some(path) = file_path {
-        let mut raw = Zeroizing::new(if path.as_os_str() == "-" {
+        let raw = if path.as_os_str() == "-" {
             let mut buffer = String::new();
             io::stdin().read_to_string(&mut buffer)?;
             buffer
@@ -32,20 +32,16 @@ pub fn fetch_token(
                 return Err(anyhow!("Token file not found at: {}", path.display()));
             }
             fs::read_to_string(&path)?
-        });
-
-        let trimmed = raw.trim();
-        let trimmed_len = trimmed.len();
-        raw.truncate(trimmed_len);
-        return Ok(Some(raw));
+        };
+        let trimmed = raw.trim().to_string();
+        return Ok(Some(Zeroizing::new(trimmed)));
     }
 
     if allow_env {
-        if let Ok(mut token) = env::var("ENVSEAL_TOKEN") {
-            let trimmed_len = token.trim().len();
-            token.truncate(trimmed_len);
-            if !token.is_empty() {
-                return Ok(Some(Zeroizing::new(token)));
+        if let Ok(token) = env::var("ENVSEAL_TOKEN") {
+            let trimmed = token.trim().to_string();
+            if !trimmed.is_empty() {
+                return Ok(Some(Zeroizing::new(trimmed)));
             }
         }
     }
@@ -61,14 +57,12 @@ pub fn resolve_secrets(
     token_file: Option<&PathBuf>,
     allow_env: bool,
 ) -> Result<BTreeMap<String, Zeroizing<String>>> {
-    // Verify file integrity upfront before querying entries or public keys
     vault.verify_integrity()?;
 
     // Zero-Trust Token Mode
     if let Some(token_str) = fetch_token(token_file, allow_env)? {
         eprintln!("Secure token detected! Executing in Zero-Trust offline mode...");
         let payload = TokenManager::verify_and_extract(&token_str, &vault.public_key)?;
-
         let active_tag = match tag {
             Some(t) => {
                 let expected_scope = vault.tag_scope(group, t)?;
@@ -90,7 +84,6 @@ pub fn resolve_secrets(
             }
         };
 
-        // Pass Some(&active_tag) to ensure inferred tag overrides are applied
         return vault.decrypt_from_token(group, Some(&active_tag), &payload);
     }
 
@@ -107,7 +100,6 @@ pub fn resolve_secrets(
 
     let keys = vault.list_all_keys(group, Some(active_tag))?;
     let mut decrypted_envs = BTreeMap::new();
-
     for key in keys {
         let value = vault
             .get_entry(
@@ -118,7 +110,6 @@ pub fn resolve_secrets(
                 tag_key.as_deref(),
             )
             .with_context(|| format!("Failed to decrypt secret '{key}'"))?;
-
         decrypted_envs.insert(key, value);
     }
 

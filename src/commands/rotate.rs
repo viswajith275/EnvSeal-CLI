@@ -37,7 +37,6 @@ pub fn cmd_rotate(
             "[sudo] password for tag '{}' in group '{}': ",
             active_tag, group_name
         );
-
         let pass = if allow_env {
             let env_tag_var = format!(
                 "ENVSEAL_TAG_PASSWORD_{}",
@@ -49,13 +48,13 @@ pub fn cmd_rotate(
                 if !env_pass.is_empty() {
                     Zeroizing::new(env_pass)
                 } else {
-                    Zeroizing::new(rpassword::prompt_password(prompt)?)
+                    unlock::prompt_with_fallback(&prompt)?
                 }
             } else {
-                Zeroizing::new(rpassword::prompt_password(prompt)?)
+                unlock::prompt_with_fallback(&prompt)?
             }
         } else {
-            Zeroizing::new(rpassword::prompt_password(prompt)?)
+            unlock::prompt_with_fallback(&prompt)?
         };
         Some(pass)
     } else {

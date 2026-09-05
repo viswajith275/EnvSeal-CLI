@@ -1,7 +1,5 @@
 use crate::utils::{unlock, vault::Vault};
 use anyhow::{bail, Result};
-use rpassword::prompt_password;
-use zeroize::Zeroizing;
 
 pub fn cmd_protag(
     group: Option<&str>,
@@ -14,14 +12,10 @@ pub fn cmd_protag(
     let group_name = vault.resolve_group_name(group)?;
     let master_keys = unlock::sudo_unlock(&vault, None, allow_env)?;
 
-    let tag_password = Zeroizing::new(prompt_password(format!(
-        "password for tag '{}' in group '{}': ",
-        tag, group_name
-    ))?);
-    let confirm = Zeroizing::new(prompt_password(format!(
-        "confirm password for tag '{}': ",
-        tag
-    ))?);
+    let prompt_msg = format!("password for tag '{}' in group '{}': ", tag, group_name);
+    let tag_password = unlock::prompt_with_fallback(&prompt_msg)?;
+    let confirm_msg = format!("confirm password for tag '{}': ", tag);
+    let confirm = unlock::prompt_with_fallback(&confirm_msg)?;
     if *tag_password != *confirm {
         bail!("Passwords did not match!");
     }

@@ -404,6 +404,7 @@ impl Vault {
     }
 
     /// Rewraps the Master DEK under a new password without altering stored entries
+    /// Rewraps the Master DEK under a new password without altering stored entries
     pub fn change_master_password(
         &mut self,
         current_keys: &VaultKeys,
@@ -418,26 +419,17 @@ impl Vault {
 
         let old_scope = self.master_scope();
         let _ = crate::utils::session::SessionManager::clear_session(&old_scope);
-
         self.salt = new_salt.to_vec();
         self.public_key = new_public_key;
         self.wrapped_master_dek = Entry {
             nonce: nonce.to_vec(),
             ciphertext,
         };
-
         self.seal_integrity(&new_signing_key)?;
         self.save()?;
 
-        let mut kek = [0u8; crypto::KEY_LEN];
-        kek.copy_from_slice(&*new_master_kek);
-        let mut seed = [0u8; crypto::KEY_LEN];
-        seed.copy_from_slice(new_signing_key.to_bytes().as_slice());
-
-        let _ = crate::utils::session::SessionManager::cache_keys(
-            &self.master_scope(),
-            crate::utils::session::CachedKeys::Master { kek, seed },
-        );
+        // Clear both scopes to guarantee zero cached master credentials
+        let _ = crate::utils::session::SessionManager::clear_session(&self.master_scope());
 
         Ok(())
     }

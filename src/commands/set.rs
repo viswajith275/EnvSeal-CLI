@@ -1,8 +1,6 @@
 use crate::utils::is_valid_env_key;
 use crate::utils::{unlock, vault::Vault};
 use anyhow::{anyhow, Result};
-use rpassword::prompt_password;
-use zeroize::Zeroizing;
 
 pub fn cmd_set(
     group: Option<&str>,
@@ -33,8 +31,8 @@ pub fn cmd_set(
         }
     }
 
-    let secret = Zeroizing::new(prompt_password(format!("value for {key}: "))?);
-
+    let prompt_msg = format!("value for {key}: ");
+    let secret = unlock::prompt_with_fallback(&prompt_msg)?;
     vault.set_entry(&master_keys, group, tag, key, &secret, tag_key.as_deref())?;
     vault.save()?;
 

@@ -111,7 +111,7 @@ pub fn cmd_load(
                 println!("$env:{}='{}'", key, escaped_val);
             }
             ShellType::Cmd => {
-                println!("set {}={}", key, value);
+                println!("set \"{}={}\"", key, value);
             }
         }
     }
