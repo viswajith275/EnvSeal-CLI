@@ -1,5 +1,4 @@
 pub mod clear;
-pub mod diff;
 pub mod export;
 pub mod get;
 pub mod import;

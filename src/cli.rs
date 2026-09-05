@@ -300,14 +300,6 @@ pub enum Commands {
         #[arg(long, value_enum, default_value_t = MergeStrategy::Fail)]
         strategy: MergeStrategy,
     },
-
-    /// Internal textconv diff generator invoked by Git
-    #[command(hide = true)]
-    Diff {
-        /// Path to the vault file
-        #[arg(value_hint = ValueHint::FilePath)]
-        file: PathBuf,
-    },
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, ValueEnum)]

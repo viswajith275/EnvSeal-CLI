@@ -38,7 +38,7 @@ impl SessionManager {
         let expires_at =
             SystemTime::now().duration_since(UNIX_EPOCH)?.as_secs() + SESSION_TIMEOUT_SEC;
         let session = SessionData { keys, expires_at };
-        let serialized_bytes = Zeroizing::new(rmp_serde::to_vec(&session)?);
+        let serialized_bytes = Zeroizing::new(serde_json::to_vec(&session)?);
         let serialized = base64::engine::general_purpose::STANDARD.encode(&*serialized_bytes);
         if let Ok(entry) = Self::get_entry(scope) {
             let _ = entry.set_password(&serialized);
@@ -61,7 +61,7 @@ impl SessionManager {
             if let Ok(encoded) = entry.get_password() {
                 if let Ok(bytes) = base64::engine::general_purpose::STANDARD.decode(encoded) {
                     let zero_bytes = Zeroizing::new(bytes);
-                    if let Ok(mut session) = rmp_serde::from_slice::<SessionData>(&zero_bytes) {
+                    if let Ok(mut session) = serde_json::from_slice::<SessionData>(&zero_bytes) {
                         if now <= session.expires_at {
                             let valid_keys = std::mem::replace(
                                 &mut session.keys,

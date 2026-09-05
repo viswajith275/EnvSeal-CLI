@@ -158,7 +158,6 @@ fn main() -> Result<std::process::ExitCode> {
         }
         Commands::Clear => commands::clear::cmd_clear(global, pref)?,
         Commands::Passwd => commands::passwd::cmd_passwd(global, pref, allow_env)?,
-        Commands::Diff { file } => commands::diff::cmd_diff(&file, allow_env)?,
         Commands::Merge {
             base,
             ours,

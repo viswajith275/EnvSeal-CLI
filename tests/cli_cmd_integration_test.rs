@@ -100,51 +100,11 @@ fn test_cli_git_setup_initializes_repo_and_attributes() {
     assert!(temp_path.join(".git").exists());
     let gitattributes = fs::read_to_string(temp_path.join(".gitattributes"))
         .expect("Failed to read .gitattributes");
-    assert!(gitattributes.contains("*.envseal merge=envseal diff=envseal"));
+    assert!(gitattributes.contains("*.envseal merge=envseal"));
 
     let gitignore =
         fs::read_to_string(temp_path.join(".gitignore")).expect("Failed to read .gitignore");
     assert!(gitignore.contains(".envseal*.lock"));
-}
-
-#[test]
-fn test_cli_diff_locked_fingerprint_and_tamper_warning() {
-    let temp = tempdir().expect("Failed to create tempdir");
-    let temp_path = temp.path();
-    let vault_file = temp_path.join(".envseal");
-
-    create_fixture_vault(
-        &vault_file,
-        "master_pass",
-        &[("DATABASE_URL", "postgres://localhost:5432")],
-    );
-
-    let mut cmd = envseal_cmd(temp_path);
-    cmd.arg("diff")
-        .arg(&vault_file)
-        .assert()
-        .success()
-        .stdout(predicate::str::contains(
-            "DATABASE_URL = <locked: reseal-fingerprint:",
-        ))
-        .stdout(predicate::str::contains("# Group: project"))
-        .stdout(predicate::str::contains("[base]"));
-
-    let mut vault = Vault::load_from_file(&vault_file).unwrap();
-    vault.signature[0] ^= 0xFF;
-    let binary = rmp_serde::to_vec(&vault).unwrap();
-    fs::write(&vault_file, binary).unwrap();
-
-    let mut tampered_cmd = envseal_cmd(temp_path);
-    tampered_cmd
-        .arg("diff")
-        .arg(&vault_file)
-        .assert()
-        .success()
-        .stdout(predicate::str::contains("Integrity check FAILED"))
-        .stdout(predicate::str::contains(
-            "vault may be corrupted or tampered with",
-        ));
 }
 
 #[test]

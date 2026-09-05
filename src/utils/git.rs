@@ -88,26 +88,12 @@ pub fn sync_repo_git_conf(init_git: bool) -> Result<()> {
         ])
         .output();
 
-    // diff driver and disable plaintext disk caching
-    let _ = Command::new("git")
-        .current_dir(&repo_root)
-        .args(["config", "--local", "diff.envseal.textconv", "envseal diff"])
-        .output();
-    let _ = Command::new("git")
-        .current_dir(&repo_root)
-        .args(["config", "--local", "diff.envseal.cachetextconv", "false"])
-        .output();
-
     let attributes_path = repo_root.join(".gitattributes");
 
     let existing_content = fs::read_to_string(&attributes_path).unwrap_or_default();
-
-    let has_envseal_rule = existing_content.lines().any(|line| {
-        line.trim().starts_with("*.envseal")
-            && line.contains("merge=envseal")
-            && line.contains("diff=envseal")
-    });
-
+    let has_envseal_rule = existing_content
+        .lines()
+        .any(|line| line.trim().starts_with("*.envseal") && line.contains("merge=envseal"));
     if !has_envseal_rule {
         let mut file = OpenOptions::new()
             .create(true)
@@ -117,12 +103,12 @@ pub fn sync_repo_git_conf(init_git: bool) -> Result<()> {
 
         let mut rule = String::new();
         if !existing_content.is_empty() && !existing_content.ends_with('\n') {
-            rule.push('\n'); // creating new line
+            rule.push('\n');
         }
-        rule.push_str("*.envseal merge=envseal diff=envseal\n");
 
+        rule.push_str("*.envseal merge=envseal\n");
         file.write_all(rule.as_bytes())?;
-        eprintln!("[git] registered merge and diff attributes for '*.envseal'");
+        eprintln!("[git] registered merge attributes for '*.envseal'");
     }
 
     let gitignore_path = repo_root.join(".gitignore");

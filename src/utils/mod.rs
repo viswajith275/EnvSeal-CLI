@@ -6,6 +6,7 @@ pub mod token;
 pub mod unlock;
 pub mod vault;
 
+// just checking if the key is valid or not
 pub fn is_valid_env_key(key: &str) -> bool {
     let mut chars = key.chars();
     match chars.next() {

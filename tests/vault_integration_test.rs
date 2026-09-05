@@ -4,7 +4,7 @@ mod vault_integration_tests {
     use envseal::utils::is_valid_env_key;
     use envseal::utils::resolve::resolve_secrets;
     use envseal::utils::token::TokenManager;
-    use envseal::utils::vault::{Entry, Vault, BASE_TAG};
+    use envseal::utils::vault::{Entry, Group, Vault, BASE_TAG, LOCAL_GROUP_NAME};
     use std::collections::HashMap;
     use std::env;
     use std::fs;
@@ -13,7 +13,7 @@ mod vault_integration_tests {
     use tempfile::{tempdir, TempDir};
     use zeroize::Zeroizing;
 
-    // ponytail: serializes env-var mutations across test threads with a static mutex; upgrade path: isolate test runs with separate processes
+    // serializes env-var mutations across test threads with a static mutex; upgrade path: isolate test runs with separate processes
     static ENV_MUTEX: Mutex<()> = Mutex::new(());
 
     struct TestEnv {
@@ -931,6 +931,25 @@ mod vault_integration_tests {
         assert_eq!(resolved, "microservice");
 
         env::set_current_dir(prev_dir).unwrap();
+    }
+
+    #[test]
+    fn toml_vault_hex_and_tables_roundtrip() {
+        let mut vault = Vault::default();
+        vault.salt = vec![0xde, 0xad, 0xbe, 0xef];
+        vault.public_key = vec![0x01, 0x02, 0x03, 0x04];
+        vault.signature = vec![0xaa, 0xbb];
+        vault
+            .entries
+            .insert(LOCAL_GROUP_NAME.to_string(), Group::default());
+
+        let raw_toml = toml::to_string_pretty(&vault).expect("serialization failed");
+        assert!(raw_toml.contains("salt = \"deadbeef\""));
+        assert!(raw_toml.contains("public_key = \"01020304\""));
+        assert!(raw_toml.contains("signature = \"aabb\""));
+
+        let parsed: Vault = toml::from_str(&raw_toml).expect("deserialization failed");
+        assert_eq!(vault, parsed);
     }
 
     #[test]

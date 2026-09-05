@@ -4,7 +4,7 @@ use anyhow::{anyhow, Context, Result};
 use directories::ProjectDirs;
 use ed25519_dalek::{Signature, Signer, SigningKey, Verifier, VerifyingKey};
 use fs2::FileExt;
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use sha2::{Digest, Sha256};
 use std::collections::{BTreeMap, HashSet};
 use std::env;
@@ -13,10 +13,43 @@ use std::fs::{self, File, OpenOptions};
 use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
 use tempfile::NamedTempFile;
+use toml;
 use zeroize::{Zeroize, ZeroizeOnDrop, Zeroizing};
 
 pub const BASE_TAG: &str = "base";
-const LOCAL_GROUP_NAME: &str = "project";
+pub const LOCAL_GROUP_NAME: &str = "project";
+
+mod hex_bytes {
+    use serde::{Deserialize, Deserializer, Serializer};
+
+    pub fn serialize<S: Serializer>(bytes: &[u8], s: S) -> Result<S::Ok, S::Error> {
+        s.serialize_str(&hex::encode(bytes))
+    }
+
+    pub fn deserialize<'de, D: Deserializer<'de>>(d: D) -> Result<Vec<u8>, D::Error> {
+        let s = String::deserialize(d)?;
+        hex::decode(&s).map_err(serde::de::Error::custom)
+    }
+}
+
+mod hex_bytes_opt {
+    use serde::{Deserialize, Deserializer, Serializer};
+
+    pub fn serialize<S: Serializer>(val: &Option<Vec<u8>>, s: S) -> Result<S::Ok, S::Error> {
+        match val {
+            Some(b) => s.serialize_str(&hex::encode(b)),
+            None => s.serialize_none(),
+        }
+    }
+
+    pub fn deserialize<'de, D: Deserializer<'de>>(d: D) -> Result<Option<Vec<u8>>, D::Error> {
+        let opt = Option::<String>::deserialize(d)?;
+        match opt {
+            Some(s) => hex::decode(&s).map(Some).map_err(serde::de::Error::custom),
+            None => Ok(None),
+        }
+    }
+}
 
 #[derive(Zeroize, ZeroizeOnDrop)]
 pub struct VaultKeys {
@@ -36,36 +69,73 @@ impl fmt::Debug for VaultKeys {
     }
 }
 
-#[derive(Serialize, Deserialize, Default, Clone, PartialEq, Eq)]
+#[derive(Default, Clone, PartialEq, Eq, Debug)]
 pub struct Entry {
     pub nonce: Vec<u8>,
     pub ciphertext: Vec<u8>,
 }
 
-#[derive(Serialize, Deserialize, Default, Clone, PartialEq, Eq)]
+// manual serialization and de serialization
+impl Serialize for Entry {
+    fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        let val = format!(
+            "{}:{}",
+            hex::encode(&self.nonce),
+            hex::encode(&self.ciphertext)
+        );
+        serializer.serialize_str(&val)
+    }
+}
+
+impl<'de> Deserialize<'de> for Entry {
+    fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        let s = String::deserialize(deserializer)?;
+        let (nonce_hex, cipher_hex) = s
+            .split_once(':')
+            .ok_or_else(|| serde::de::Error::custom("expected format 'nonce:ciphertext'"))?;
+        Ok(Self {
+            nonce: hex::decode(nonce_hex).map_err(serde::de::Error::custom)?,
+            ciphertext: hex::decode(cipher_hex).map_err(serde::de::Error::custom)?,
+        })
+    }
+}
+
+#[derive(Serialize, Deserialize, Default, Clone, PartialEq, Eq, Debug)]
 pub struct Tag {
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        with = "hex_bytes_opt"
+    )]
     pub salt: Option<Vec<u8>>,
+
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub wrapped_tag_dek: Option<Entry>,
+
     pub entries: BTreeMap<String, Entry>,
 }
 
-#[derive(Serialize, Deserialize, Default, Clone, PartialEq, Eq)]
+#[derive(Serialize, Deserialize, Default, Clone, PartialEq, Eq, Debug)]
 pub struct Group {
     pub link: PathBuf,
     pub base: BTreeMap<String, Entry>,
     pub tags: BTreeMap<String, Tag>,
 }
 
-#[derive(Serialize, Deserialize, Default, Clone, PartialEq, Eq)]
+#[derive(Serialize, Deserialize, Default, Clone, PartialEq, Eq, Debug)]
 pub struct Vault {
+    #[serde(with = "hex_bytes")]
     pub salt: Vec<u8>,
+
+    #[serde(with = "hex_bytes")]
     pub public_key: Vec<u8>,
+
+    #[serde(default, with = "hex_bytes")]
+    pub signature: Vec<u8>,
+
     pub wrapped_master_dek: Entry,
     pub link_index: BTreeMap<PathBuf, String>,
     pub entries: BTreeMap<String, Group>,
-
-    #[serde(default)]
-    pub signature: Vec<u8>,
 
     #[serde(skip)]
     pub file_path: Option<PathBuf>,
@@ -92,7 +162,7 @@ impl Vault {
             entries: &self.entries,
             signature: &[],
         };
-        Ok(rmp_serde::to_vec(&sign)?)
+        Ok(serde_json::to_vec(&sign)?)
     }
 
     /// Computes and updates the Ed25519 signature
@@ -238,7 +308,7 @@ impl Vault {
         let dirs = ProjectDirs::from("dev", "envseal", "envseal").ok_or_else(|| {
             anyhow!("Could not determine OS config directory (Change your OS!!!)")
         })?;
-        Ok(dirs.config_dir().join("seal-encrypted.json"))
+        Ok(dirs.config_dir().join("seal-encrypted.toml"))
     }
 
     /// checks if current vault is local or global
@@ -304,30 +374,27 @@ impl Vault {
         if !path.exists() {
             anyhow::bail!("No vault found. Run 'envseal init' first.");
         }
-
         let mut lock_name = path.as_os_str().to_os_string();
         lock_name.push(".lock");
         let lock_path = PathBuf::from(lock_name);
-
         let lock_file = OpenOptions::new()
             .read(true)
             .write(true)
             .create(true)
             .open(&lock_path)?;
-
         lock_file
             .lock_shared()
             .with_context(|| format!("Failed to acquire read lock on '{}'", lock_path.display()))?;
 
         let mut file = File::open(&path)
             .with_context(|| format!("Failed to open vault at '{}'", path.display()))?;
-        let mut data = Vec::new();
-        file.read_to_end(&mut data)
+
+        let mut data = String::new();
+        file.read_to_string(&mut data)
             .with_context(|| format!("Failed to read vault data from '{}'", path.display()))?;
 
         lock_file.unlock()?;
-
-        let mut vault: Vault = rmp_serde::from_slice(&data)
+        let mut vault: Vault = toml::from_str(&data)
             .with_context(|| format!("Failed to parse vault at '{}'", path.display()))?;
         vault.file_path = Some(path);
         Ok(vault)
@@ -337,36 +404,37 @@ impl Vault {
         if !path.exists() {
             anyhow::bail!("Vault file does not exist: {}", path.display());
         }
+
         let mut file = File::open(path)?;
-        let mut data = Vec::new();
-        file.read_to_end(&mut data)?;
-        let mut vault: Vault = rmp_serde::from_slice(&data)?;
+        let mut data = String::new();
+        file.read_to_string(&mut data)?;
+        let mut vault: Vault = toml::from_str(&data)?;
         vault.file_path = Some(path.clone());
         Ok(vault)
     }
 
-    /// Atomically saves the structure using MessagePack (rmp_serde).
+    /// Atomically saves the structure in toml
     pub fn save(&self) -> Result<()> {
         let path = self.file_path.as_ref().context("Vault path not defined")?;
         let mut lock_name = path.as_os_str().to_os_string();
+
         lock_name.push(".lock");
         let lock_path = PathBuf::from(lock_name);
-
         let lock_file = OpenOptions::new()
             .read(true)
             .write(true)
             .create(true)
             .open(&lock_path)?;
-
         lock_file.lock_exclusive()?;
 
         let parent_dir = path.parent().unwrap_or_else(|| Path::new("."));
+
         let mut temp_file = NamedTempFile::new_in(parent_dir)?;
-        let binary_data = rmp_serde::to_vec(self)?;
-        temp_file.write_all(&binary_data)?;
+
+        let toml_data = toml::to_string_pretty(self)?;
+        temp_file.write_all(toml_data.as_bytes())?;
         temp_file.flush()?;
         temp_file.persist(path)?;
-
         lock_file.unlock()?;
         Ok(())
     }
@@ -403,7 +471,6 @@ impl Vault {
         ))
     }
 
-    /// Rewraps the Master DEK under a new password without altering stored entries
     /// Rewraps the Master DEK under a new password without altering stored entries
     pub fn change_master_password(
         &mut self,
