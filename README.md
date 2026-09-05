@@ -21,17 +21,17 @@ EnvSeal is an offline, zero-trust secrets manager built on standard SSH and Age 
 
 If you've built anything with more than one contributor, one of these has happened to you:
 
-- **"Wait, it works on my machine." **
+- **"Wait, it works on my machine."**
 Someone adds a new API key to their local `.env`, gets the feature working, and pushes the code. Nobody else has that key. The app breaks for everyone else, and you spend the next hour in a group chat asking "does anyone know what `PAYMENT_API_KEY` is supposed to be?"
 
-- **The `.env` file that never gets shared **
+- **The `.env` file that never gets shared**
 `.env` is gitignored for good reason, but that also means it never reaches your teammates automatically. So it gets passed around as a WhatsApp message, a Discord DM, or a copy-pasted block in a shared Google Doc — sitting there in plaintext, forever, in someone's chat history.
 
-- **Wrong branch, wrong database **
+- **Wrong branch, wrong database**
 You switch from `main` to a `staging` or `experiment` branch to test something, but your `.env` doesn't know that. You're now running experimental code against production data, or worse, testing against a database that doesn't have the tables your new branch expects.
 
-- **The 2 AM `git add .` **
-It's late, the deadline is tomorrow, and `git add .` scoops up a `.env` file along with everything else. Now there's a real API key sitting in your Git history — and if the repo is public, bots are already scanning for it.
+- **The 2 AM
+`git add .`** It's late, the deadline is tomorrow, and `git add .` scoops up a `.env` file along with everything else. Now there's a real API key sitting in your Git history — and if the repo is public, bots are already scanning for it.
 
 None of these are exotic problems. They're just what happens when secrets live outside version control but the code that needs them doesn't.
 
@@ -199,16 +199,16 @@ envseal rotate
 
 Cryptography is very good at math and very bad at knowing whether you actually meant to leave the front door open. A few honest caveats:
 
-**Removing someone doesn't erase what they already saw.**
+- **Removing someone doesn't erase what they already saw.**
 `envseal recipient rm <name>` stops a person from decrypting *future* commits, but Git history is permanent — anyone who cloned the repo earlier still has old encrypted commits and could decrypt them with a key they already hold. If someone leaves the team under bad terms, rotate the actual credentials (database password, API keys) too, not just the vault. Removing their access is not a memory wipe; it's just taking away their house key after they've already made a copy.
 
-**`envseal rotate` protects the future, not the past — same issue as removing a recipient.**
+- **`envseal rotate` protects the future, not the past — same issue as removing a recipient.**
 Rotating generates a fresh encryption key and re-encrypts the *current* state of the vault, which is exactly what you want after a token or laptop is compromised. But it doesn't retroactively re-encrypt old Git commits. Those historical `.envseal` snapshots stay in your Git history, encrypted under the *old* key. If a leaked token ever let someone extract the underlying derived key material, they could, in theory, still use it to decrypt those old commits — rotation doesn't undo that. The only thing that actually neutralizes a leaked secret is changing the secret itself. So the real rule is: **if a token or key leaks, rotate the vault *and* go rotate the actual API keys or database passwords at the source.** `envseal rotate` is a good first move, not an undo button.
 
-**Token expiry is enforced by the CLI, not by cryptography.**
+- **Token expiry is enforced by the CLI, not by cryptography.**
 The `--exp` flag is checked at runtime by EnvSeal itself. Because everything is offline, there's no server refusing an expired token — a sufficiently determined attacker with the raw token payload could bypass the clock check. If a CI runner is ever compromised, don't wait for the token to expire: rotate the vault and the underlying secrets immediately.
 
-**If you're a solo developer and you're your only recipient, you are also your own single point of failure.**
+- **If you're a solo developer and you're your only recipient, you are also your own single point of failure.**
 EnvSeal has no "forgot password" button, and it never will — that's the entire point of zero-trust design. If you initialize a vault with only your own SSH or Age key as a recipient, and then your laptop dies, gets stolen, or falls in a lake, there is no cloud backup, no support ticket, and no admin override that will get your secrets back. You didn't lose your keys — they just achieved main-character energy and left without you.
 
 For solo projects, treat your Age/SSH identity the way you'd treat a seed phrase:
@@ -216,7 +216,7 @@ For solo projects, treat your Age/SSH identity the way you'd treat a seed phrase
 - Consider adding a second recipient anyway — a spare key of your own stored on another device, or a trusted friend — purely as a recovery path.
 - Skip both of those, and your `.envseal` file is technically "tamper-evident and encrypted forever," which is a fancy way of describing a locked box with no key, sitting quietly in your Git history for eternity.
 
-**Extra practical advice:**
+ - **Extra practical advice:**
 - Prefer short-lived tokens (`--exp 3600` or less) for CI.
 - After any security incident, rotate *both* the vault *and* the real secrets the vault was protecting.
 - Never commit the raw token files or private keys — the pre-commit shield helps, but your own habits matter more.
@@ -227,7 +227,7 @@ For solo projects, treat your Age/SSH identity the way you'd treat a seed phrase
 
 No secrets tool is perfect for every setup. Here's an honest look:
 
-```
+
 |                              | Plain `.env`                    | dotenvx                                        | Mozilla SOPS                                     | **EnvSeal**                                             | Doppler / Infisical                                     |
 | ---------------------------- | ------------------------------- | ---------------------------------------------- | ------------------------------------------------ | ------------------------------------------------------- | ------------------------------------------------------- |
 | Cost                         | Free                            | Free / paid tiers                              | Free                                             | Free, no account needed                                 | $18–30/seat/month                                       |
@@ -236,7 +236,7 @@ No secrets tool is perfect for every setup. Here's an honest look:
 | Stops accidental commits     | No                              | Partially                                      | No                                               | Yes, built-in hook                                      | Yes (via CLI wrapper)                                   |
 | Team onboarding              | Manual file sharing             | Manual file sharing                            | Manual key exchange                              | Add a GitHub handle                                     | Invite via dashboard                                    |
 | Best suited for              | Solo hackathon, no real secrets | Small projects wanting encrypted `.env` syntax | Large Kubernetes/GitOps setups tied to cloud KMS | Small-to-mid teams who want secrets to just live in Git | Orgs that want a GUI, audit logs, and don't mind paying |
-```
+
 
 **Where EnvSeal genuinely wins:** it's the only option here that's both free *and* branch-aware *and* lives inside Git without asking you to trust a third-party server. For a student project or small team repo, that combination is hard to beat.
 
@@ -252,7 +252,7 @@ Besides, a monthly subscription for secrets management is a tough sell when your
 
 ### Core
 
-```
+
 | Command     | Usage                                                  | Description                                            |
 | ----------- | ------------------------------------------------------ | ------------------------------------------------------ |
 | `init`      | `envseal init [--local] [--git] [-r RECIPIENT]`        | Initialize a project or global vault.                  |
@@ -263,11 +263,11 @@ Besides, a monthly subscription for secrets management is a tough sell when your
 | `list`      | `envseal list [-g GROUP] [-t TAG]`                     | List key names without revealing values (alias: `ls`). |
 | `remove`    | `envseal remove [-g GROUP] [-t TAG] [--force] [KEY]`   | Delete a key, tag, or group (alias: `rm`).             |
 | `clear`     | `envseal clear`                                        | Wipe cached master keys from the OS keyring session.   |
-```
+
 
 ### Access & CI
 
-```
+
 | Command         | Usage                                                  | Description                                                  |
 | --------------- | ------------------------------------------------------ | ------------------------------------------------------------ |
 | `recipient id`  | `envseal recipient id`                                 | Print your local public identity key.                        |
@@ -278,7 +278,7 @@ Besides, a monthly subscription for secrets management is a tough sell when your
 | `rotate`        | `envseal rotate`                                       | Rotate the encryption key, invalidating all existing tokens. |
 | `import`        | `envseal import [-t TAG] PATH`                         | Import variables from an existing `.env` file.               |
 | `export`        | `envseal export [-t TAG] [-o PATH] [KEYS...]`          | Decrypt to a `.env` file with strict `0600` permissions.     |
-```
+
 
 ### Global Flags
 
@@ -343,64 +343,67 @@ envseal run -- printenv | grep -E 'DATABASE|STRIPE|API'
 
 ```bash
 envseal() {
-if [ "$1" = "load" ]; then
-for _arg in "$@"; do
-if [ "$_arg" = "--help" ] || [ "$_arg" = "-h" ]; then
-command envseal "$@"
-return
-fi
-done
-eval "$(command envseal "$@")"
-else
-command envseal "$@"
-fi
+  if [ "$1" = "load" ]; then
+    for _arg in "$@"; do
+      if [ "$_arg" = "--help" ] || [ "$_arg" = "-h" ]; then
+        command envseal "$@"
+        return
+      fi
+    done
+    eval "$(command envseal "$@")"
+  else
+    command envseal "$@"
+  fi
 }
+
 ```
 
 **Fish** (`~/.config/fish/config.fish`)
 
 ```fish
 function envseal
-if test "$argv[1]" = "load"
-if contains -- --help $argv; or contains -- -h $argv
-command envseal $argv
-else
-eval (command envseal $argv)
+    if test "$argv[1]" = "load"
+        if contains -- --help $argv; or contains -- -h $argv
+            command envseal $argv
+        else
+            eval (command envseal $argv)
+        end
+    else
+        command envseal $argv
+    end
 end
-else
-command envseal $argv
-end
-end
+
 ```
 
 **PowerShell** (`$PROFILE`)
 
 ```powershell
 function envseal {
-param(
-[Parameter(ValueFromRemainingArguments = $true)]
-[string[]]$EnvsealArgs
-)
+    param(
+        [Parameter(ValueFromRemainingArguments = $true)]
+        [string[]]$EnvsealArgs
+    )
 
-$exe = Get-Command envseal -CommandType Application -ErrorAction SilentlyContinue |
-Select-Object -First 1 -ExpandProperty Source
+    $exe = Get-Command envseal -CommandType Application -ErrorAction SilentlyContinue |
+        Select-Object -First 1 -ExpandProperty Source
 
-if (-not $exe) {
-Write-Error "envseal: not found on PATH. Install it with: winget install viswajith275.envseal"
-return
+    if (-not $exe) {
+        Write-Error "envseal: not found on PATH. Install it with: winget install viswajith275.envseal"
+        return
+    }
+
+    if ($EnvsealArgs.Count -gt 0 -and $EnvsealArgs[0] -eq 'load') {
+        if ($EnvsealArgs -contains '--help' -or $EnvsealArgs -contains '-h') {
+            & $exe @EnvsealArgs
+            return
+        }
+        & $exe @EnvsealArgs | Invoke-Expression
+    }
+    else {
+        & $exe @EnvsealArgs
+    }
 }
 
-if ($EnvsealArgs.Count -gt 0 -and $EnvsealArgs[0] -eq 'load') {
-if ($EnvsealArgs -contains '--help' -or $EnvsealArgs -contains '-h') {
-& $exe @EnvsealArgs
-return
-}
-& $exe @EnvsealArgs | Invoke-Expression
-}
-else {
-& $exe @EnvsealArgs
-}
-}
 ```
 
 **Warning about `envseal load`:** once the variables are in your interactive shell they stay there until you `unset` them or close the terminal. Prefer `envseal run -- ...` for almost every real workflow.
