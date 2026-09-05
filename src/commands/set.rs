@@ -1,6 +1,6 @@
 use crate::utils::is_valid_env_key;
 use crate::utils::{unlock, vault::Vault};
-use anyhow::{anyhow, Result};
+use anyhow::Result;
 
 pub fn cmd_set(
     group: Option<&str>,
@@ -12,38 +12,23 @@ pub fn cmd_set(
 ) -> Result<()> {
     if !is_valid_env_key(key) {
         anyhow::bail!(
-                "Invalid environment variable name '{key}'. Keys must start with a letter or underscore and contain only alphanumeric characters and underscores!!"
-            );
+            "Invalid environment variable name '{key}'. Keys must start with a letter or underscore and contain only alphanumeric characters and underscores."
+        );
     }
+
     let mut vault = Vault::load(global, pref)?;
+    let master_keys = unlock::sudo_unlock(&vault, Some("set"), allow_env)?;
 
-    let group_name = vault.resolve_group_name(group)?;
-    let master_keys = unlock::sudo_unlock(&vault, None, allow_env)?;
-
-    let mut tag_key = None;
-    if vault.is_tag_protected(group, tag)? {
-        if let Some(t) = tag {
-            tag_key = Some(unlock::sudo_unlock_tag(&vault, group, t, None, allow_env)?);
-        } else {
-            return Err(anyhow!(
-                "A tag must be provided if the group's default tag is protected."
-            ));
-        }
-    }
-
-    let prompt_msg = format!("value for {key}: ");
-    let secret = unlock::prompt_with_fallback(&prompt_msg)?;
-    vault.set_entry(&master_keys, group, tag, key, &secret, tag_key.as_deref())?;
+    let secret = rpassword::prompt_password(format!("value for {key}: "))?;
+    vault.set_entry(&master_keys, group, tag, key, &secret)?;
     vault.save()?;
 
-    let location_label = if vault.is_local() { "local" } else { "global" };
-    let message = match tag {
-        Some(t) => format!(
-            "sealed '{key}' in tag '{t}' inside group '{group_name}' ({location_label} seal)"
-        ),
-        None => format!("sealed '{key}' inside group '{group_name}' ({location_label} seal)"),
-    };
+    let group_name = vault.resolve_group_name(group)?;
+    let location = if vault.is_local() { "local" } else { "global" };
+    let scope_label = tag
+        .map(|t| format!("tag '{t}' inside "))
+        .unwrap_or_default();
 
-    eprintln!("{message}");
+    eprintln!("sealed '{key}' in {scope_label}group '{group_name}' ({location} seal)");
     Ok(())
 }

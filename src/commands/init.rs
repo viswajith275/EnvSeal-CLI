@@ -1,9 +1,15 @@
+use crate::utils::envelope;
 use crate::utils::git::sync_repo_git_conf;
-use crate::utils::unlock;
 use crate::utils::vault::Vault;
 use anyhow::Result;
 
-pub fn cmd_init(local: bool, global: bool, pref: Option<&str>, init_git: bool) -> Result<()> {
+pub fn cmd_init(
+    local: bool,
+    global: bool,
+    pref: Option<&str>,
+    init_git: bool,
+    recipient: Option<String>,
+) -> Result<()> {
     if local && global {
         anyhow::bail!("Cannot specify both --local and --global flags!");
     }
@@ -28,19 +34,21 @@ pub fn cmd_init(local: bool, global: bool, pref: Option<&str>, init_git: bool) -
                                                                    "
     );
 
-    let password = unlock::prompt_with_fallback("master password for envseal: ")?;
-    let confirm = unlock::prompt_with_fallback("confirm master password: ")?;
-    if *password != *confirm {
-        anyhow::bail!("Passwords did not match!!");
-    }
+    let target_recipient = match recipient {
+        Some(r) => r,
+        None => envelope::get_or_create_default_recipient()?,
+    };
 
-    Vault::init(&password, local, global, pref)?;
-    eprintln!("seal created at {}", target_path.display());
+    Vault::init(vec![target_recipient.clone()], local, global, pref)?;
+    let target_path = Vault::resolve_path(local, global, pref)?;
+    eprintln!(
+        "Vault initialized at '{}' with recipient: {}",
+        target_path.display(),
+        target_recipient
+    );
 
     if !global {
-        if let Err(e) = sync_repo_git_conf(init_git) {
-            eprintln!("Warning: Failed to configure Git integration: {e}");
-        }
+        let _ = sync_repo_git_conf(init_git);
     }
     Ok(())
 }

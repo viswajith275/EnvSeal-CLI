@@ -1,86 +1,16 @@
-use crate::utils::{
-    unlock,
-    vault::{Vault, BASE_TAG},
-};
-use anyhow::{Context, Result};
-use std::env;
-use zeroize::Zeroizing;
+use crate::utils::{session::SessionManager, unlock, vault::Vault};
+use anyhow::Result;
 
-pub fn cmd_rotate(
-    group: Option<&str>,
-    tag: Option<&str>,
-    global: bool,
-    pref: Option<&str>,
-    allow_env: bool,
-) -> Result<()> {
+pub fn cmd_rotate(global: bool, pref: Option<&str>, allow_env: bool) -> Result<()> {
     let mut vault = Vault::load(global, pref)?;
-    let group_name = vault.resolve_group_name(group)?;
-
     let master_keys = unlock::sudo_unlock(&vault, None, allow_env)?;
 
-    // Authenticate Tag (If Protected)
-    let old_tag_dek = if vault.is_tag_protected(group, tag)? {
-        Some(unlock::sudo_unlock_tag(
-            &vault,
-            group,
-            tag.context("Tag not found!!")?,
-            None,
-            allow_env,
-        )?)
-    } else {
-        None
-    };
+    eprintln!("re-encrypting vault and rotating DEK...");
 
-    let tag_password = if vault.is_tag_protected(group, tag)? {
-        let active_tag = tag.context("Tag not found!!")?;
-        let prompt = format!(
-            "[sudo] password for tag '{}' in group '{}': ",
-            active_tag, group_name
-        );
-        let pass = if allow_env {
-            let env_tag_var = format!(
-                "ENVSEAL_TAG_PASSWORD_{}",
-                active_tag.to_uppercase().replace('-', "_")
-            );
-            if let Ok(env_pass) =
-                env::var(&env_tag_var).or_else(|_| env::var("ENVSEAL_TAG_PASSWORD"))
-            {
-                if !env_pass.is_empty() {
-                    Zeroizing::new(env_pass)
-                } else {
-                    unlock::prompt_with_fallback(&prompt)?
-                }
-            } else {
-                unlock::prompt_with_fallback(&prompt)?
-            }
-        } else {
-            unlock::prompt_with_fallback(&prompt)?
-        };
-        Some(pass)
-    } else {
-        None
-    };
-
-    eprintln!("re-encrypting scope and rotating DEK...");
-
-    vault.rotate_scope_dek(
-        &master_keys,
-        group,
-        tag,
-        old_tag_dek.as_deref(),
-        tag_password.as_ref().map(|z| z.as_str()),
-    )?;
-
+    vault.rotate_dek(&master_keys)?;
     vault.save()?;
-    let _ = crate::utils::session::SessionManager::clear_session(
-        &vault.tag_scope(group, tag.unwrap_or("base"))?,
-    );
 
-    eprintln!(
-        "successfully rotated DEK for group '{}' and tag '{}'. All old tokens are now invalid.",
-        group_name,
-        tag.unwrap_or(BASE_TAG)
-    );
-
+    let _ = SessionManager::clear_session(&vault.master_scope());
+    eprintln!("successfully rotated DEK. All previous tokens are now invalid.");
     Ok(())
 }

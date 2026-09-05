@@ -1,8 +1,7 @@
 use crate::utils::is_valid_env_key;
 use crate::utils::{resolve, vault::Vault};
 use anyhow::Result;
-use std::collections::{BTreeMap, HashSet};
-use std::path::PathBuf;
+use std::collections::HashSet;
 
 /// Determines the target shell for proper syntax formatting and string escaping
 #[derive(Debug)]
@@ -33,7 +32,7 @@ pub fn cmd_load(
     group: Option<&str>,
     tag: Option<&str>,
     keys: Vec<&str>,
-    token_file: Option<&PathBuf>, // Added for token support
+    token: Option<&str>,
     global: bool,
     pref: Option<&str>,
     allow_env: bool,
@@ -63,27 +62,23 @@ pub fn cmd_load(
 
     eprintln!("{}", message);
 
-    let mut decrypted_envs = resolve::resolve_secrets(&vault, group, tag, token_file, allow_env)?;
+    let token_str = resolve::load_token(token)?;
+    let mut sorted_envs =
+        resolve::resolve_environment(&vault, group, tag, token_str.as_deref(), allow_env)?;
 
     // filter derived to find specified keys
     if !keys.is_empty() {
         let requested_set: HashSet<&str> = keys.iter().copied().collect();
-        decrypted_envs.retain(|k, _| requested_set.contains(k.as_str()));
+        sorted_envs.retain(|k, _| requested_set.contains(k.as_str()));
 
         for key in &keys {
-            if !decrypted_envs.contains_key(*key) {
+            if !sorted_envs.contains_key(*key) {
                 eprintln!(
                         " Warning: '{}' was not found in the vault, or the provided token lacks permission to decrypt it. Skipping...",
                         key
                     );
             }
         }
-    }
-
-    let mut sorted_envs: BTreeMap<String, String> = BTreeMap::new();
-    for (key, mut value) in decrypted_envs {
-        sorted_envs.insert(key, value.to_string());
-        zeroize::Zeroize::zeroize(&mut value);
     }
 
     let shell_name = std::env::var("SHELL")
@@ -111,7 +106,7 @@ pub fn cmd_load(
                 println!("$env:{}='{}'", key, escaped_val);
             }
             ShellType::Cmd => {
-                println!("set \"{}={}\"", key, value);
+                println!("set \"{}={}\"", key, value.as_str());
             }
         }
     }

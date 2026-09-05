@@ -1,4 +1,5 @@
 pub mod crypto;
+pub mod envelope;
 pub mod git;
 pub mod resolve;
 pub mod session;

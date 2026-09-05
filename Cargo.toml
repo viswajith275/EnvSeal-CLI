@@ -8,7 +8,6 @@ edition = "2021"
 clap = { version = "4", default-features = false, features = ["derive", "std", "help", "usage", "error-context"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
-rmp-serde = "1.3.1"
 dotenvy = "0.15.7"
 dialoguer = { version = "0.12.0", default-features = false, features = ["password"] }
 rpassword = "7"
@@ -20,7 +19,6 @@ zstd = "0.13.3"
 keyring = "4.1.6"
 
 # Cryptography and security
-argon2 = { version = "0.5", default-features = false, features = ["alloc", "password-hash"] }
 aes-gcm = { version = "0.11.0", default-features = false, features = ["aes", "alloc", "getrandom"] }
 aead = { version = "0.6.1", default-features = false, features = ["alloc"] }
 ed25519-dalek = { version = "3.0.0", default-features = false, features = ["alloc", "rand_core"] }
@@ -32,6 +30,8 @@ rand = "0.8"
 rand_core = "0.10.1"
 tempfile = "3"
 hex = "0.4.3"
+toml = "1.1.5"
+age = { version = "0.12.1", features = ["armor", "cli-common", "ssh"] }
 
 [dev-dependencies]
 serial_test = "3"

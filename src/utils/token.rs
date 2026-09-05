@@ -7,13 +7,13 @@ use std::collections::HashMap;
 use std::time::{SystemTime, UNIX_EPOCH};
 use zeroize::Zeroizing;
 
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, Debug)]
 pub enum TokenKeyMaterial {
     /// Token holds ONLY the pre-derived keys for specific variables
     GranularKeys(HashMap<String, Zeroizing<Vec<u8>>>),
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, Debug)]
 pub struct TokenPayload {
     /// Scope (e.g, "group_project_tag_prod")
     pub scope: String,

@@ -38,20 +38,24 @@ fn main() -> Result<std::process::ExitCode> {
             group,
             tag,
             cmd_args,
-            token_file,
+            token,
         } => {
             let code = commands::run::cmd_run(
                 group.as_deref(),
                 tag.as_deref(),
-                cmd_args.iter().map(|s| s.as_str()).collect(),
-                token_file.as_ref(),
+                token.as_deref(),
+                cmd_args.as_ref(),
                 global,
                 pref,
                 allow_env,
             )?;
-            return Ok(std::process::ExitCode::from(code as u8));
+            return Ok(std::process::ExitCode::from(code));
         }
-        Commands::Init { local, git } => commands::init::cmd_init(local, global, pref, git)?,
+        Commands::Init {
+            local,
+            git,
+            recipient,
+        } => commands::init::cmd_init(local, global, pref, git, recipient)?,
         Commands::Set { group, tag, key } => commands::set::cmd_set(
             group.as_deref(),
             tag.as_deref(),
@@ -64,12 +68,12 @@ fn main() -> Result<std::process::ExitCode> {
             group,
             tag,
             key,
-            token_file,
+            token,
         } => commands::get::cmd_get(
             group.as_deref(),
             tag.as_deref(),
             &key,
-            token_file.as_ref(),
+            token.as_deref(),
             global,
             pref,
             allow_env,
@@ -78,12 +82,12 @@ fn main() -> Result<std::process::ExitCode> {
             group,
             tag,
             keys,
-            token_file,
+            token,
         } => commands::load::cmd_load(
             group.as_deref(),
             tag.as_deref(),
             keys.iter().map(|s| s.as_str()).collect(),
-            token_file.as_ref(),
+            token.as_deref(),
             global,
             pref,
             allow_env,
@@ -118,21 +122,18 @@ fn main() -> Result<std::process::ExitCode> {
             tag,
             keys,
             output_path,
-            token_file,
+            token,
         } => commands::export::cmd_export(
             group.as_deref(),
             tag.as_deref(),
             keys.iter().map(|s| s.as_str()).collect(),
-            token_file.as_ref(),
+            token.as_deref(),
             global,
             pref,
             &output_path,
             allow_env,
         )?,
         Commands::Link { group } => commands::link::cmd_link(&group, global, pref, allow_env)?,
-        Commands::Protag { group, tag } => {
-            commands::protag::cmd_protag(group.as_deref(), &tag, global, pref, allow_env)?
-        }
         Commands::Token {
             group,
             tag,
@@ -153,11 +154,8 @@ fn main() -> Result<std::process::ExitCode> {
             pref,
             allow_env,
         )?,
-        Commands::Rotate { group, tag } => {
-            commands::rotate::cmd_rotate(group.as_deref(), tag.as_deref(), global, pref, allow_env)?
-        }
+        Commands::Rotate => commands::rotate::cmd_rotate(global, pref, allow_env)?,
         Commands::Clear => commands::clear::cmd_clear(global, pref)?,
-        Commands::Passwd => commands::passwd::cmd_passwd(global, pref, allow_env)?,
         Commands::Merge {
             base,
             ours,
@@ -168,6 +166,20 @@ fn main() -> Result<std::process::ExitCode> {
             git::sync_repo_git_conf(init)?;
             println!("git configuration successfull!!");
         }
+        Commands::Recipient { action } => match action {
+            cli::RecipientCommands::Identity => {
+                commands::recipient::cmd_identity()?;
+            }
+            cli::RecipientCommands::Add { target } => {
+                commands::recipient::cmd_add(&target, global, pref, allow_env)?;
+            }
+            cli::RecipientCommands::List => {
+                commands::recipient::cmd_list(global, pref)?;
+            }
+            cli::RecipientCommands::Remove { target } => {
+                commands::recipient::cmd_remove(&target, global, pref, allow_env)?;
+            }
+        },
     }
 
     Ok(std::process::ExitCode::SUCCESS)

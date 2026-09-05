@@ -26,7 +26,37 @@ pub struct Cli {
 }
 
 #[derive(Subcommand)]
+pub enum RecipientCommands {
+    /// Print your local public recipient key (auto-generates if missing)
+    #[command(alias = "id")]
+    Identity,
+
+    /// Add public key(s) from a key string, file path, or stdin ('-')
+    Add {
+        /// Recipient public key, path to key file, or '-' for stdin
+        #[arg(default_value = "-")]
+        target: String,
+    },
+
+    /// List all public keys authorized to unlock this vault
+    #[command(alias = "ls")]
+    List,
+
+    /// Remove a recipient public key and re-encrypt the vault envelope
+    #[command(alias = "rm")]
+    Remove {
+        /// Public key string to remove
+        target: String,
+    },
+}
+
+#[derive(Subcommand)]
 pub enum Commands {
+    /// Manage recipient public keys
+    Recipient {
+        #[command(subcommand)]
+        action: RecipientCommands,
+    },
     /// Initialize a new encrypted vault
     ///
     /// Creates an encrypted seal in the target location, configured with a master
@@ -39,6 +69,10 @@ pub enum Commands {
         /// Automatically run 'git init' if not already in a Git repository
         #[arg(short, long)]
         git: bool,
+
+        /// Target recipient of this file
+        #[arg(short, long)]
+        recipient: Option<String>,
     },
 
     /// Configure Git merge and diff drivers for envseal
@@ -65,19 +99,6 @@ pub enum Commands {
         group: String,
     },
 
-    /// Create or configure a protected environment tag
-    ///
-    /// Tags scope variables (e.g., 'staging', 'prod'). Protected tags require
-    /// explicit confirmation before modification or deletion.
-    Protag {
-        /// Target group (defaults to linked group)
-        #[arg(short, long)]
-        group: Option<String>,
-
-        /// Name of the protected tag to create
-        tag: String,
-    },
-
     /// Decrypt and export secrets to a standard .env file
     ///
     /// Writes unencrypted key-value pairs to disk for legacy tools that require
@@ -101,9 +122,9 @@ pub enum Commands {
         )]
         output_path: PathBuf,
 
-        /// Path to a zero-trust execution token file
-        #[arg(long, value_name = "FILE", value_hint = ValueHint::FilePath)]
-        token_file: Option<PathBuf>,
+        /// Offline token string, path to token file, or '-' for stdin
+        #[arg(long)]
+        token: Option<String>,
 
         /// Specific keys to export (exports all if omitted)
         keys: Vec<String>,
@@ -121,7 +142,7 @@ pub enum Commands {
 
         /// Path to the .env file to import
         #[arg(value_hint = ValueHint::FilePath)]
-        path: PathBuf,
+        path: String,
     },
 
     /// Securely store or update a secret key
@@ -151,9 +172,9 @@ pub enum Commands {
         #[arg(short, long)]
         tag: Option<String>,
 
-        /// Path to a zero-trust execution token file
-        #[arg(long, value_name = "FILE", value_hint = ValueHint::FilePath)]
-        token_file: Option<PathBuf>,
+        /// Offline token string, path to token file, or '-' for stdin
+        #[arg(long)]
+        token: Option<String>,
 
         /// Key name to retrieve
         key: String,
@@ -172,9 +193,9 @@ pub enum Commands {
         #[arg(short, long)]
         tag: Option<String>,
 
-        /// Path to a zero-trust execution token file
-        #[arg(long, value_name = "FILE", value_hint = ValueHint::FilePath)]
-        token_file: Option<PathBuf>,
+        /// Offline token string, path to token file, or '-' for stdin
+        #[arg(long)]
+        token: Option<String>,
 
         /// Specific keys to load (loads all if omitted)
         keys: Vec<String>,
@@ -225,9 +246,9 @@ pub enum Commands {
         #[arg(short, long)]
         tag: Option<String>,
 
-        /// Path to a zero-trust execution token file
-        #[arg(long, value_name = "FILE", value_hint = ValueHint::FilePath)]
-        token_file: Option<PathBuf>,
+        /// Offline token string, path to token file, or '-' for stdin
+        #[arg(long)]
+        token: Option<String>,
 
         /// Command and arguments to execute (e.g., `npm start` or `-- python app.py`)
         #[arg(trailing_var_arg = true, allow_hyphen_values = true, required = true)]
@@ -268,18 +289,7 @@ pub enum Commands {
     ///
     /// Re-encrypts secrets under a new key, immediately invalidating all existing
     /// zero-trust tokens issued for this scope.
-    Rotate {
-        /// Target group (defaults to linked group)
-        #[arg(short, long)]
-        group: Option<String>,
-
-        /// Target tag within the group
-        #[arg(short, long)]
-        tag: Option<String>,
-    },
-
-    /// Change the vault's master password without revoking active tokens
-    Passwd,
+    Rotate,
 
     /// Internal 3-way merge driver invoked by Git
     #[command(hide = true)]

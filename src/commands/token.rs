@@ -1,9 +1,5 @@
-use crate::utils::{
-    unlock,
-    vault::{Vault, BASE_TAG},
-};
-use anyhow::Result;
-use fs2::FileExt;
+use crate::utils::{unlock, vault::Vault};
+use anyhow::{Context, Result};
 use std::fs::{self, OpenOptions};
 use std::io::Write;
 use std::path::PathBuf;
@@ -21,30 +17,15 @@ pub fn cmd_token(
     allow_env: bool,
 ) -> Result<()> {
     let vault = Vault::load(global, pref)?;
-    let master_keys = unlock::sudo_unlock(&vault, None, allow_env)?;
+    let master_keys = unlock::sudo_unlock(&vault, Some("token"), allow_env)?;
 
-    let active_tag = tag.unwrap_or(BASE_TAG);
-    let tag_dek = if active_tag != BASE_TAG && vault.is_tag_protected(group, Some(active_tag))? {
-        Some(unlock::sudo_unlock_tag(
-            &vault, group, active_tag, None, allow_env,
-        )?)
-    } else {
-        None
-    };
+    let filter = (!allowed_keys.is_empty()).then_some(allowed_keys.as_slice());
 
-    let filter = if allowed_keys.is_empty() {
-        None
-    } else {
-        Some(allowed_keys.as_slice())
-    };
-
-    // Delegates scope creation, base inheritance, tag overriding, and signing
     let token_string = vault.create_token(
         &master_keys.signing_key,
         &master_keys.master_dek,
         group,
         tag,
-        tag_dek.as_deref(),
         name,
         ttl_seconds,
         desc,
@@ -61,8 +42,9 @@ pub fn cmd_token(
             options.mode(0o600);
         }
 
-        let file = options.open(path)?;
-        file.lock_exclusive()?;
+        let mut file = options
+            .open(path)
+            .with_context(|| format!("Failed to open token output file '{}'", path.display()))?;
 
         #[cfg(unix)]
         {
@@ -70,11 +52,8 @@ pub fn cmd_token(
             let _ = fs::set_permissions(path, fs::Permissions::from_mode(0o600));
         }
 
-        let mut writer = std::io::BufWriter::new(&file);
-        writer.write_all(token_string.as_bytes())?;
-        writer.flush()?;
-
-        let _ = file.unlock();
+        file.write_all(token_string.as_bytes())
+            .with_context(|| format!("Failed to write token to '{}'", path.display()))?;
 
         #[cfg(unix)]
         eprintln!(
@@ -88,7 +67,7 @@ pub fn cmd_token(
             path.display()
         );
     } else {
-        eprintln!("Token generated successfully. Pass via ENVSEAL_TOKEN or --token-file\n");
+        eprintln!("Token generated successfully. Pass via ENVSEAL_TOKEN or --token\n");
         println!("{token_string}");
     }
 

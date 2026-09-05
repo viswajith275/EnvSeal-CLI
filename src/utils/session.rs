@@ -12,11 +12,8 @@ const SESSION_TIMEOUT_SEC: u64 = 600; // 10 minutes
 #[derive(Serialize, Deserialize, Zeroize, ZeroizeOnDrop, Clone)]
 pub enum CachedKeys {
     Master {
-        kek: [u8; crypto::KEY_LEN],
-        seed: [u8; crypto::KEY_LEN],
-    },
-    Tag {
         dek: [u8; crypto::KEY_LEN],
+        seed: [u8; crypto::KEY_LEN],
     },
 }
 
@@ -65,7 +62,10 @@ impl SessionManager {
                         if now <= session.expires_at {
                             let valid_keys = std::mem::replace(
                                 &mut session.keys,
-                                CachedKeys::Tag { dek: [0u8; 32] },
+                                CachedKeys::Master {
+                                    dek: [0u8; 32],
+                                    seed: [0u8; 32],
+                                },
                             );
                             return Ok(Some(valid_keys));
                         } else {
