@@ -129,5 +129,45 @@ pub fn sync_repo_git_conf(init_git: bool) -> Result<()> {
         eprintln!("[git] added '{lock_rule}' to .gitignore to keep your workspace clean!!");
     }
 
+    // hook for checking .env files and plain secrets
+    let hooks_dir = repo_root.join(".git").join("hooks");
+    let hook_path = hooks_dir.join("pre-commit");
+
+    let existing_hook = fs::read_to_string(&hook_path).unwrap_or_default();
+
+    if !existing_hook.contains("envseal pre-commit hook") {
+        fs::create_dir_all(&hooks_dir)?;
+        let hook_content = r#"#!/bin/sh
+    # envseal pre-commit hook: prevent committing unsealed secrets and .env files
+
+    # Reject staged plaintext .env files (allow .envseal files)
+    staged_env=$(git diff --cached --name-only --diff-filter=ACM | grep -E '(^|/)\.env(\.[^/]+)?$' | grep -v '\.envseal')
+    if [ -n "$staged_env" ]; then
+        echo "[envseal] COMMIT REJECTED: Staged plaintext .env file(s) detected:" >&2
+        echo "$staged_env" | sed 's/^/  - /' >&2
+        echo "[envseal] Use 'envseal run' or encrypt secrets into '.envseal' instead." >&2
+        exit 1
+    fi
+    "#;
+        if existing_hook.is_empty() {
+            fs::write(&hook_path, hook_content)?;
+        } else {
+            let mut file = OpenOptions::new().append(true).open(&hook_path)?;
+            let snippet = hook_content
+                .strip_prefix("#!/bin/sh\n")
+                .unwrap_or(hook_content);
+            file.write_all(format!("\n{snippet}").as_bytes())?;
+        }
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let _ = fs::set_permissions(&hook_path, fs::Permissions::from_mode(0o755));
+        }
+        eprintln!(
+            "[git] installed pre-commit secret shield in '{}'",
+            hook_path.display()
+        );
+    }
+
     Ok(())
 }

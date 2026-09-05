@@ -1,4 +1,5 @@
 use crate::utils::{envelope, vault::Vault};
+use anyhow::Context;
 use anyhow::{anyhow, Result};
 use std::fs::File;
 use std::io::{self, Read};
@@ -6,6 +7,18 @@ use std::path::Path;
 
 // caps stdin and file inputs at 64KB, update if needed
 fn read_recipient_input(target: &str) -> Result<String> {
+    // if start with @ fetch ssh keys from github
+    if let Some(username) = target.strip_prefix('@') {
+        // calls curl to fetch GitHub keys
+        let out = std::process::Command::new("curl")
+            .args(["-sSfL", &format!("https://github.com/{username}.keys")])
+            .output()
+            .with_context(|| format!("Failed to run curl for @{username}"))?;
+        if !out.status.success() {
+            anyhow::bail!("Failed to fetch keys for GitHub user '@{username}'");
+        }
+        return Ok(String::from_utf8_lossy(&out.stdout).into_owned());
+    }
     let mut buffer = String::new();
     if target == "-" {
         io::stdin().take(64 * 1024).read_to_string(&mut buffer)?;

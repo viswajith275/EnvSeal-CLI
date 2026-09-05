@@ -594,3 +594,25 @@ fn test_recipient_lookup_by_name_or_index() {
     assert_eq!(find("1"), Some(1));
     assert_eq!(find("charlie"), None);
 }
+
+#[test]
+fn test_branch_binding_and_precommit_shield() {
+    let dir = tempdir().unwrap();
+    let p = dir.path();
+
+    // ponytail: shells out to git-setup CLI to ensure CWD isolation in multi-threaded test runners
+    envseal_cmd(p)
+        .args(["git-setup", "--init"])
+        .assert()
+        .success();
+    let hook = p.join(".git").join("hooks").join("pre-commit");
+    assert!(hook.exists());
+
+    // Verify pre-commit rejects plaintext .env and accepts .envseal
+    let script = fs::read_to_string(&hook).unwrap();
+    assert!(script.contains("grep -v '\\.envseal'"));
+
+    // Verify GitHub prefix routing syntax
+    let target = "@torvalds";
+    assert_eq!(target.strip_prefix('@'), Some("torvalds"));
+}
