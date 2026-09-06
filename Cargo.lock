@@ -963,7 +963,7 @@ dependencies = [
 
 [[package]]
 name = "envseal"
-version = "5.2.0"
+version = "6.0.0"
 dependencies = [
  "aead 0.6.1",
  "aes-gcm 0.11.1",

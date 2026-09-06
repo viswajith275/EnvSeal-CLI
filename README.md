@@ -143,6 +143,37 @@ Push your changes. Your teammate pulls, runs `envseal run -- npm start`, and it 
 
 ---
 
+## Global Vaults: for personal scripts and one-off secrets
+ 
+Not every secret belongs to a project. If you've got a handful of personal utility tokens — an AWS key for a deploy script, a personal API token for a CLI tool you wrote for yourself — you don't want a separate `.envseal` file scattered in every folder that happens to need them.
+ 
+That's what the **global vault** is for: one system-wide vault, independent of any Git repo, that you can attach to as many local directories as you like.
+ 
+```bash
+# 1. Initialize the global vault once per machine
+envseal --global init
+ 
+# 2. Bind a "group" of secrets inside the global vault to the current directory
+envseal link myapp
+ 
+# 3. Store secrets into that group
+envseal --global set AWS_ACCESS_KEY
+ 
+# 4. Run your script — global secrets injected automatically
+envseal --global run -- ./deploy.sh
+```
+ 
+Once a directory is linked to a group with `envseal link`, plain `envseal` commands run from inside that directory resolve against the linked global group automatically, so you don't have to keep passing `--global` and the group name around by hand.
+ 
+**When to reach for a global vault instead of a local one:**
+ 
+- Personal deploy or maintenance scripts that aren't checked into any repo.
+- One-off CLI tools you wrote for yourself that need an API key.
+- Credentials you use across *many* small projects (e.g. a personal cloud provider key) where a per-repo vault would just mean copying the same secret into ten different `.envseal` files.
+Local, project-scoped vaults (`envseal init --local`) are still the right call for anything a team shares — that's what travels with the repo in Git. The global vault is for secrets that belong to *you*, not to a codebase.
+
+---
+
 ## Core Features
 
 ### Git-Native Branch Binding
@@ -261,6 +292,7 @@ Besides, a monthly subscription for secrets management is a tough sell when your
 | `get`       | `envseal get [-g GROUP] [-t TAG] [--token TOK] KEY`    | Print one decrypted value.                             |
 | `run`       | `envseal run [-g GROUP] [-t TAG] [--token TOK] -- CMD` | Run a command with secrets injected (alias: `exec`).   |
 | `list`      | `envseal list [-g GROUP] [-t TAG]`                     | List key names without revealing values (alias: `ls`). |
+| `link`      | `envseal link GROUP`                                         | Bind a global vault group to the current working directory. |
 | `remove`    | `envseal remove [-g GROUP] [-t TAG] [--force] [KEY]`   | Delete a key, tag, or group (alias: `rm`).             |
 | `clear`     | `envseal clear`                                        | Wipe cached master keys from the OS keyring session.   |
 
@@ -421,6 +453,8 @@ function envseal {
 - **`Token expired`** — generate a new one with `envseal token`.
 
 - **`Decryption failed for 'KEY'. Token is revoked or invalid`** — the vault's key was rotated after this token was issued. Re-mint it.
+
+- **"No group linked to current directory"** — run `envseal link <GROUP>` to associate this directory with a group in your global vault.
 
 - **"I forgot my private key and I'm the only recipient"** — see the section above titled "Read Before You Trust Any Encryption Tool Blindly." This one is not a bug EnvSeal can fix; it's a you problem, and unfortunately also a backup problem.
 
