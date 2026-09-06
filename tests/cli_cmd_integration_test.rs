@@ -600,7 +600,7 @@ fn test_branch_binding_and_precommit_shield() {
     let dir = tempdir().unwrap();
     let p = dir.path();
 
-    // ponytail: shells out to git-setup CLI to ensure CWD isolation in multi-threaded test runners
+    // shells out to git-setup CLI to ensure CWD isolation in multi-threaded test runners
     envseal_cmd(p)
         .args(["git-setup", "--init"])
         .assert()
