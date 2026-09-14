@@ -1,8 +1,9 @@
+use crate::utils::format_env_value;
 use crate::utils::{resolve, vault::Vault};
 use anyhow::{Context, Result};
-use std::borrow::Cow;
 use std::collections::HashSet;
 use std::fs;
+use std::io::stdout;
 use std::io::Write;
 use std::path::Path;
 
@@ -17,18 +18,22 @@ pub fn cmd_export(
     allow_env: bool,
 ) -> Result<()> {
     let vault = Vault::load(global, pref)?;
-    let group_name = vault.resolve_group_name(group)?;
-    let location = if vault.is_local() { "local" } else { "global" };
 
-    let target = match tag {
-        Some(t) => format!("tag '{t}' inside group '{group_name}'"),
-        None => format!("group '{group_name}'"),
-    };
+    // outputs as stdout if path == "_"
+    let is_stdout = output_path == Path::new("-");
 
-    if keys.is_empty() {
-        eprintln!("exporting variable(s) from {target} {location} seal...");
-    } else {
-        eprintln!("exporting variable(s) {keys:?} from {target} {location} seal...");
+    if !is_stdout {
+        let group_name = vault.resolve_group_name(group)?;
+        let location = if vault.is_local() { "local" } else { "global" };
+        let target = match tag {
+            Some(t) => format!("tag '{t}' inside group '{group_name}'"),
+            None => format!("group '{group_name}'"),
+        };
+        if keys.is_empty() {
+            eprintln!("exporting variable(s) from {target} {location} seal...");
+        } else {
+            eprintln!("exporting variable(s) {keys:?} from {target} {location} seal...");
+        }
     }
 
     let token_str = resolve::load_token(token)?;
@@ -53,6 +58,11 @@ pub fn cmd_export(
         buffer.push('=');
         buffer.push_str(&format_env_value(value));
         buffer.push('\n');
+    }
+
+    if is_stdout {
+        stdout().write_all(buffer.as_bytes())?;
+        return Ok(());
     }
 
     let mut options = fs::OpenOptions::new();
@@ -84,17 +94,4 @@ pub fn cmd_export(
     );
 
     Ok(())
-}
-
-fn format_env_value(value: &str) -> Cow<'_, str> {
-    if value.chars().any(|c| {
-        matches!(
-            c,
-            ' ' | '\t' | '\n' | '\r' | '"' | '\'' | '#' | '$' | '`' | '\\'
-        )
-    }) {
-        Cow::Owned(format!("'{}'", value.replace('\'', "'\\''")))
-    } else {
-        Cow::Borrowed(value)
-    }
 }

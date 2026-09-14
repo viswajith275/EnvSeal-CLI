@@ -1,6 +1,7 @@
 use crate::utils::vault::Vault;
 use anyhow::Result;
 use std::collections::BTreeSet;
+use std::io::{stdout, IsTerminal};
 
 pub fn cmd_list(
     group: Option<&str>,
@@ -13,22 +14,18 @@ pub fn cmd_list(
 
     let unique_keys: BTreeSet<String> = vault.list_all_keys(group, tag)?.into_iter().collect();
 
-    let location = if vault.is_local() { "local" } else { "global" };
-    let header = match tag {
-        Some(t) => format!("stored-keys (group: {group_name}) (tag: {t}) [{location}]"),
-        None => format!("stored-keys (group: {group_name}) [{location}]"),
-    };
-
-    eprintln!("{header}");
-    eprintln!("--------------------");
-
-    if unique_keys.is_empty() {
-        eprintln!("(no keys found)");
-    } else {
-        for key in &unique_keys {
-            eprintln!("{key}");
-        }
+    // Only show human-readable header when attached to an interactive terminal
+    if stdout().is_terminal() {
+        let location = if vault.is_local() { "local" } else { "global" };
+        let header = match tag {
+            Some(t) => format!("# group: {group_name}, tag: {t} [{location}]"),
+            None => format!("# group: {group_name} [{location}]"),
+        };
+        eprintln!("{header}");
     }
 
+    for key in &unique_keys {
+        println!("{key}");
+    }
     Ok(())
 }

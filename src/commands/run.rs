@@ -1,4 +1,4 @@
-use crate::utils::{resolve, vault::Vault};
+use crate::utils::{git, resolve, vault::Vault};
 use anyhow::{Context, Result};
 use std::process::Command;
 
@@ -14,6 +14,8 @@ pub fn cmd_run(
     if command.is_empty() {
         anyhow::bail!("No command specified to run.");
     }
+
+    let _ = git::auto_sync_repo_git_conf();
 
     let token_str = resolve::load_token(token)?;
     let vault = Vault::load(global, pref)?;

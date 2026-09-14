@@ -138,18 +138,17 @@ pub fn sync_repo_git_conf(init_git: bool) -> Result<()> {
     if !existing_hook.contains("envseal pre-commit hook") {
         fs::create_dir_all(&hooks_dir)?;
         let hook_content = r#"#!/bin/sh
-    # envseal pre-commit hook: prevent committing unsealed secrets and .env files
-
-    # Reject staged plaintext .env files (allow .envseal files)
-    staged_env=$(git diff --cached --name-only --diff-filter=ACM | grep -E '(^|/)\.env(\.[^/]+)?$' | grep -v '\.envseal')
-    if [ -n "$staged_env" ]; then
-        echo "[envseal] COMMIT REJECTED: Staged plaintext .env file(s) detected:" >&2
-        echo "$staged_env" | sed 's/^/  - /' >&2
-        echo "[envseal] Use 'envseal run' or encrypt secrets into '.envseal' instead." >&2
-        exit 1
-    fi
-    "#;
-        if existing_hook.is_empty() {
+        # envseal pre-commit hook: prevent committing unsealed secrets and .env files
+        # Reject staged plaintext .env files (allow .envseal, .example, .sample, .template, .dist)
+        staged_env=$(git diff --cached --name-only --diff-filter=ACM | grep -E '(^|/)\.env(\.[^/]+)?$' | grep -v -E '(\.envseal|\.example|\.sample|\.template|\.dist)$')
+        if [ -n "$staged_env" ]; then
+            echo "[envseal] COMMIT REJECTED: Staged plaintext .env file(s) detected:" >&2
+            echo "$staged_env" | sed 's/^/  - /' >&2
+            echo "[envseal] Use 'envseal run' or encrypt secrets into '.envseal' instead." >&2
+            exit 1
+        fi
+        "#;
+        if existing_hook.is_empty() || existing_hook.contains("envseal pre-commit hook") {
             fs::write(&hook_path, hook_content)?;
         } else {
             let mut file = OpenOptions::new().append(true).open(&hook_path)?;
@@ -169,5 +168,20 @@ pub fn sync_repo_git_conf(init_git: bool) -> Result<()> {
         );
     }
 
+    Ok(())
+}
+
+/// Auto-configures git drivers if running inside a repo where they haven't been set up yet.
+pub fn auto_sync_repo_git_conf() -> Result<()> {
+    if let Some(repo_root) = find_repo_root() {
+        let output = Command::new("git")
+            .current_dir(&repo_root)
+            .args(["config", "--local", "merge.envseal.driver"])
+            .output()?;
+
+        if !output.status.success() || output.stdout.is_empty() {
+            sync_repo_git_conf(false)?;
+        }
+    }
     Ok(())
 }

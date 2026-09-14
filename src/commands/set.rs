@@ -1,6 +1,7 @@
 use crate::utils::is_valid_env_key;
 use crate::utils::{unlock, vault::Vault};
 use anyhow::Result;
+use std::io::{stdin, IsTerminal, Read};
 
 pub fn cmd_set(
     group: Option<&str>,
@@ -19,7 +20,13 @@ pub fn cmd_set(
     let mut vault = Vault::load(global, pref)?;
     let master_keys = unlock::sudo_unlock(&vault, Some("set"), allow_env)?;
 
-    let secret = rpassword::prompt_password(format!("value for {key}: "))?;
+    let secret = if stdin().is_terminal() {
+        rpassword::prompt_password(format!("value for {key}: "))?
+    } else {
+        let mut buf = String::new();
+        stdin().take(64 * 1024).read_to_string(&mut buf)?;
+        buf.trim_end_matches(&['\r', '\n'][..]).to_string()
+    };
     vault.set_entry(&master_keys, group, tag, key, &secret)?;
     vault.save()?;
 

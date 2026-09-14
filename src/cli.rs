@@ -5,7 +5,7 @@ use std::path::PathBuf;
 #[command(
     name = "envseal",
     about = "Encrypted vault for secrets and API keys stop committing plaintext .env files.",
-    version = "v6.0.0",
+    version = "v6.1.0",
     propagate_version = true
 )]
 pub struct Cli {
@@ -309,6 +309,15 @@ pub enum Commands {
         /// Conflict resolution strategy
         #[arg(long, value_enum, default_value_t = MergeStrategy::Fail)]
         strategy: MergeStrategy,
+    },
+    /// Interactively edit vault secrets in your default editor!!
+    Edit {
+        /// Target group (defaults to linked group)
+        #[arg(short, long)]
+        group: Option<String>,
+        /// Target tag within the group
+        #[arg(short, long)]
+        tag: Option<String>,
     },
 }
 

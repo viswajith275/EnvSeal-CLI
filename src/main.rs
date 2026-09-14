@@ -180,6 +180,9 @@ fn main() -> Result<std::process::ExitCode> {
                 commands::recipient::cmd_remove(&target, global, pref, allow_env)?;
             }
         },
+        Commands::Edit { group, tag } => {
+            commands::edit::cmd_edit(group.as_deref(), tag.as_deref(), global, pref, allow_env)?;
+        }
     }
 
     Ok(std::process::ExitCode::SUCCESS)
