@@ -47,7 +47,12 @@ pub fn cmd_edit(
         Vec::new()
     };
 
-    let mut initial_content = format!("# envseal edit: group='{group_name}', tag='{active_tag}'\n");
+    let mut initial_content = format!(
+        "# envseal edit: group='{group_name}', tag='{active_tag}'\n
+        # e.g.) DATABASE_URL=[postgres_url]\n
+                PORT=[port_value]\n
+        "
+    );
     for key in &existing_keys {
         if let Ok(val) = vault.get_entry(&master_keys.master_dek, Some(&group_name), tag, key) {
             initial_content.push_str(&format!("{key}={}\n", format_env_value(&val)));
