@@ -434,8 +434,8 @@ fn test_cli_token_and_list_commands() {
         .arg("list")
         .assert()
         .success()
-        .stderr(predicate::str::contains("AUTH_SECRET"))
-        .stderr(predicate::str::contains("METRIC_PORT"));
+        .stdout(predicate::str::contains("AUTH_SECRET"))
+        .stdout(predicate::str::contains("METRIC_PORT"));
 
     let token_dest = temp_path.join("agent.token");
     let mut token_cmd = envseal_cmd(temp_path);
@@ -610,7 +610,7 @@ fn test_branch_binding_and_precommit_shield() {
 
     // Verify pre-commit rejects plaintext .env and accepts .envseal
     let script = fs::read_to_string(&hook).unwrap();
-    assert!(script.contains("grep -v '\\.envseal'"));
+    assert!(script.contains("grep -v -E '(\\.envseal|\\.example|\\.sample|\\.template|\\.dist)"));
 
     // Verify GitHub prefix routing syntax
     let target = "@torvalds";
