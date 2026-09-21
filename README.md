@@ -559,6 +559,17 @@ function envseal {
 
 ---
 
+## Security
+
+EnvSeal has not been independently audited. The threat model, cryptographic
+primitives, and known limitations are documented in [`SECURITY.md`](SECURITY.md).
+
+If you find a vulnerability, please open a
+[security advisory](https://github.com/viswajith275/EnvSeal-CLI/security/advisories/new)
+rather than a public issue.
+
+---
+
 ## Contributing
 
 ```bash
