@@ -3,2151 +3,1537 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>EnvSeal CLI — Secrets that live in your Git repo</title>
-<meta name="description" content="Git-native, offline, zero-trust secrets manager. Your encrypted vault travels with your repo, switches with your branch, and merges like any other file. No cloud, no accounts.">
+<title>EnvSeal — Git for secrets</title>
+<meta name="description" content="A single encrypted file that travels with your repo. Switches with your branch. Merges like code. No cloud. No accounts.">
 <script>document.documentElement.classList.add('js');</script>
 
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&family=Instrument+Serif:ital@0;1&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Inter:opsz,wght@14..32,300;14..32,400;14..32,500;14..32,600;14..32,700&family=Instrument+Serif:ital@0;1&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
 
 <style>
 
 :root {
-  --bg:        #08080a;
-  --bg-2:      #101014;
-  --bg-3:      #17171c;
-  --ink:       #ffffff;
-  --ink-2:     #d4d4dc;
-  --ink-dim:   #a1a1b0;
-  --ink-faint: #7a7a8a;
-  --line:      rgba(255, 255, 255, 0.09);
-  --line-soft: rgba(255, 255, 255, 0.045);
+  --bg:      #0a0a0b;
+  --bg-1:    #0e0e10;
+  --bg-2:    #131315;
+  --bg-3:    #19191c;
+  --bg-code: #0c0c0e;
 
-  --raw:       #ff4d4d;
-  --raw-2:     #ff8080;
-  --raw-glow:  rgba(255, 77, 77, 0.45);
-  --sealed:    #4d8dff;
-  --sealed-2:  #7fb0ff;
-  --sealed-glow: rgba(77, 141, 255, 0.45);
-  --branch:    #bd6bff;
-  --branch-2:  #d4a0ff;
-  --branch-glow: rgba(189, 107, 255, 0.45);
-  --auth:      #2ee59d;
-  --auth-2:    #6effc0;
-  --auth-glow: rgba(46, 229, 157, 0.45);
-  --eph:       #22d3ee;
-  --eph-2:     #67e8f9;
-  --eph-glow:  rgba(34, 211, 238, 0.45);
-  --exp:       #ff3b52;
-  --tok:       #ffb020;
-  --tok-2:     #ffd060;
-  --tok-glow:  rgba(255, 176, 32, 0.45);
-  --git:       #f05033;
+  --t1: #ededf0;
+  --t2: #b0b0b8;
+  --t3: #7a7a82;
+  --t4: #52525a;
+  --t5: #37373d;
 
-  --display: 'Space Grotesk', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-  --sans:    'Inter', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-  --serif:   'Instrument Serif', Georgia, serif;
-  --mono:    'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  --line-1: rgba(255,255,255,0.055);
+  --line-2: rgba(255,255,255,0.09);
+  --line-3: rgba(255,255,255,0.14);
+
+  --accent:    #8b8bf0;
+  --accent-2:  #a5a5f7;
+  --accent-dim:#5c5cd0;
+  --accent-tint: rgba(139,139,240,0.08);
+  --accent-glow: rgba(139,139,240,0.22);
+
+  --git:    #f97316;
+  --git-tint: rgba(249,115,22,0.08);
+  --green:  #4ade80;
+  --red:    #f87171;
+  --amber:  #fbbf24;
+  --purple: #c084fc;
+
+  --sans:  'Inter', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  --serif: 'Instrument Serif', Georgia, "Times New Roman", serif;
+  --mono:  'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+
+  --ease: cubic-bezier(0.22, 1, 0.36, 1);
+  --ease-io: cubic-bezier(0.4, 0, 0.2, 1);
+
+  --pad-x: clamp(24px, 6vw, 96px);
+  --max-w: 1280px;
+  --content-w: 720px;
 }
 
 * { box-sizing: border-box; margin: 0; padding: 0; }
 
-html { scroll-behavior: smooth; -webkit-text-size-adjust: 100%; }
+html {
+  scroll-behavior: smooth;
+  -webkit-text-size-adjust: 100%;
+  font-feature-settings: "ss01", "cv11";
+}
 
 body {
   background: var(--bg);
-  color: var(--ink-2);
+  color: var(--t2);
   font-family: var(--sans);
   font-weight: 400;
-  font-size: 16.5px;
-  line-height: 1.7;
+  font-size: 17px;
+  line-height: 1.65;
+  letter-spacing: -0.011em;
   overflow-x: hidden;
   -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
   text-rendering: optimizeLegibility;
-  letter-spacing: -0.012em;
 }
 
-::selection { background: rgba(77, 141, 255, 0.35); color: #fff; }
+::selection { background: var(--accent-tint); color: var(--accent-2); }
 
-.lede code, .caveat .body code, p code, li code, td code {
+::-webkit-scrollbar { width: 10px; height: 10px; }
+::-webkit-scrollbar-track { background: var(--bg); }
+::-webkit-scrollbar-thumb { background: var(--bg-3); border-radius: 6px; border: 2px solid var(--bg); }
+::-webkit-scrollbar-thumb:hover { background: var(--t5); }
+
+.bg { position: fixed; inset: 0; z-index: 0; pointer-events: none; }
+.bg::before {
+  content: '';
+  position: absolute; inset: 0;
+  background:
+    radial-gradient(1000px 600px at 50% -5%, rgba(139,139,240,0.10), transparent 60%),
+    radial-gradient(700px 500px at 100% 100%, rgba(249,115,22,0.03), transparent 60%);
+}
+.bg::after {
+  content: '';
+  position: absolute; inset: 0;
+  background-image:
+    linear-gradient(rgba(255,255,255,0.018) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(255,255,255,0.018) 1px, transparent 1px);
+  background-size: 80px 80px;
+  mask-image: radial-gradient(ellipse 80% 60% at 50% 30%, black, transparent 80%);
+  -webkit-mask-image: radial-gradient(ellipse 80% 60% at 50% 30%, black, transparent 80%);
+}
+
+.progress {
+  position: fixed; top: 0; left: 0; right: 0; height: 1px;
+  background: transparent; z-index: 100; pointer-events: none;
+}
+.progress-bar {
+  height: 100%; width: 0%;
+  background: linear-gradient(90deg, var(--accent), var(--accent-2));
+  transition: width 0.1s linear;
+  box-shadow: 0 0 12px var(--accent-glow);
+}
+
+main { position: relative; z-index: 2; }
+
+.wrap {
+  width: 100%; max-width: var(--max-w);
+  margin: 0 auto;
+  padding-inline: var(--pad-x);
+}
+
+section { position: relative; padding-block: clamp(80px, 12vh, 160px); }
+
+header.top {
+  position: fixed; top: 0; left: 0; right: 0;
+  z-index: 50;
+  padding: 16px var(--pad-x);
+  display: flex; align-items: center; justify-content: space-between;
+  background: linear-gradient(180deg, rgba(10,10,11,0.9), rgba(10,10,11,0));
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+}
+.brand {
+  display: flex; align-items: center; gap: 12px;
+  font-family: var(--sans);
+  font-weight: 500;
+  font-size: 15px;
+  letter-spacing: -0.015em;
+  color: var(--t1);
+  text-decoration: none;
+}
+.brand-mark {
+  width: 22px; height: 22px;
+  display: grid; place-items: center;
+  color: var(--accent);
+}
+.brand-mark svg { width: 100%; height: 100%; }
+.brand-ver {
   font-family: var(--mono);
-  font-size: 0.85em;
-  color: var(--sealed-2);
-  background: rgba(77, 141, 255, 0.1);
-  border: 1px solid rgba(77, 141, 255, 0.18);
-  padding: 1px 7px;
-  border-radius: 6px;
-  overflow-wrap: anywhere;
+  font-size: 10.5px;
+  letter-spacing: 0.08em;
+  color: var(--t4);
+  padding: 2px 7px;
+  border: 1px solid var(--line-1);
+  border-radius: 4px;
+  margin-left: 4px;
+}
+.top-links { display: flex; align-items: center; gap: 24px; }
+.top-link {
+  font-size: 14px;
+  font-weight: 450;
+  color: var(--t3);
+  text-decoration: none;
+  transition: color 0.2s var(--ease-io);
+}
+.top-link:hover { color: var(--t1); }
+.top-cta {
+  font-size: 13.5px;
+  font-weight: 500;
+  color: var(--t1);
+  padding: 8px 16px;
+  border: 1px solid var(--line-2);
+  border-radius: 999px;
+  text-decoration: none;
+  transition: all 0.2s var(--ease-io);
+  background: rgba(255,255,255,0.02);
+}
+.top-cta:hover {
+  border-color: var(--accent);
+  background: var(--accent-tint);
+  color: var(--accent-2);
+}
+@media (max-width: 720px) { .top-links { display: none; } }
+
+.label {
+  font-family: var(--mono);
+  font-size: 11px;
+  font-weight: 500;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--t4);
+}
+
+h1, h2, h3, h4 {
+  font-family: var(--sans);
+  font-weight: 500;
+  color: var(--t1);
+  letter-spacing: -0.03em;
+  line-height: 1.05;
+}
+
+h1 {
+  font-size: clamp(48px, 7.5vw, 92px);
+  font-weight: 500;
+  letter-spacing: -0.045em;
+  line-height: 0.96;
+}
+h1 .serif {
+  font-family: var(--serif);
+  font-style: italic;
+  font-weight: 400;
+  letter-spacing: -0.015em;
+  color: var(--accent-2);
+}
+
+h2 {
+  font-size: clamp(34px, 4.6vw, 56px);
+  letter-spacing: -0.038em;
+  line-height: 1.02;
+  max-width: 22ch;
+}
+h2 .serif {
+  font-family: var(--serif);
+  font-style: italic;
+  font-weight: 400;
+  letter-spacing: -0.01em;
+  color: var(--t2);
+}
+
+h3 {
+  font-size: clamp(22px, 2.4vw, 28px);
+  letter-spacing: -0.025em;
+  line-height: 1.2;
   font-weight: 500;
 }
 
-/* ---------- Ambient background ---------- */
-.bg-field {
-  position: fixed; inset: 0; z-index: 0; pointer-events: none;
-  background:
-    radial-gradient(1200px 800px at 50% -10%, rgba(77, 141, 255, 0.13) 0%, transparent 55%),
-    radial-gradient(900px 600px at 90% 110%, rgba(240, 80, 51, 0.08) 0%, transparent 55%),
-    radial-gradient(700px 500px at 10% 60%, rgba(189, 107, 255, 0.06) 0%, transparent 60%),
-    var(--bg);
-}
-.bg-grid {
-  position: fixed; inset: 0; z-index: 0; pointer-events: none;
-  background-image:
-    linear-gradient(rgba(255, 255, 255, 0.025) 1px, transparent 1px),
-    linear-gradient(90deg, rgba(255, 255, 255, 0.025) 1px, transparent 1px);
-  background-size: 72px 72px;
-  -webkit-mask-image: radial-gradient(circle at 50% 40%, #000 5%, transparent 65%);
-          mask-image: radial-gradient(circle at 50% 40%, #000 5%, transparent 65%);
-  opacity: 0.5;
-}
-.bg-noise {
-  position: fixed; inset: 0; z-index: 0; pointer-events: none;
-  opacity: 0.025;
-  background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.65' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+.lede {
+  font-size: clamp(18px, 1.6vw, 21px);
+  line-height: 1.55;
+  color: var(--t2);
+  max-width: 62ch;
+  letter-spacing: -0.014em;
 }
 
-/* ---------- Fixed stage ---------- */
-.stage { position: fixed; inset: 0; z-index: 1; pointer-events: none; overflow: hidden; }
-#threadSvg { position: absolute; inset: 0; width: 100%; height: 100%; }
-.thread-spine { fill: none; stroke: var(--sealed); stroke-width: 1.2; stroke-linecap: round; opacity: 0.35; }
-.thread-ghost { fill: none; stroke-width: 1; stroke-linecap: round; opacity: 0; }
-.thread-ghost.g1 { stroke: var(--raw); }
-.thread-ghost.g2 { stroke: var(--branch); }
-.thread-ghost.g3 { stroke: var(--auth); }
-.thread-flow {
-  fill: none; stroke: var(--eph); stroke-width: 1.5; stroke-linecap: round;
-  stroke-dasharray: 3 90; opacity: 0;
+.body {
+  font-size: 17px;
+  line-height: 1.7;
+  color: var(--t2);
+  max-width: 62ch;
 }
-.mark-wrap {
-  position: absolute; left: 0; top: 0;
-  width: 240px; height: 240px; margin-left: -120px; margin-top: -120px;
-  transform-origin: 50% 50%;
-  will-change: transform, opacity;
-  opacity: 0.4;
-  transition: opacity 0.8s cubic-bezier(0.4, 0, 0.2, 1);
-  filter: drop-shadow(0 0 28px rgba(77, 141, 255, 0.14));
-}
-.mark-svg { width: 100%; height: 100%; overflow: visible; display: block; }
-.m-outer { fill: none; stroke-linecap: round; stroke-linejoin: round; }
-.m-inner { fill: none; stroke-linecap: round; stroke-linejoin: round; }
-.m-node { fill: var(--bg); }
-.m-sat { fill: none; stroke-width: 1.2; }
-.m-halo { fill: none; stroke-width: 0.6; opacity: 0; }
+.body strong { color: var(--t1); font-weight: 500; }
 
-/* ---------- Progress rail ---------- */
-.rail {
-  position: fixed; left: 22px; top: 50%; transform: translateY(-50%);
-  z-index: 40; display: flex; flex-direction: column; gap: 15px;
+code {
+  font-family: var(--mono);
+  font-size: 0.88em;
+  color: var(--accent-2);
+  background: var(--accent-tint);
+  padding: 2px 6px;
+  border-radius: 4px;
+  font-weight: 450;
+  letter-spacing: -0.005em;
+}
+
+a.underline {
+  color: var(--t1);
+  text-decoration: none;
+  border-bottom: 1px solid var(--line-3);
+  transition: border-color 0.2s var(--ease-io);
+}
+a.underline:hover { border-color: var(--accent); }
+
+.sec-head {
+  display: grid;
+  grid-template-columns: 100px 1fr;
+  gap: 48px;
+  align-items: baseline;
+  margin-bottom: clamp(48px, 6vh, 72px);
+}
+.sec-num {
+  font-family: var(--mono);
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--t4);
+  letter-spacing: 0.1em;
+  padding-top: 8px;
+}
+@media (max-width: 720px) {
+  .sec-head { grid-template-columns: 1fr; gap: 16px; }
+}
+
+.hero {
+  padding-top: clamp(120px, 18vh, 180px);
+  padding-bottom: clamp(80px, 10vh, 120px);
+}
+.hero h1 { margin-bottom: 32px; max-width: 15ch; }
+.hero .lede { margin-bottom: 48px; max-width: 56ch; }
+
+.hero-install {
+  display: flex; align-items: center; gap: 12px;
+  flex-wrap: wrap;
+  margin-bottom: 64px;
+}
+.install-chip {
+  display: inline-flex; align-items: center; gap: 10px;
+  padding: 10px 14px 10px 16px;
+  background: var(--bg-1);
+  border: 1px solid var(--line-1);
+  border-radius: 10px;
+  font-family: var(--mono);
+  font-size: 13px;
+  color: var(--t2);
+  cursor: pointer;
+  transition: all 0.2s var(--ease-io);
+  position: relative;
+  overflow: hidden;
+}
+.install-chip:hover {
+  border-color: var(--line-3);
+  background: var(--bg-2);
+  color: var(--t1);
+}
+.install-chip .chip-prompt { color: var(--accent); user-select: none; font-weight: 600; }
+.install-chip .chip-copy {
+  font-family: var(--sans);
+  font-size: 10.5px;
+  font-weight: 500;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--t4);
+  padding-left: 12px;
+  border-left: 1px solid var(--line-1);
+  margin-left: 4px;
+  transition: color 0.2s var(--ease-io);
+}
+.install-chip:hover .chip-copy { color: var(--t2); }
+.install-chip.copied .chip-copy { color: var(--green); }
+
+.hero-secondary {
+  display: inline-flex; align-items: center; gap: 8px;
+  font-size: 14px;
+  color: var(--t3);
+  text-decoration: none;
+  transition: color 0.2s var(--ease-io);
+}
+.hero-secondary:hover { color: var(--t1); }
+.hero-secondary .arrow { transition: transform 0.2s var(--ease); }
+.hero-secondary:hover .arrow { transform: translateX(3px); }
+
+.term {
+  background: var(--bg-code);
+  border: 1px solid var(--line-1);
+  border-radius: 14px;
+  overflow: hidden;
+  font-family: var(--mono);
+  font-size: 13.5px;
+  line-height: 1.75;
+  position: relative;
+  box-shadow:
+    0 1px 0 rgba(255,255,255,0.04) inset,
+    0 24px 48px -24px rgba(0,0,0,0.6),
+    0 0 0 1px rgba(0,0,0,0.4);
+}
+.term::before {
+  content: '';
+  position: absolute; inset: 0;
+  border-radius: 14px;
+  padding: 1px;
+  background: linear-gradient(180deg, rgba(255,255,255,0.06), transparent 40%);
+  -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+  -webkit-mask-composite: xor;
+  mask-composite: exclude;
   pointer-events: none;
 }
-.rail-item {
-  display: flex; align-items: center; gap: 14px;
-  font-family: var(--display);
-  font-size: 10.5px; letter-spacing: 0.18em; text-transform: uppercase;
-  color: var(--ink-faint); transition: all 0.4s cubic-bezier(0.4, 0, 0.2, 1);
-  opacity: 0.35; font-weight: 600;
+.term-bar {
+  display: flex; align-items: center; gap: 8px;
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--line-1);
+  background: rgba(255,255,255,0.015);
 }
-.rail-item .tick {
-  width: 16px; height: 2px; background: currentColor; border-radius: 1px;
-  transition: all 0.4s cubic-bezier(0.4, 0, 0.2, 1);
-  flex: 0 0 auto;
-}
-.rail-item.active { color: var(--sealed-2); opacity: 1; }
-.rail-item.active .tick { width: 32px; background: var(--sealed); box-shadow: 0 0 12px var(--sealed-glow); }
-.rail-label {
-  white-space: nowrap; opacity: 0; transform: translateX(-6px);
-  transition: all 0.4s cubic-bezier(0.4, 0, 0.2, 1); font-weight: 600;
-}
-.rail-item.active .rail-label { opacity: 1; transform: translateX(0); }
-
-/* ---------- Layout ---------- */
-main { position: relative; z-index: 2; }
-
-.scene {
-  position: relative;
-  padding: 110px 8vw;
-  min-height: 100vh;
-  display: flex; align-items: center; justify-content: center;
-}
-.scene-inner { width: 100%; max-width: 1240px; position: relative; min-width: 0; }
-
-@media (min-width: 1001px) {
-  .scene { padding-left: max(8vw, 190px); }
-}
-
-/* ---------- Typography ---------- */
-.eyebrow {
-  font-family: var(--display);
-  font-size: 11.5px; letter-spacing: 0.22em; text-transform: uppercase;
-  color: var(--ink-dim); display: flex; align-items: center; gap: 14px;
-  margin-bottom: 34px; font-weight: 600; flex-wrap: wrap;
-}
-.eyebrow .dot {
-  width: 8px; height: 8px; border-radius: 50%; background: var(--raw);
-  box-shadow: 0 0 16px var(--raw-glow);
-  animation: pulse 2.4s ease-in-out infinite;
-  flex: 0 0 auto;
-}
-@keyframes pulse { 0%, 100% { opacity: 1; transform: scale(1); } 50% { opacity: 0.4; transform: scale(0.7); } }
-
-h1 {
-  font-family: var(--display);
-  font-size: clamp(44px, 7vw, 92px);
-  line-height: 0.98;
-  font-weight: 700;
-  letter-spacing: -0.052em;
-  color: #ffffff;
-  margin-bottom: 40px;
-  max-width: 950px;
-}
-h1 .serif { font-family: var(--serif); font-style: italic; font-weight: 400; letter-spacing: -0.015em; padding-right: 0.06em; }
-h1 .hl-raw { color: var(--raw); text-shadow: 0 0 60px var(--raw-glow); }
-h1 .hl-seal {
-  background: linear-gradient(120deg, #7fb0ff 0%, #4d8dff 55%, #2563eb 100%);
-  -webkit-background-clip: text; background-clip: text;
-  -webkit-text-fill-color: transparent; color: transparent;
-}
-h1 .hl-git { color: var(--git); text-shadow: 0 0 60px rgba(240, 80, 51, 0.4); }
-
-h2 {
-  font-family: var(--display);
-  font-size: clamp(34px, 4.6vw, 60px);
-  line-height: 1.04;
-  font-weight: 700;
-  letter-spacing: -0.042em;
-  color: #ffffff;
-  margin-bottom: 30px;
-  max-width: 950px;
-}
-h2 .accent {
-  background: linear-gradient(120deg, #7fb0ff 0%, #4d8dff 55%, #2563eb 100%);
-  -webkit-background-clip: text; background-clip: text;
-  -webkit-text-fill-color: transparent; color: transparent;
-}
-h2 .accent-raw {
-  background: linear-gradient(120deg, #ff8080 0%, #ff4d4d 55%, #dc2626 100%);
-  -webkit-background-clip: text; background-clip: text;
-  -webkit-text-fill-color: transparent; color: transparent;
-}
-h2 .accent-branch {
-  background: linear-gradient(120deg, #d4a0ff 0%, #bd6bff 55%, #8b3fe0 100%);
-  -webkit-background-clip: text; background-clip: text;
-  -webkit-text-fill-color: transparent; color: transparent;
-}
-h2 .accent-auth {
-  background: linear-gradient(120deg, #6effc0 0%, #2ee59d 55%, #10b981 100%);
-  -webkit-background-clip: text; background-clip: text;
-  -webkit-text-fill-color: transparent; color: transparent;
-}
-h2 .accent-eph {
-  background: linear-gradient(120deg, #67e8f9 0%, #22d3ee 55%, #0891b2 100%);
-  -webkit-background-clip: text; background-clip: text;
-  -webkit-text-fill-color: transparent; color: transparent;
-}
-h2 .accent-tok {
-  background: linear-gradient(120deg, #ffd060 0%, #ffb020 55%, #d97706 100%);
-  -webkit-background-clip: text; background-clip: text;
-  -webkit-text-fill-color: transparent; color: transparent;
-}
-h2 .accent-git { color: var(--git); text-shadow: 0 0 40px rgba(240, 80, 51, 0.3); }
-h2 .serif { font-family: var(--serif); font-style: italic; font-weight: 400; }
-
-h3 {
-  font-family: var(--display);
-  font-size: 13px; letter-spacing: 0.18em; text-transform: uppercase;
-  font-weight: 600; color: var(--ink-dim); margin-bottom: 18px;
-}
-
-.lede {
+.term-dots { display: flex; gap: 6px; }
+.term-dot { width: 10px; height: 10px; border-radius: 50%; background: var(--t5); }
+.term-title {
   font-family: var(--sans);
-  font-size: clamp(17.5px, 1.65vw, 21px);
-  color: var(--ink-dim);
-  max-width: 68ch;
-  line-height: 1.75;
+  font-size: 12px;
+  color: var(--t4);
+  margin-left: 12px;
+  letter-spacing: 0;
 }
-.lede strong { color: var(--ink); font-weight: 600; }
-.lede em { color: var(--sealed-2); font-style: normal; font-weight: 500; }
+.term-body {
+  padding: 24px 26px;
+  color: var(--t2);
+  overflow-x: auto;
+  scrollbar-width: thin;
+}
+.term-line {
+  display: flex; align-items: baseline; gap: 10px;
+  white-space: pre;
+  opacity: 0;
+  transform: translateY(4px);
+  transition: opacity 0.5s var(--ease), transform 0.5s var(--ease);
+}
+.term-line.in { opacity: 1; transform: translateY(0); }
+.term-line .pr { color: var(--accent); user-select: none; font-weight: 600; }
+.term-line .pr-git { color: var(--git); user-select: none; font-weight: 600; }
+.term-line .cmd { color: var(--t1); }
+.term-line .out { color: var(--t3); }
+.term-line .ok { color: var(--green); }
+.term-line .warn { color: var(--amber); }
+.term-line .err { color: var(--red); }
+.term-line .git { color: var(--git); }
+.term-line .key { color: var(--purple); }
+.term-line .str { color: var(--green); }
+.term-line .dim { color: var(--t4); }
+.term-line .gap { padding-top: 12px; }
+@media (max-width: 640px) {
+  .term { font-size: 12.5px; border-radius: 12px; }
+  .term-body { padding: 18px 18px; }
+  .term-line { white-space: pre-wrap; word-break: break-word; }
+}
 
-.mono-label {
-  font-family: var(--display);
-  font-size: 11px; letter-spacing: 0.22em; text-transform: uppercase;
-  color: var(--ink-faint); font-weight: 600;
+.editorial { max-width: var(--content-w); }
+.editorial p { margin-bottom: 24px; font-size: 18px; line-height: 1.7; color: var(--t2); }
+.editorial p:last-child { margin-bottom: 0; }
+.editorial p strong { color: var(--t1); font-weight: 500; }
+
+.pullquote {
+  border-left: 2px solid var(--accent);
+  padding-left: 24px;
+  margin: 40px 0;
+  font-family: var(--serif);
+  font-style: italic;
+  font-size: clamp(22px, 2.2vw, 28px);
+  line-height: 1.35;
+  color: var(--t1);
+  letter-spacing: -0.015em;
+  max-width: 34ch;
 }
 
-/* ---------- Panels ---------- */
-.panel {
-  border: 1px solid var(--line);
-  background: linear-gradient(180deg, rgba(23, 23, 28, 0.7) 0%, rgba(16, 16, 20, 0.55) 100%);
-  backdrop-filter: blur(20px);
-  -webkit-backdrop-filter: blur(20px);
-  padding: 30px 34px;
-  position: relative;
-  border-radius: 16px;
-  box-shadow: 0 12px 40px rgba(0,0,0,0.35), inset 0 1px 0 rgba(255,255,255,0.03);
-  margin-bottom: 20px;
-  min-width: 0;
-}
-.panel::before {
-  content: ''; position: absolute; left: 0; top: 20px; bottom: 20px;
-  width: 3px; background: var(--panel-accent, var(--sealed)); opacity: 0.95;
-  border-radius: 0 4px 4px 0;
-  box-shadow: 0 0 18px var(--panel-accent, var(--sealed));
-}
-.panel.accent-raw { --panel-accent: var(--raw); }
-.panel.accent-branch { --panel-accent: var(--branch); }
-.panel.accent-auth { --panel-accent: var(--auth); }
-.panel.accent-eph { --panel-accent: var(--eph); }
-.panel.accent-tok { --panel-accent: var(--tok); }
-.panel.accent-exp { --panel-accent: var(--exp); }
-.panel.accent-git { --panel-accent: var(--git); }
-
-.hero-grid > *, .drift-grid > *, .branch-grid > *,
-.gate-wrap > *, .dual > *, .recip > div,
-.feature-strip > *, .install-stack > *,
-.timeline > *, .cmd-grid > * { min-width: 0; }
-
-/* ---------- Code blocks ---------- */
-.cmd {
-  display: flex; align-items: center; gap: 14px;
-  background: var(--bg-2);
-  border: 1px solid var(--line);
-  border-left: 3px solid var(--sealed);
-  padding: 17px 22px;
-  font-family: var(--mono);
-  font-size: 14px;
-  line-height: 1.55;
-  border-radius: 11px;
-  position: relative;
-  transition: all 0.35s cubic-bezier(0.4, 0, 0.2, 1);
-  margin-bottom: 12px;
-  flex-wrap: wrap;
-  min-width: 0;
-}
-.cmd:hover {
-  background: var(--bg-3);
-  border-color: rgba(77, 141, 255, 0.3);
-  box-shadow: 0 8px 28px rgba(77, 141, 255, 0.1);
-  transform: translateY(-1px);
-}
-.cmd.git { border-left-color: var(--git); }
-.cmd.git:hover { border-color: rgba(240, 80, 51, 0.35); box-shadow: 0 8px 28px rgba(240, 80, 51, 0.1); }
-.cmd .prompt { color: var(--auth); user-select: none; flex: 0 0 auto; font-weight: 600; }
-.cmd.git .prompt { color: var(--git); }
-.cmd code {
-  font-family: var(--mono); color: #fff;
-  white-space: pre-wrap; overflow-wrap: anywhere; word-break: break-word;
-  flex: 1 1 auto; min-width: 0;
-}
-.cmd .flag { color: var(--tok); }
-.cmd .str { color: var(--auth); }
-.cmd .cmt { color: var(--ink-faint); }
-.cmd .bin { color: var(--sealed-2); font-weight: 600; }
-.cmd .g { color: var(--git); font-weight: 600; }
-
-.copy {
-  flex: 0 0 auto; background: rgba(255,255,255,0.05); border: 1px solid var(--line);
-  color: var(--ink-dim); font-family: var(--display); font-size: 10.5px; font-weight: 600;
-  letter-spacing: 0.14em; text-transform: uppercase; padding: 8px 15px;
-  border-radius: 8px; cursor: pointer; transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
-  white-space: nowrap;
-}
-.copy:hover { color: #fff; border-color: var(--ink-dim); background: rgba(255,255,255,0.1); }
-.copy.done { color: var(--auth); border-color: var(--auth); background: rgba(46, 229, 157, 0.12); }
-
-.codeblock {
-  background: rgba(0,0,0,0.32);
-  border: 1px solid var(--line-soft);
-  border-radius: 11px;
-  padding: 22px 26px;
-  font-family: var(--mono);
-  font-size: 13.5px;
-  line-height: 1.9;
-  overflow-wrap: anywhere;
-  white-space: pre-wrap;
-  color: var(--ink-2);
-  margin-bottom: 16px;
-  min-width: 0;
-}
-.codeblock .cmt { color: var(--ink-faint); }
-.codeblock .key { color: var(--branch-2); font-weight: 500; }
-.codeblock .val { color: var(--auth-2); }
-.codeblock .warn { color: var(--raw-2); }
-.codeblock .ok { color: var(--auth-2); }
-.codeblock .dim { color: var(--ink-faint); }
-.codeblock .git { color: var(--git); font-weight: 600; }
-
-/* ---------- Feature strip ---------- */
-.feature-strip {
+.features {
   display: grid;
-  grid-template-columns: repeat(4, 1fr);
-  gap: 18px;
-  margin-top: 60px;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 1px;
+  background: var(--line-1);
+  border-top: 1px solid var(--line-1);
+  border-bottom: 1px solid var(--line-1);
+  margin-top: 40px;
 }
 .feature {
-  border: 1px solid var(--line);
-  background: linear-gradient(180deg, rgba(23, 23, 28, 0.55) 0%, rgba(16, 16, 20, 0.35) 100%);
-  border-radius: 16px;
-  padding: 24px 22px 22px;
+  background: var(--bg);
+  padding: 40px 32px 44px;
   position: relative;
-  overflow: hidden;
-  transition: all 0.45s cubic-bezier(0.22, 1, 0.36, 1);
+  transition: background 0.3s var(--ease-io);
 }
-.feature::before {
-  content: '';
-  position: absolute; top: 0; left: 0; right: 0; height: 2px;
-  background: linear-gradient(90deg, transparent, var(--feature-color, var(--sealed)), transparent);
-  opacity: 0.7;
-  transition: opacity 0.4s ease;
+.feature:hover { background: var(--bg-1); }
+.feature-num {
+  font-family: var(--mono);
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--t4);
+  letter-spacing: 0.1em;
+  margin-bottom: 32px;
+  display: block;
 }
-.feature:hover {
-  transform: translateY(-4px);
-  border-color: color-mix(in srgb, var(--feature-color, var(--sealed)) 35%, transparent);
-  box-shadow: 0 16px 40px rgba(0,0,0,0.4);
-}
-.feature:hover::before { opacity: 1; }
-.feature-icon {
-  width: 40px; height: 40px;
-  border-radius: 10px;
-  display: flex; align-items: center; justify-content: center;
-  font-size: 19px;
-  background: color-mix(in srgb, var(--feature-color, var(--sealed)) 12%, transparent);
-  border: 1px solid color-mix(in srgb, var(--feature-color, var(--sealed)) 25%, transparent);
-  margin-bottom: 15px;
-}
-.feature-name {
-  font-family: var(--display);
-  font-size: 15.5px;
-  font-weight: 600;
-  color: #fff;
-  letter-spacing: -0.015em;
-  margin-bottom: 5px;
+.feature-title {
+  font-size: 18px;
+  font-weight: 500;
+  color: var(--t1);
+  letter-spacing: -0.02em;
+  margin-bottom: 12px;
 }
 .feature-desc {
-  font-family: var(--sans);
-  font-size: 13.5px;
-  color: var(--ink-dim);
-  line-height: 1.55;
+  font-size: 15px;
+  line-height: 1.6;
+  color: var(--t3);
+}
+@media (max-width: 900px) {
+  .features { grid-template-columns: 1fr; }
+  .feature { padding: 32px 24px 36px; }
 }
 
-/* ---------- Hero ---------- */
-.hero-grid {
-  display: grid; grid-template-columns: 1.05fr 0.95fr; gap: 44px;
-  margin-top: 64px; align-items: start;
-}
-.install-stack { display: flex; flex-direction: column; gap: 14px; min-width: 0; }
-
-/* ---------- Drift cards ---------- */
-.drift-grid {
-  display: grid; grid-template-columns: repeat(2, 1fr); gap: 24px;
-  margin-top: 56px;
-}
-.drift-card {
-  border: 1px solid var(--line);
-  background: linear-gradient(180deg, var(--bg-2) 0%, rgba(16, 16, 20, 0.7) 100%);
-  border-radius: 16px;
-  padding: 30px;
-  position: relative;
-  transition: all 0.45s cubic-bezier(0.22, 1, 0.36, 1);
-  min-width: 0;
-}
-.drift-card:hover {
-  transform: translateY(-6px);
-  border-color: rgba(255, 77, 77, 0.35);
-  box-shadow: 0 20px 44px rgba(0,0,0,0.45);
-}
-.drift-card h3 {
-  font-family: var(--display);
-  font-size: 17px; color: #fff; margin-bottom: 16px;
-  letter-spacing: -0.015em; text-transform: none; font-weight: 600;
-}
-.drift-card pre {
-  font-family: var(--mono);
-  font-size: 13px; line-height: 1.95; white-space: pre-wrap;
-  overflow-wrap: anywhere; color: var(--ink-dim);
-}
-.drift-card pre .k { color: var(--branch-2); font-weight: 500; }
-.drift-card pre .v { color: var(--auth-2); }
-.drift-card pre .missing { color: var(--raw-2); opacity: 0.95; font-weight: 600; }
-.drift-card pre .conflict { color: var(--tok-2); font-weight: 600; }
-.drift-card pre .ok { color: var(--auth-2); font-weight: 600; }
-
-/* ---------- Timeline (Git workflow) ---------- */
-.timeline {
+.split {
   display: grid;
-  grid-template-columns: 1fr auto 1fr;
-  gap: 32px;
-  margin-top: 60px;
-  align-items: start;
-  position: relative;
+  grid-template-columns: 1fr 1fr;
+  gap: 24px;
+  margin-top: 48px;
 }
-.timeline-col {
-  display: flex; flex-direction: column; gap: 18px;
-  min-width: 0;
-}
-.timeline-col-header {
+.split .term { font-size: 12.5px; }
+.split-head {
   display: flex; align-items: center; gap: 12px;
-  margin-bottom: 6px;
+  margin-bottom: 20px;
 }
-.timeline-col-icon {
-  width: 38px; height: 38px; border-radius: 10px;
-  display: flex; align-items: center; justify-content: center;
-  font-size: 17px;
-  flex: 0 0 auto;
-}
-.timeline-col.you .timeline-col-icon {
-  background: rgba(77, 141, 255, 0.1);
-  border: 1px solid rgba(77, 141, 255, 0.25);
-}
-.timeline-col.them .timeline-col-icon {
-  background: rgba(46, 229, 157, 0.1);
-  border: 1px solid rgba(46, 229, 157, 0.25);
-}
-.timeline-col-title {
-  font-family: var(--display);
-  font-size: 13px; letter-spacing: 0.18em; text-transform: uppercase;
-  font-weight: 600;
-}
-.timeline-col.you .timeline-col-title { color: var(--sealed-2); }
-.timeline-col.them .timeline-col-title { color: var(--auth-2); }
-
-.timeline-step {
-  display: flex; gap: 14px;
-  padding: 16px 20px;
-  border: 1px solid var(--line);
-  border-radius: 12px;
-  background: rgba(16, 16, 20, 0.5);
-  transition: all 0.35s cubic-bezier(0.4, 0, 0.2, 1);
-  min-width: 0;
-}
-.timeline-step:hover {
-  border-color: rgba(77, 141, 255, 0.3);
-  background: rgba(16, 16, 20, 0.85);
-  transform: translateX(3px);
-}
-.timeline-step-num {
-  font-family: var(--display);
-  font-size: 11px; font-weight: 700;
-  color: var(--ink-faint);
-  letter-spacing: 0.1em;
-  flex: 0 0 auto;
-  padding-top: 4px;
-  min-width: 18px;
-}
-.timeline-step-body { min-width: 0; flex: 1 1 auto; }
-.timeline-step-cmd {
+.split-head-label {
   font-family: var(--mono);
-  font-size: 13px;
-  color: #fff;
-  overflow-wrap: anywhere;
-  word-break: break-word;
-  line-height: 1.5;
+  font-size: 11px;
+  font-weight: 500;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  padding: 5px 10px;
+  border-radius: 6px;
+  border: 1px solid var(--line-1);
 }
-.timeline-step-cmd .bin { color: var(--sealed-2); font-weight: 600; }
-.timeline-step-cmd .git { color: var(--git); font-weight: 600; }
-.timeline-step-cmd .flag { color: var(--tok); }
-.timeline-step-cmd .str { color: var(--auth); }
-.timeline-step-cmd .cmt { color: var(--ink-faint); }
-.timeline-step-desc {
-  font-family: var(--sans);
-  font-size: 13px;
-  color: var(--ink-faint);
-  margin-top: 5px;
-  line-height: 1.55;
-}
-.timeline-connector {
-  display: flex; flex-direction: column; align-items: center;
-  gap: 12px;
-  padding-top: 60px;
-  min-width: 0;
-}
-.timeline-connector-line {
-  width: 1px; flex: 1 1 auto; min-height: 60px;
-  background: linear-gradient(180deg, var(--sealed), var(--git), var(--auth));
-  opacity: 0.5;
-}
-.timeline-connector-badge {
-  font-family: var(--display);
-  font-size: 10px; letter-spacing: 0.2em; text-transform: uppercase;
-  color: var(--git); font-weight: 700;
-  padding: 6px 14px;
-  border: 1px solid rgba(240, 80, 51, 0.35);
-  background: rgba(240, 80, 51, 0.08);
-  border-radius: 8px;
-  white-space: nowrap;
-}
+.split-head-label.you { color: var(--accent-2); border-color: rgba(139,139,240,0.25); background: var(--accent-tint); }
+.split-head-label.them { color: var(--green); border-color: rgba(74,222,128,0.25); background: rgba(74,222,128,0.06); }
+.split-head-title { font-size: 15px; font-weight: 500; color: var(--t1); letter-spacing: -0.015em; }
+@media (max-width: 900px) { .split { grid-template-columns: 1fr; } }
 
-/* ---------- Branch tracks ---------- */
-.branch-grid {
-  display: grid; grid-template-columns: repeat(3, 1fr); gap: 28px; margin-top: 56px;
-}
-.track { position: relative; padding-top: 38px; min-width: 0; }
-.track::before {
-  content: ''; position: absolute; top: 16px; left: 5px; right: -24px; height: 2px;
-  background: linear-gradient(90deg, var(--branch), rgba(189, 107, 255, 0.1));
-  border-radius: 2px;
-}
-.track:last-child::before { right: 0; background: linear-gradient(90deg, var(--branch), transparent); }
-.track::after {
-  content: ''; position: absolute; top: 10px; left: 0; width: 14px; height: 14px;
-  border-radius: 50%;
-  background: var(--bg); border: 2.5px solid var(--branch);
-  box-shadow: 0 0 16px var(--branch-glow);
-}
-.track .branch-name {
-  font-family: var(--display);
-  font-size: 15px; color: var(--branch-2); letter-spacing: -0.01em; margin-bottom: 16px; font-weight: 600;
-  display: flex; align-items: center; gap: 12px; flex-wrap: wrap;
-}
-.track .branch-name .badge {
-  font-family: var(--display);
-  font-size: 9.5px; letter-spacing: 0.18em; text-transform: uppercase;
-  border: 1px solid var(--line); padding: 3px 9px; color: var(--ink-faint);
-  border-radius: 5px; background: rgba(255,255,255,0.03); font-weight: 600;
-}
-.track .resolve {
-  font-family: var(--mono); font-size: 13px; line-height: 2.3;
-  color: var(--ink-dim); overflow-wrap: anywhere;
-}
-.track .resolve .k { color: #fff; font-weight: 500; }
-.track .resolve .arrow { color: var(--ink-faint); margin: 0 9px; }
-.track .resolve .v { color: var(--auth-2); }
-.track .resolve .fallback { color: var(--ink-faint); font-style: italic; font-size: 12px; }
-
-/* ---------- Recipients ---------- */
-.recip-list { display: flex; flex-direction: column; gap: 16px; margin-top: 52px; }
-.recip {
-  display: grid; grid-template-columns: auto 1fr auto; gap: 20px; align-items: center;
-  border: 1px solid var(--line); padding: 20px 26px;
-  background: linear-gradient(180deg, rgba(16, 16, 20, 0.6) 0%, rgba(16, 16, 20, 0.3) 100%);
-  border-radius: 14px;
-  transition: all 0.35s cubic-bezier(0.4, 0, 0.2, 1);
-}
-.recip:hover {
-  border-color: rgba(46, 229, 157, 0.4);
-  background: rgba(16, 16, 20, 0.85);
-  box-shadow: 0 12px 30px rgba(0,0,0,0.35);
-  transform: translateY(-2px);
-}
-.recip .ring {
-  width: 32px; height: 32px; border-radius: 50%;
-  border: 2px solid var(--auth); position: relative; flex: 0 0 auto;
-  box-shadow: 0 0 16px var(--auth-glow);
-}
-.recip .ring::after {
-  content: ''; position: absolute; inset: 7px; border-radius: 50%;
-  background: var(--auth); opacity: 0.6;
-}
-.recip .who { font-family: var(--display); font-size: 16px; color: #fff; font-weight: 600; letter-spacing: -0.01em; }
-.recip .key {
-  font-family: var(--mono); font-size: 12px; color: var(--ink-faint);
-  margin-top: 5px; letter-spacing: 0.02em;
-  overflow-wrap: anywhere; word-break: break-all;
-}
-.recip .status {
-  font-family: var(--display);
-  font-size: 10.5px; letter-spacing: 0.18em; text-transform: uppercase;
-  color: var(--auth-2); font-weight: 600; white-space: nowrap;
-}
-
-/* ---------- Gate ---------- */
-.gate-wrap { display: grid; grid-template-columns: 1fr 1fr; gap: 48px; align-items: center; margin-top: 52px; }
-.gate {
-  position: relative; height: 290px; display: flex; align-items: center; justify-content: center;
-  background: radial-gradient(circle at 50% 50%, rgba(77, 141, 255, 0.03) 0%, transparent 70%);
-  border-radius: 20px; border: 1px solid var(--line);
-  overflow: hidden;
-}
-.gate-bar { position: absolute; top: 0; bottom: 0; width: 1px; background: var(--line); }
-.gate-bar.l { left: calc(50% - 50px); }
-.gate-bar.r { left: calc(50% + 50px); }
-.gate-beam {
-  position: absolute; left: calc(50% - 50px); width: 100px; height: 2px;
-  background: var(--raw); box-shadow: 0 0 24px var(--raw-glow);
-  animation: beam 3.6s ease-in-out infinite; border-radius: 2px;
-}
-@keyframes beam { 0%, 100% { top: 14%; opacity: 0.3; } 50% { top: 84%; opacity: 1; } }
-.gate-file {
-  position: absolute; font-family: var(--mono); font-size: 13px;
-  padding: 7px 14px; border: 1px solid var(--line);
-  background: var(--bg-2); white-space: nowrap; border-radius: 8px;
-}
-.gate-file.rejected {
-  left: calc(50% - 140px); top: 52%; color: var(--raw-2); border-color: rgba(255, 77, 77, 0.4);
-  animation: bounce 2.8s ease-in-out infinite;
-}
-@keyframes bounce {
-  0%, 100% { transform: translateX(0); }
-  38% { transform: translateX(50px); }
-  50% { transform: translateX(42px); }
-  62% { transform: translateX(50px); }
-}
-.gate-file.passed {
-  right: calc(50% - 140px); top: 32%; color: var(--sealed-2); border-color: rgba(77, 141, 255, 0.4);
-  animation: pass 2.8s ease-in-out infinite;
-}
-@keyframes pass { 0%, 100% { transform: translateX(0); opacity: 1; } 45% { transform: translateX(-34px); } }
-.gate-label {
-  position: absolute; bottom: 18px; left: 50%; transform: translateX(-50%);
-  font-family: var(--display);
-  font-size: 10.5px; letter-spacing: 0.22em; text-transform: uppercase;
-  color: var(--ink-faint); font-weight: 600;
-}
-
-/* ---------- Runtime terminal ---------- */
-.runtime-stage {
-  display: flex; flex-direction: column; align-items: center; gap: 32px;
-  margin-top: 48px; width: 100%;
-}
-.term-window {
-  width: min(780px, 94%);
-  border: 1px solid rgba(34, 211, 238, 0.2);
-  background: rgba(8, 8, 10, 0.9);
-  backdrop-filter: blur(20px);
-  border-radius: 16px;
-  cursor: pointer;
-  transition: all 0.45s cubic-bezier(0.22, 1, 0.36, 1);
-  position: relative; z-index: 3;
-  box-shadow: 0 24px 48px rgba(0,0,0,0.5);
-}
-.term-window:hover {
-  border-color: rgba(34, 211, 238, 0.5);
-  transform: translateY(-3px);
-  box-shadow: 0 28px 56px rgba(0,0,0,0.6), 0 0 40px var(--eph-glow);
-}
-.term-window.live {
-  border-color: rgba(34, 211, 238, 0.8);
-  box-shadow: 0 0 80px rgba(34, 211, 238, 0.2), inset 0 0 48px rgba(34, 211, 238, 0.05);
-}
-.term-bar {
-  display: flex; align-items: center; gap: 12px;
-  padding: 15px 22px; border-bottom: 1px solid var(--line);
-  font-family: var(--sans);
-  font-size: 12.5px; color: var(--ink-dim); letter-spacing: 0.01em; font-weight: 500;
-}
-.term-bar .led {
-  width: 9px; height: 9px; border-radius: 50%; background: var(--ink-faint);
-  transition: all 0.35s cubic-bezier(0.4, 0, 0.2, 1); flex: 0 0 auto;
-}
-.term-window.live .term-bar .led { background: var(--eph); box-shadow: 0 0 16px var(--eph-glow); }
-.term-body {
-  padding: 30px; font-family: var(--mono); font-size: 13.5px; line-height: 2.1;
-  min-height: 200px; position: relative; overflow: hidden;
-}
-.stream {
-  position: absolute; inset: 0; pointer-events: none;
-  background: linear-gradient(180deg, transparent, rgba(34, 211, 238, 0.08), transparent);
-  opacity: 0; transition: opacity 0.45s cubic-bezier(0.4, 0, 0.2, 1);
-}
-.term-window.live .stream { opacity: 1; animation: streamflow 2.4s linear infinite; }
-@keyframes streamflow { 0% { transform: translateY(-100%); } 100% { transform: translateY(100%); } }
-.stream-line {
-  color: var(--eph-2); opacity: 0; transform: translateY(-8px);
-  transition: all 0.4s cubic-bezier(0.4, 0, 0.2, 1);
-  overflow-wrap: anywhere;
-}
-.term-window.live .stream-line { opacity: 1; transform: translateY(0); }
-.stream-line:nth-child(2) { transition-delay: 0.09s; }
-.stream-line:nth-child(3) { transition-delay: 0.18s; }
-.stream-line:nth-child(4) { transition-delay: 0.27s; }
-.evaporate {
-  color: var(--ink-faint); opacity: 0;
-  transition: opacity 0.45s cubic-bezier(0.4, 0, 0.2, 1) 0.12s;
-}
-.term-window.dead .evaporate { opacity: 1; }
-.term-hint {
-  font-family: var(--display);
-  font-size: 11px; letter-spacing: 0.2em; text-transform: uppercase;
-  color: var(--ink-faint); user-select: none; font-weight: 600;
-}
-
-.dual { display: grid; grid-template-columns: 1fr 1fr; gap: 28px; margin-top: 56px; }
-
-/* ---------- Comparison table ---------- */
-.table-wrap {
-  width: 100%; max-width: 1100px; overflow-x: auto; margin-top: 56px;
-  border: 1px solid var(--line); border-radius: 16px;
-  background: linear-gradient(180deg, var(--bg-2) 0%, rgba(16, 16, 20, 0.6) 100%);
-  backdrop-filter: blur(10px);
-  box-shadow: 0 16px 44px rgba(0,0,0,0.35);
+.table-scroll {
+  overflow-x: auto;
+  margin-top: 40px;
+  border-top: 1px solid var(--line-1);
+  border-bottom: 1px solid var(--line-1);
   -webkit-overflow-scrolling: touch;
 }
-.comp-table {
-  width: 100%; min-width: 940px; border-collapse: collapse; text-align: left;
-  font-family: var(--sans); font-size: 14px;
+table.compare {
+  width: 100%;
+  min-width: 940px;
+  border-collapse: collapse;
+  font-size: 14px;
+  font-variant-numeric: tabular-nums;
 }
-.comp-table th, .comp-table td { padding: 20px 24px; border-bottom: 1px solid var(--line-soft); }
-.comp-table th {
-  color: var(--ink); font-family: var(--display); font-weight: 600;
-  text-transform: uppercase; letter-spacing: 0.14em; font-size: 10.5px;
-  background: rgba(0,0,0,0.3);
+table.compare th,
+table.compare td {
+  padding: 20px 20px;
+  text-align: left;
+  border-bottom: 1px solid var(--line-1);
+  vertical-align: top;
 }
-.comp-table tr:hover td { background: rgba(255,255,255,0.018); }
-.comp-table td { color: var(--ink-dim); line-height: 1.6; }
-.comp-table th.highlight, .comp-table td.highlight {
-  background: rgba(77, 141, 255, 0.07); color: var(--ink);
-  border-left: 1px solid rgba(77, 141, 255, 0.2);
-  border-right: 1px solid rgba(77, 141, 255, 0.2);
-}
-.comp-table th.highlight { border-top: 2.5px solid var(--sealed); color: var(--sealed-2); }
-.comp-table td.highlight strong { color: var(--sealed-2); font-weight: 600; }
-
-/* ---------- Caveats ---------- */
-.caveat-list { display: flex; flex-direction: column; gap: 3px; max-width: 820px; margin-top: 36px; }
-.caveat {
-  border-top: 1px solid var(--line-soft);
-  padding: 30px 4px;
-  transition: background 0.35s ease, border-color 0.35s ease;
-  cursor: pointer; position: relative; border-radius: 4px;
-}
-.caveat:last-child { border-bottom: 1px solid var(--line-soft); }
-.caveat:hover { background: rgba(255,255,255,0.016); }
-.caveat:focus-visible { outline: 2px solid var(--sealed); outline-offset: 4px; }
-.caveat.open { background: rgba(255,255,255,0.022); }
-.caveat .num {
-  font-family: var(--display);
-  font-size: 11px; letter-spacing: 0.2em; color: var(--exp);
-  margin-bottom: 12px; font-weight: 600;
-}
-.caveat.faq .num { color: var(--sealed-2); }
-.caveat .head {
-  font-family: var(--display);
-  font-size: 20px; color: #fff; line-height: 1.4; font-weight: 600;
-  letter-spacing: -0.02em;
-  padding-right: 48px; position: relative;
-}
-.caveat .head::after {
-  content: '+'; position: absolute; right: 0; top: -2px;
-  font-family: var(--display); font-size: 24px; font-weight: 400;
-  color: var(--ink-faint); line-height: 1.2;
-  transition: color 0.3s ease;
-}
-.caveat.open .head::after { content: '−'; color: var(--sealed-2); }
-.caveat .body {
-  font-family: var(--sans);
-  font-size: 15.5px; color: var(--ink-dim); line-height: 1.75;
-  max-height: 0; overflow: hidden; opacity: 0;
-  transition: max-height 0.5s cubic-bezier(0.22, 1, 0.36, 1),
-              opacity 0.35s ease,
-              margin-top 0.4s ease;
-}
-.caveat.open .body { max-height: 1200px; opacity: 1; margin-top: 14px; }
-.caveat .body strong { color: #fff; }
-
-/* ---------- Honest fit panel ---------- */
-.fit-grid {
-  display: grid; grid-template-columns: 1fr 1fr; gap: 24px;
-  margin-top: 56px;
-}
-.fit-card {
-  border: 1px solid var(--line);
-  border-radius: 16px;
-  padding: 30px 32px;
-  background: linear-gradient(180deg, rgba(16, 16, 20, 0.6) 0%, rgba(16, 16, 20, 0.3) 100%);
-  position: relative;
-  overflow: hidden;
-  min-width: 0;
-}
-.fit-card::before {
-  content: ''; position: absolute; top: 0; left: 0; right: 0; height: 2px;
-  background: linear-gradient(90deg, transparent, var(--fit-color, var(--sealed)), transparent);
-  opacity: 0.8;
-}
-.fit-card.win { --fit-color: var(--auth); }
-.fit-card.lose { --fit-color: var(--tok); }
-.fit-title {
-  font-family: var(--display);
-  font-size: 13px; letter-spacing: 0.18em; text-transform: uppercase;
-  font-weight: 600;
-  margin-bottom: 20px;
-  display: flex; align-items: center; gap: 10px;
-}
-.fit-card.win .fit-title { color: var(--auth-2); }
-.fit-card.lose .fit-title { color: var(--tok-2); }
-.fit-list { list-style: none; display: flex; flex-direction: column; gap: 14px; }
-.fit-list li {
-  display: flex; gap: 12px;
-  font-size: 14.5px;
-  color: var(--ink-dim);
-  line-height: 1.65;
-}
-.fit-list li::before {
-  content: ''; flex: 0 0 auto;
-  width: 6px; height: 6px; border-radius: 50%;
-  margin-top: 9px;
-  background: var(--fit-color, var(--sealed));
-  box-shadow: 0 0 10px var(--fit-color, var(--sealed));
-}
-.fit-list li strong { color: #fff; font-weight: 600; }
-
-/* ---------- Command grid ---------- */
-.cmd-sections {
-  display: grid; grid-template-columns: 1fr 1fr; gap: 32px;
-  margin-top: 56px;
-}
-.cmd-group { min-width: 0; }
-.cmd-group-title {
-  font-family: var(--display);
-  font-size: 12px; letter-spacing: 0.2em; text-transform: uppercase;
-  font-weight: 600;
-  color: var(--ink-dim);
-  margin-bottom: 18px;
-  padding-bottom: 12px;
-  border-bottom: 1px solid var(--line);
-}
-.cmd-row {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr);
-  gap: 4px;
-  padding: 14px 16px;
-  border-radius: 10px;
-  transition: background 0.25s ease;
-  border-bottom: 1px solid var(--line-soft);
-}
-.cmd-row:last-child { border-bottom: none; }
-.cmd-row:hover { background: rgba(255,255,255,0.02); }
-.cmd-row-cmd {
+table.compare tr:last-child td { border-bottom: none; }
+table.compare thead th {
   font-family: var(--mono);
-  font-size: 13px;
-  color: #fff;
-  overflow-wrap: anywhere;
-  word-break: break-word;
+  font-size: 11px;
+  font-weight: 500;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--t3);
+  padding-top: 28px;
+  padding-bottom: 20px;
 }
-.cmd-row-cmd .bin { color: var(--sealed-2); font-weight: 600; }
-.cmd-row-cmd .flag { color: var(--tok); }
-.cmd-row-cmd .opt { color: var(--ink-faint); }
-.cmd-row-desc {
-  font-family: var(--sans);
-  font-size: 13px;
-  color: var(--ink-faint);
-  line-height: 1.6;
+table.compare thead th.us {
+  color: var(--accent-2);
+  position: relative;
+}
+table.compare thead th.us::before {
+  content: '';
+  position: absolute;
+  top: 0; left: 0; right: 0;
+  height: 2px;
+  background: linear-gradient(90deg, transparent, var(--accent), transparent);
+}
+table.compare tbody td:first-child {
+  color: var(--t1);
+  font-weight: 500;
+  font-size: 13.5px;
+}
+table.compare tbody td { color: var(--t3); line-height: 1.55; }
+table.compare tbody td.us { color: var(--t1); background: rgba(139,139,240,0.03); }
+table.compare tbody td.us strong { color: var(--accent-2); font-weight: 500; }
+table.compare tbody tr:hover td { background: rgba(255,255,255,0.008); }
+table.compare tbody tr:hover td.us { background: rgba(139,139,240,0.05); }
+
+.caveats {
+  max-width: 800px;
+  margin-top: 40px;
+  border-top: 1px solid var(--line-1);
+}
+.caveat {
+  border-bottom: 1px solid var(--line-1);
+  padding: 32px 0;
+  cursor: pointer;
+  transition: padding 0.3s var(--ease);
+}
+.caveat-head {
+  display: grid;
+  grid-template-columns: 60px 1fr 24px;
+  gap: 24px;
+  align-items: baseline;
+}
+.caveat-num {
+  font-family: var(--mono);
+  font-size: 12px;
+  color: var(--t4);
+  letter-spacing: 0.1em;
+  padding-top: 3px;
+}
+.caveat-title {
+  font-size: 20px;
+  font-weight: 500;
+  color: var(--t1);
+  letter-spacing: -0.02em;
+  line-height: 1.35;
+  transition: color 0.2s var(--ease-io);
+}
+.caveat:hover .caveat-title { color: var(--accent-2); }
+.caveat-indicator {
+  font-family: var(--mono);
+  font-size: 20px;
+  line-height: 1;
+  color: var(--t4);
+  transition: color 0.25s var(--ease-io), transform 0.35s var(--ease);
+  text-align: right;
+  padding-top: 4px;
+}
+.caveat.open .caveat-indicator { color: var(--accent-2); transform: rotate(45deg); }
+.caveat-body {
+  max-height: 0;
+  overflow: hidden;
+  transition: max-height 0.55s var(--ease), opacity 0.4s var(--ease-io), margin 0.4s var(--ease);
+  opacity: 0;
+  margin-top: 0;
+}
+.caveat.open .caveat-body {
+  max-height: 600px;
+  opacity: 1;
+  margin-top: 20px;
+}
+.caveat-body-inner {
+  padding-left: 84px;
+  font-size: 16px;
+  line-height: 1.75;
+  color: var(--t2);
+  max-width: 62ch;
+}
+.caveat-body-inner strong { color: var(--t1); font-weight: 500; }
+@media (max-width: 640px) {
+  .caveat-head { grid-template-columns: 40px 1fr 24px; gap: 16px; }
+  .caveat-body-inner { padding-left: 56px; }
 }
 
-/* ---------- Shell integration tabs ---------- */
-.tabs {
-  display: flex; gap: 4px; flex-wrap: wrap;
-  margin-top: 40px; margin-bottom: 0;
-  border-bottom: 1px solid var(--line);
-  padding-bottom: 0;
+.fit {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 1px;
+  background: var(--line-1);
+  border-top: 1px solid var(--line-1);
+  border-bottom: 1px solid var(--line-1);
+  margin-top: 56px;
 }
-.tab {
-  font-family: var(--display);
-  font-size: 12px; font-weight: 600;
-  letter-spacing: 0.06em;
-  color: var(--ink-faint);
-  background: transparent;
-  border: none;
-  border-bottom: 2px solid transparent;
-  padding: 12px 18px;
-  cursor: pointer;
-  transition: all 0.25s ease;
-  margin-bottom: -1px;
+.fit-col {
+  background: var(--bg);
+  padding: 40px 40px 44px;
 }
-.tab:hover { color: var(--ink-dim); }
-.tab.active {
-  color: var(--sealed-2);
-  border-bottom-color: var(--sealed);
+.fit-col.win { background: linear-gradient(180deg, var(--bg), var(--bg-1)); }
+.fit-col.lose { background: linear-gradient(180deg, var(--bg), var(--bg-1)); }
+.fit-label {
+  display: flex; align-items: center; gap: 10px;
+  font-family: var(--mono);
+  font-size: 11px;
+  font-weight: 500;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  margin-bottom: 24px;
 }
-.tab-panel { display: none; margin-top: 20px; }
-.tab-panel.active { display: block; }
+.fit-col.win .fit-label { color: var(--green); }
+.fit-col.lose .fit-label { color: var(--amber); }
+.fit-label-dot {
+  width: 6px; height: 6px; border-radius: 50%;
+  background: currentColor;
+  box-shadow: 0 0 8px currentColor;
+}
+.fit-list { list-style: none; }
+.fit-list li {
+  padding: 14px 0;
+  border-bottom: 1px solid var(--line-1);
+  font-size: 15.5px;
+  line-height: 1.6;
+  color: var(--t2);
+}
+.fit-list li:last-child { border-bottom: none; }
+.fit-list li strong { color: var(--t1); font-weight: 500; }
+@media (max-width: 900px) {
+  .fit { grid-template-columns: 1fr; }
+  .fit-col { padding: 32px 24px 36px; }
+}
+
+/* ---------- Commands reference ---------- */
+.cmds {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 64px;
+  margin-top: 48px;
+}
+.cmds-col h3 {
+  font-family: var(--mono);
+  font-size: 11px;
+  font-weight: 500;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--t3);
+  margin-bottom: 20px;
+  padding-bottom: 16px;
+  border-bottom: 1px solid var(--line-1);
+}
+.cmds-col h3 + .cmd-item:first-of-type { margin-top: 0; }
+.cmd-item {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 4px;
+  padding: 16px 0;
+  border-bottom: 1px solid var(--line-1);
+  transition: padding-left 0.25s var(--ease);
+}
+.cmd-item:hover { padding-left: 8px; }
+.cmd-item:hover .cmd-item-cmd { color: var(--accent-2); }
+.cmd-item-cmd {
+  font-family: var(--mono);
+  font-size: 13.5px;
+  color: var(--t1);
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+  transition: color 0.25s var(--ease-io);
+}
+.cmd-item-cmd .bin { color: var(--accent); font-weight: 500; }
+.cmd-item-cmd .flag { color: var(--amber); }
+.cmd-item-cmd .opt { color: var(--t4); }
+.cmd-item-cmd .alias { color: var(--t4); font-size: 12.5px; }
+.cmd-item-desc {
+  font-size: 14px;
+  color: var(--t3);
+  line-height: 1.55;
+}
+.cmd-item-desc code {
+  font-size: 0.86em;
+  padding: 1px 5px;
+}
+
+/* Sub-item: for nested things like recipient <id|add|ls|rm> */
+.cmd-sub {
+  padding-left: 20px;
+  border-left: 1px solid var(--line-1);
+  margin-left: 4px;
+}
+.cmd-sub .cmd-item {
+  padding: 12px 0;
+  border-bottom: 1px solid var(--line-1);
+}
+.cmd-sub .cmd-item:last-child { border-bottom: none; }
+
+@media (max-width: 900px) { .cmds { grid-template-columns: 1fr; gap: 48px; } }
 
 /* ---------- Finale ---------- */
-.finale { display: flex; flex-direction: column; align-items: center; text-align: center; gap: 40px; }
-.finale h2 { max-width: 22ch; margin: 0 auto; }
-.finale-links { display: flex; gap: 18px; flex-wrap: wrap; justify-content: center; margin-top: 10px; }
+.finale {
+  padding-block: clamp(120px, 16vh, 200px);
+  text-align: center;
+}
+.finale h2 {
+  max-width: 22ch;
+  margin: 0 auto 32px;
+  font-size: clamp(40px, 6vw, 80px);
+  letter-spacing: -0.045em;
+}
+.finale-actions {
+  display: flex; gap: 12px; justify-content: center; flex-wrap: wrap;
+  margin-top: 40px;
+}
 .btn {
-  display: inline-flex; align-items: center; gap: 12px;
-  border: 1px solid var(--line); color: var(--ink);
-  padding: 17px 30px; font-family: var(--display); font-size: 14.5px; font-weight: 600;
-  letter-spacing: 0.01em; text-decoration: none; border-radius: 12px;
-  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
-  background: rgba(255,255,255,0.025);
+  display: inline-flex; align-items: center; gap: 10px;
+  padding: 14px 24px;
+  font-size: 14.5px;
+  font-weight: 500;
+  font-family: var(--sans);
+  letter-spacing: -0.005em;
+  text-decoration: none;
+  border-radius: 10px;
+  border: 1px solid var(--line-2);
+  color: var(--t1);
+  background: rgba(255,255,255,0.02);
+  transition: all 0.25s var(--ease-io);
   cursor: pointer;
 }
 .btn:hover {
-  border-color: var(--sealed); color: #fff; background: rgba(77, 141, 255, 0.1);
-  box-shadow: 0 10px 24px rgba(77, 141, 255, 0.22);
-  transform: translateY(-2px);
+  border-color: var(--line-3);
+  background: var(--bg-2);
+  transform: translateY(-1px);
 }
 .btn.primary {
-  border-color: rgba(77, 141, 255, 0.5); color: #fff;
-  background: linear-gradient(135deg, rgba(77, 141, 255, 0.22) 0%, rgba(59, 130, 246, 0.14) 100%);
+  background: linear-gradient(180deg, var(--accent), var(--accent-dim));
+  border-color: var(--accent-dim);
+  color: #fff;
+  box-shadow: 0 8px 24px -8px var(--accent-glow), 0 1px 0 rgba(255,255,255,0.15) inset;
 }
 .btn.primary:hover {
-  background: linear-gradient(135deg, rgba(77, 141, 255, 0.32) 0%, rgba(59, 130, 246, 0.22) 100%);
-  box-shadow: 0 14px 32px rgba(77, 141, 255, 0.32);
+  background: linear-gradient(180deg, var(--accent-2), var(--accent));
+  box-shadow: 0 12px 32px -8px var(--accent-glow), 0 1px 0 rgba(255,255,255,0.2) inset;
 }
-.btn.git {
-  border-color: rgba(240, 80, 51, 0.4);
-  background: linear-gradient(135deg, rgba(240, 80, 51, 0.16) 0%, rgba(240, 80, 51, 0.08) 100%);
-}
-.btn.git:hover {
-  border-color: var(--git);
-  background: linear-gradient(135deg, rgba(240, 80, 51, 0.26) 0%, rgba(240, 80, 51, 0.14) 100%);
-  box-shadow: 0 12px 28px rgba(240, 80, 51, 0.25);
+
+.faq-wrap {
+  max-width: 800px;
+  margin: 80px auto 0;
 }
 
 footer {
-  position: relative; z-index: 2;
-  padding: 72px 8vw 80px; border-top: 1px solid var(--line-soft);
-  display: flex; justify-content: space-between; align-items: center; gap: 24px;
-  flex-wrap: wrap; font-family: var(--display); font-size: 13px;
-  color: var(--ink-faint); letter-spacing: 0.02em; font-weight: 500;
+  padding: 56px var(--pad-x) 64px;
+  border-top: 1px solid var(--line-1);
+  font-size: 13.5px;
+  color: var(--t4);
 }
-footer a {
-  color: var(--ink-dim); text-decoration: none; border-bottom: 1px solid transparent;
-  transition: 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+.footer-grid {
+  max-width: var(--max-w);
+  margin: 0 auto;
+  display: flex;
+  justify-content: space-between;
+  gap: 32px;
+  flex-wrap: wrap;
+  align-items: baseline;
 }
-footer a:hover { color: var(--sealed-2); border-color: var(--sealed-2); }
-
-.js .reveal { opacity: 0; transform: translateY(30px); }
-
-/* ---------- Responsive ---------- */
-@media (max-width: 1100px) {
-  .feature-strip { grid-template-columns: repeat(2, 1fr); }
-  .cmd-sections { grid-template-columns: 1fr; }
+.footer-left {
+  display: flex; align-items: center; gap: 12px;
+  flex-wrap: wrap;
 }
-@media (max-width: 1000px) {
-  .hero-grid, .drift-grid, .branch-grid, .gate-wrap, .dual, .fit-grid,
-  .timeline { grid-template-columns: 1fr; }
-  .timeline-connector { padding-top: 0; padding-bottom: 0; flex-direction: row; }
-  .timeline-connector-line { width: 60px; height: 1px; min-height: 0; flex: 0 0 auto; }
-  .rail { display: none; }
-  .scene { padding: 80px 7vw; }
-
-  .mark-wrap {
-    width: 200px; height: 200px;
-    margin-left: -100px; margin-top: -100px;
-    opacity: 0.3 !important;
-  }
-
-  .track { padding-top: 0; padding-left: 32px; }
-  .track::before {
-    top: 16px; left: 5px; right: auto; width: 1px; bottom: -24px; height: auto;
-    background: var(--branch); opacity: 0.35;
-  }
-  .track:last-child::before { bottom: 0; background: var(--branch); opacity: 0.35; }
-  .track::after { top: 12px; left: 0; }
+.footer-brand {
+  display: flex; align-items: center; gap: 10px;
+  color: var(--t3);
+  text-decoration: none;
+  font-weight: 500;
+  transition: color 0.2s var(--ease-io);
 }
-@media (max-width: 640px) {
-  body { font-size: 15.5px; }
-  .scene { padding: 60px 6vw; }
-  .cmd { font-size: 12.5px; padding: 14px 16px; flex-wrap: wrap; }
-  .cmd .copy { width: 100%; margin-top: 10px; }
-  .codeblock { font-size: 12px; padding: 16px 18px; }
-  .drift-grid { gap: 18px; }
-  .drift-card { padding: 24px; }
-  .feature { padding: 20px; }
-  .feature-strip { grid-template-columns: 1fr; }
-  .panel { padding: 24px 26px; }
-  .fit-card { padding: 24px; }
-  .timeline-step { padding: 14px 16px; }
-
-  .mark-wrap {
-    width: 160px; height: 160px;
-    margin-left: -80px; margin-top: -80px;
-    opacity: 0.25 !important;
-  }
-
-  h1 { font-size: 38px; }
-  h2 { font-size: 28px; }
-  .lede { font-size: 16px; }
-
-  .table-wrap { overflow-x: auto; }
-  .comp-table { min-width: 720px; font-size: 12.5px; }
-  .comp-table th, .comp-table td { padding: 14px 18px; }
+.footer-brand:hover { color: var(--t1); }
+.footer-meta { color: var(--t4); }
+.footer-meta .dot { padding: 0 8px; color: var(--t5); }
+.footer-links { display: flex; gap: 24px; }
+.footer-links a {
+  color: var(--t4);
+  text-decoration: none;
+  transition: color 0.2s var(--ease-io);
 }
+.footer-links a:hover { color: var(--t1); }
+
+.reveal {
+  opacity: 0;
+  transform: translateY(20px);
+  transition: opacity 0.9s var(--ease), transform 0.9s var(--ease);
+  will-change: opacity, transform;
+}
+.reveal.in { opacity: 1; transform: translateY(0); }
+
+.hero .reveal { transition-duration: 1.1s; }
+.hero .reveal.d1 { transition-delay: 0.05s; }
+.hero .reveal.d2 { transition-delay: 0.15s; }
+.hero .reveal.d3 { transition-delay: 0.25s; }
+.hero .reveal.d4 { transition-delay: 0.35s; }
+
 @media (prefers-reduced-motion: reduce) {
-  * {
+  *, *::before, *::after {
     animation-duration: 0.001ms !important;
-    animation-iteration-count: 1 !important;
     transition-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
   }
+  .reveal { opacity: 1; transform: none; }
+  .term-line { opacity: 1; transform: none; }
+}
+
+@media (max-width: 480px) {
+  body { font-size: 16px; }
+  .install-chip { font-size: 12px; padding: 9px 12px 9px 14px; }
+  .term-body { padding: 16px; }
 }
 </style>
 </head>
 <body>
 
-<div class="bg-field"></div>
-<div class="bg-grid"></div>
-<div class="bg-noise"></div>
+<div class="bg"></div>
+<div class="progress"><div class="progress-bar" id="progressBar"></div></div>
 
-<!-- ================= FIXED STAGE ================= -->
-<div class="stage" aria-hidden="true">
-  <svg id="threadSvg" xmlns="http://www.w3.org/2000/svg">
-    <defs>
-      <linearGradient id="threadGrad" x1="0" y1="0" x2="0" y2="1">
-        <stop offset="0%"   stop-color="#FF4D4D" stop-opacity="0"/>
-        <stop offset="18%"  stop-color="#FF4D4D" stop-opacity=".6"/>
-        <stop offset="42%"  stop-color="#4D8DFF" stop-opacity=".85"/>
-        <stop offset="70%"  stop-color="#F05033" stop-opacity=".6"/>
-        <stop offset="100%" stop-color="#4D8DFF" stop-opacity="0"/>
-      </linearGradient>
-    </defs>
-    <path class="thread-ghost g1" d=""/>
-    <path class="thread-ghost g2" d=""/>
-    <path class="thread-ghost g3" d=""/>
-    <path class="thread-spine" id="spine" d="" stroke="url(#threadGrad)"/>
-    <path class="thread-flow" id="threadFlow" d=""/>
-  </svg>
+<header class="top">
+  <a href="#top" class="brand">
+    <span class="brand-mark" aria-hidden="true">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M12 2 L21 7 L21 17 L12 22 L3 17 L3 7 Z"/>
+        <path d="M12 8 L12 12" opacity="0.6"/>
+        <circle cx="12" cy="14.5" r="1.5" fill="currentColor" opacity="0.9"/>
+      </svg>
+    </span>
+    EnvSeal
+    <span class="brand-ver">v6.1.0</span>
+  </a>
+  <nav class="top-links">
+    <a class="top-link" href="#workflow">Workflow</a>
+    <a class="top-link" href="#compare">Compare</a>
+    <a class="top-link" href="#deal">The deal</a>
+    <a class="top-link" href="#commands">Commands</a>
+    <a class="top-cta" href="https://github.com/viswajith275/EnvSeal-CLI" target="_blank" rel="noopener">GitHub ↗</a>
+  </nav>
+</header>
 
-  <div class="mark-wrap" id="markWrap">
-    <svg class="mark-svg" viewBox="-120 -120 240 240" xmlns="http://www.w3.org/2000/svg">
-      <circle class="m-halo" id="mHalo" cx="0" cy="0" r="96" stroke="#4D8DFF"/>
-      <path class="m-outer" id="mOuter" d=""/>
-      <path class="m-inner" id="mInner" d=""/>
-      <g id="mNodes"></g>
-      <g id="mSats"></g>
-    </svg>
+<main id="top">
+
+<!-- ============================================================
+     HERO
+     ============================================================ -->
+<section class="hero wrap">
+  <h1 class="reveal d1">
+    Git for <span class="serif">secrets.</span>
+  </h1>
+
+  <p class="lede reveal d2">
+    A single encrypted file that travels with your repo.
+    Switches with your branch. Merges like code.
+    <strong style="color:var(--t1); font-weight:500;">No cloud. No accounts. No shared master password.</strong>
+  </p>
+
+  <div class="hero-install reveal d3">
+    <button class="install-chip" data-copy="curl -sSfL https://raw.githubusercontent.com/viswajith275/EnvSeal-CLI/master/scripts/install.sh | bash">
+      <span class="chip-prompt">$</span>
+      <span>curl -sSfL …/install.sh | bash</span>
+      <span class="chip-copy">copy</span>
+    </button>
+    <a class="hero-secondary" href="https://github.com/viswajith275/EnvSeal-CLI" target="_blank" rel="noopener">
+      Read the docs <span class="arrow">→</span>
+    </a>
   </div>
-</div>
 
-<!-- ================= PROGRESS RAIL ================= -->
-<nav class="rail" id="rail" aria-hidden="true">
-  <div class="rail-item" data-r="1"><span class="tick"></span><span class="rail-label">Position</span></div>
-  <div class="rail-item" data-r="2"><span class="tick"></span><span class="rail-label">Problem</span></div>
-  <div class="rail-item" data-r="3"><span class="tick"></span><span class="rail-label">Workflow</span></div>
-  <div class="rail-item" data-r="4"><span class="tick"></span><span class="rail-label">Branches</span></div>
-  <div class="rail-item" data-r="5"><span class="tick"></span><span class="rail-label">Guardrails</span></div>
-  <div class="rail-item" data-r="6"><span class="tick"></span><span class="rail-label">Team</span></div>
-  <div class="rail-item" data-r="7"><span class="tick"></span><span class="rail-label">Runtime</span></div>
-  <div class="rail-item" data-r="8"><span class="tick"></span><span class="rail-label">CI / Global</span></div>
-  <div class="rail-item" data-r="9"><span class="tick"></span><span class="rail-label">Candor</span></div>
-  <div class="rail-item" data-r="10"><span class="tick"></span><span class="rail-label">Commands</span></div>
-  <div class="rail-item" data-r="11"><span class="tick"></span><span class="rail-label">Shell</span></div>
-  <div class="rail-item" data-r="12"><span class="tick"></span><span class="rail-label">Settle</span></div>
-</nav>
-
-<main>
-
-<!-- ============ 1. POSITION ============ -->
-<section class="scene" data-scene="1" id="scene-1">
-  <div class="scene-inner">
-    <div class="eyebrow reveal"><span class="dot"></span>EnvSeal CLI · v6.1.0 · Rust · MIT · Offline</div>
-
-    <h1 class="reveal">
-      Secrets that live<br>
-      <span class="hl-git">in your Git repo.</span><br>
-      <span class="serif" style="color:var(--ink-dim);">Encrypted. Branch-aware. Mergeable.</span>
-    </h1>
-
-    <p class="lede reveal" style="max-width:70ch">
-      EnvSeal isn't a <code>.env</code> replacement or another encryption wrapper. It's a
-      <strong>Git-native secrets workflow</strong> — your vault is a single encrypted file that
-      travels with <code>git pull</code>, switches with <code>git checkout</code>, resolves with
-      <code>git merge</code>, and is reviewed in pull requests like any other artifact.
-      No cloud. No accounts. No shared master password.
-    </p>
-
-    <div class="hero-grid">
-      <div class="install-stack reveal">
-        <div class="mono-label" style="margin-bottom:6px">Install</div>
-
-        <div class="cmd" data-copy="curl -sSfL https://raw.githubusercontent.com/viswajith275/EnvSeal-CLI/master/scripts/install.sh | bash">
-          <span class="prompt">$</span>
-          <code>curl -sSfL <span class="str">https://raw.githubusercontent.com/viswajith275/EnvSeal-CLI/master/scripts/install.sh</span> | bash</code>
-          <button class="copy">copy</button>
-        </div>
-
-        <div class="cmd" data-copy="winget install --id viswajith275.envseal -e">
-          <span class="prompt">&gt;</span>
-          <code><span class="bin">winget</span> install <span class="flag">--id</span> viswajith275.envseal <span class="flag">-e</span></code>
-          <button class="copy">copy</button>
-        </div>
-
-        <div class="cmd" data-copy="cargo build --release">
-          <span class="prompt">$</span>
-          <code><span class="bin">cargo</span> build <span class="flag">--release</span></code>
-          <button class="copy">copy</button>
-        </div>
-
-        <div class="panel accent-git" style="margin-top:6px;">
-          <h3 style="margin-bottom:12px;color:var(--git)">The Git-native promise</h3>
-          <p style="font-size:14.5px; color:var(--ink-dim); line-height:1.7; margin:0;">
-            If your team already uses Git for code review, history, and branch hygiene, your secrets
-            inherit every one of those workflows on day one — without a dashboard, a web app, or a
-            single byte leaving your machine.
-          </p>
-        </div>
+  <div class="term reveal d4" id="heroTerm">
+    <div class="term-bar">
+      <div class="term-dots">
+        <span class="term-dot"></span>
+        <span class="term-dot"></span>
+        <span class="term-dot"></span>
       </div>
-
-      <div class="reveal">
-        <div class="panel accent-raw">
-          <h3 style="margin-bottom:16px;color:var(--raw-2)">What you're probably doing now</h3>
-          <div class="codeblock">DATABASE_URL=<span class="val">postgres://localhost:5432/app</span>
-STRIPE_SECRET=<span class="warn">sk_live_51H8xQ2...</span>
-JWT_SIGNING_KEY=<span class="warn">9f2c...</span>
-AWS_ACCESS_KEY_ID=<span class="warn">AKIA...</span>
-<span class="cmt"># gitignored, DM'd around, one git add .</span>
-<span class="cmt"># away from sitting in your Git history</span>
-<span class="cmt"># forever. Bots are already scanning.</span></div>
-          <p style="font-family:var(--sans); font-size:14px; color:var(--ink-faint); line-height:1.7; margin:0;">
-            The problem isn't that <code>.env</code> is bad. It's that <code>.env</code> was never
-            designed to travel — and everything around it (<code>.env.example</code>, shared docs,
-            Slack DMs) is a workaround for that.
-          </p>
-        </div>
-      </div>
+      <span class="term-title">~/your-project — envseal</span>
     </div>
-
-    <div class="feature-strip reveal">
-      <div class="feature" style="--feature-color: var(--git);">
-        <div class="feature-icon">🌿</div>
-        <div class="feature-name">Git-native</div>
-        <div class="feature-desc">Vault lives in the repo. Pulls, merges, and reviews like code.</div>
-      </div>
-      <div class="feature" style="--feature-color: var(--branch);">
-        <div class="feature-icon">🔀</div>
-        <div class="feature-name">Branch-aware</div>
-        <div class="feature-desc">Secrets switch automatically when you <code>git checkout</code>.</div>
-      </div>
-      <div class="feature" style="--feature-color: var(--auth);">
-        <div class="feature-icon">🔑</div>
-        <div class="feature-name">Zero-trust</div>
-        <div class="feature-desc">Sealed to public keys. No shared passwords, no master secret.</div>
-      </div>
-      <div class="feature" style="--feature-color: var(--eph);">
-        <div class="feature-icon">⚡</div>
-        <div class="feature-name">Ephemeral</div>
-        <div class="feature-desc">Decrypts into process memory only. Zero plaintext on disk.</div>
-      </div>
+    <div class="term-body">
+      <div class="term-line"><span class="pr">$</span><span class="cmd">envseal init --local &amp;&amp; envseal git-setup</span></div>
+      <div class="term-line"><span class="ok">✓</span><span class="out">vault created at .envseal</span></div>
+      <div class="term-line"><span class="ok">✓</span><span class="out">pre-commit shield installed</span></div>
+      <div class="term-line"><span class="ok">✓</span><span class="out">merge driver registered</span></div>
+      <div class="term-line gap"><span class="pr">$</span><span class="cmd">envseal set DATABASE_URL</span></div>
+      <div class="term-line"><span class="out">value: </span><span class="dim">••••••••••••••••••••••••</span></div>
+      <div class="term-line"><span class="ok">✓</span><span class="out">encrypted and stored</span></div>
+      <div class="term-line gap"><span class="pr">$</span><span class="cmd">envseal run -- npm start</span></div>
+      <div class="term-line"><span class="dim">▸</span><span class="out">loading 4 secrets from </span><span class="key">.envseal</span></div>
+      <div class="term-line"><span class="dim">▸</span><span class="out">injecting </span><span class="key">DATABASE_URL</span><span class="out"> → child</span></div>
+      <div class="term-line"><span class="dim">▸</span><span class="out">injecting </span><span class="key">STRIPE_SECRET</span><span class="out"> → child</span></div>
+      <div class="term-line"><span class="dim">▸</span><span class="out">injecting </span><span class="key">JWT_SIGNING_KEY</span><span class="out"> → child</span></div>
+      <div class="term-line"><span class="dim">▸</span><span class="out">injecting </span><span class="key">AWS_ACCESS_KEY_ID</span><span class="out"> → child</span></div>
+      <div class="term-line gap"><span class="out">&gt; app@1.0.0 start</span></div>
+      <div class="term-line"><span class="out">&gt; node server.js</span></div>
+      <div class="term-line"><span class="ok">listening on :3000</span></div>
     </div>
   </div>
 </section>
 
-<!-- ============ 2. PROBLEM ============ -->
-<section class="scene" data-scene="2" id="scene-2">
-  <div class="scene-inner">
-    <div class="eyebrow reveal"><span class="dot" style="background:var(--raw);box-shadow:0 0 16px var(--raw-glow)"></span>02 — The Problem</div>
+<!-- ============================================================
+     THE PROBLEM
+     ============================================================ -->
+<section class="wrap" id="problem">
+  <div class="sec-head reveal">
+    <div class="sec-num">01 — The problem</div>
+  </div>
 
-    <h2 class="reveal">
-      Four laptops. Four <span class="accent-raw">.env</span> files.<br>
-      Zero agreement.
-    </h2>
-
-    <p class="lede reveal" style="max-width:72ch">
-      If you've built anything with more than one contributor, one of these has happened to you.
-      None of them are exotic. They're just what happens when secrets live outside version
-      control but the code that needs them doesn't.
+  <div class="editorial">
+    <p class="reveal">
+      If you've built anything with more than one contributor, you've probably lived one of these:
+      a teammate adds a key to their local <code>.env</code> and forgets to send it. Someone pastes a
+      database URL into a Discord DM. You check out a branch and accidentally run it against production.
+      A sleepy <code>git add .</code> scoops up a raw key and it sits in Git history forever.
     </p>
 
-    <div class="drift-grid">
-      <div class="drift-card reveal">
-        <h3>"Wait, it works on my machine."</h3>
-        <pre><span class="k">PAYMENT_API_KEY</span>=<span class="v">sk_test_51H…</span>
-<span class="cmt"># You added this to your local .env,</span>
-<span class="cmt"># pushed the code, and broke the app</span>
-<span class="cmt"># for everyone else on the team.</span></pre>
-      </div>
+    <p class="pullquote reveal">
+      None of these are exotic. They're what happens when secrets live outside version control
+      and the code that needs them doesn't.
+    </p>
 
-      <div class="drift-card reveal">
-        <h3>The .env that never gets shared</h3>
-        <pre><span class="k">DATABASE_URL</span>=<span class="v">postgres://…</span>
-<span class="k">STRIPE_SECRET</span>=<span class="missing">— missing —</span>
-<span class="cmt"># Passed around as a Discord DM or a</span>
-<span class="cmt"># copy-pasted block in a Google Doc,</span>
-<span class="cmt"># sitting in plaintext forever.</span></pre>
-      </div>
-
-      <div class="drift-card reveal">
-        <h3>Wrong branch, wrong database</h3>
-        <pre><span class="cmt"># Checked out branch: staging</span>
-<span class="k">DATABASE_URL</span>=<span class="conflict">postgres://prod-db/app</span>
-<span class="cmt"># You switched branches, but your .env</span>
-<span class="cmt"># didn't know that. You are now testing</span>
-<span class="cmt"># against production data.</span></pre>
-      </div>
-
-      <div class="drift-card reveal">
-        <h3>The 2 AM panic push</h3>
-        <pre><span class="k">DATABASE_URL</span>=<span class="v">postgres://localhost/app</span>
-<span class="k">AWS_ACCESS_KEY</span>=<span class="conflict">AKIAIOSFODNN7EXAMPLE</span>
-<span class="cmt"># A sleepy `git add .` scooped up your</span>
-<span class="cmt"># real keys. Bots are already scanning.</span></pre>
-      </div>
-    </div>
+    <p class="reveal">
+      The fix isn't a better <code>.env</code> file. It's putting your vault somewhere Git already
+      knows how to move. <strong>EnvSeal makes your secrets a file in your repo</strong> — encrypted
+      for the people who need them, switched by branch, and reviewed in pull requests like anything
+      else you commit.
+    </p>
   </div>
 </section>
 
-<!-- ============ 3. GIT WORKFLOW ============ -->
-<section class="scene" data-scene="3" id="scene-3">
-  <div class="scene-inner">
-    <div class="eyebrow reveal"><span class="dot" style="background:var(--git);box-shadow:0 0 16px rgba(240,80,51,0.5)"></span>03 — The Git-Native Workflow</div>
-
-    <h2 class="reveal">
-      Onboard a teammate<br>
-      <span class="accent-git">with a pull, not a password.</span>
-    </h2>
-
-    <p class="lede reveal" style="max-width:74ch">
-      This is the whole pitch in two columns. You set up the vault and commit it.
-      Your teammate pulls, runs their app, and it just works — same keys, correct branch,
-      zero DMs, zero shared secrets, zero screenshots of a <code>.env</code> in Slack.
-    </p>
-
-    <div class="timeline">
-      <div class="timeline-col you reveal">
-        <div class="timeline-col-header">
-          <div class="timeline-col-icon">💻</div>
-          <div class="timeline-col-title">On your machine</div>
-        </div>
-
-        <div class="timeline-step">
-          <div class="timeline-step-num">01</div>
-          <div class="timeline-step-body">
-            <div class="timeline-step-cmd"><span class="bin">envseal</span> init <span class="flag">--local</span></div>
-            <div class="timeline-step-desc">Creates the encrypted vault file in your repo.</div>
-          </div>
-        </div>
-
-        <div class="timeline-step">
-          <div class="timeline-step-num">02</div>
-          <div class="timeline-step-body">
-            <div class="timeline-step-cmd"><span class="bin">envseal</span> git-setup</div>
-            <div class="timeline-step-desc">Installs the pre-commit shield and registers the merge driver.</div>
-          </div>
-        </div>
-
-        <div class="timeline-step">
-          <div class="timeline-step-num">03</div>
-          <div class="timeline-step-body">
-            <div class="timeline-step-cmd"><span class="bin">envseal</span> set DATABASE_URL</div>
-            <div class="timeline-step-desc">Prompts for the value without echoing it. Stored encrypted.</div>
-          </div>
-        </div>
-
-        <div class="timeline-step">
-          <div class="timeline-step-num">04</div>
-          <div class="timeline-step-body">
-            <div class="timeline-step-cmd"><span class="git">git</span> add .envseal &amp;&amp; <span class="git">git</span> commit -m <span class="str">"seal secrets"</span></div>
-            <div class="timeline-step-desc">Commit the encrypted vault like any other file.</div>
-          </div>
-        </div>
-
-        <div class="timeline-step">
-          <div class="timeline-step-num">05</div>
-          <div class="timeline-step-body">
-            <div class="timeline-step-cmd"><span class="git">git</span> push</div>
-            <div class="timeline-step-desc">The vault travels with the code. No extra channel needed.</div>
-          </div>
-        </div>
-      </div>
-
-      <div class="timeline-connector reveal" aria-hidden="true">
-        <div class="timeline-connector-line"></div>
-        <div class="timeline-connector-badge">Git</div>
-        <div class="timeline-connector-line"></div>
-      </div>
-
-      <div class="timeline-col them reveal">
-        <div class="timeline-col-header">
-          <div class="timeline-col-icon">🧑‍💻</div>
-          <div class="timeline-col-title">On their machine</div>
-        </div>
-
-        <div class="timeline-step">
-          <div class="timeline-step-num">01</div>
-          <div class="timeline-step-body">
-            <div class="timeline-step-cmd"><span class="git">git</span> clone … <span class="cmt">(or git pull)</span></div>
-            <div class="timeline-step-desc">The encrypted vault arrives with the repo. Nothing else to fetch.</div>
-          </div>
-        </div>
-
-        <div class="timeline-step">
-          <div class="timeline-step-num">02</div>
-          <div class="timeline-step-body">
-            <div class="timeline-step-cmd"><span class="bin">envseal</span> recipient id</div>
-            <div class="timeline-step-desc">Prints their public key. They send it to you once — then never again.</div>
-          </div>
-        </div>
-
-        <div class="timeline-step">
-          <div class="timeline-step-num">03</div>
-          <div class="timeline-step-body">
-            <div class="timeline-step-cmd"><span class="cmt"># you run, once:</span> <span class="bin">envseal</span> recipient add @them</div>
-            <div class="timeline-step-desc">They're now authorized for every current and future commit.</div>
-          </div>
-        </div>
-
-        <div class="timeline-step">
-          <div class="timeline-step-num">04</div>
-          <div class="timeline-step-body">
-            <div class="timeline-step-cmd"><span class="bin">envseal</span> run <span class="flag">--</span> npm start</div>
-            <div class="timeline-step-desc">Secrets decrypt into the child process. The app boots.</div>
-          </div>
-        </div>
-
-        <div class="timeline-step">
-          <div class="timeline-step-num">05</div>
-          <div class="timeline-step-body">
-            <div class="timeline-step-cmd"><span class="git">git</span> checkout feature/stripe-v2</div>
-            <div class="timeline-step-desc">Secrets switch with the branch. No manual swapping, ever.</div>
-          </div>
-        </div>
-      </div>
-    </div>
-
-    <div class="reveal" style="margin-top:56px; max-width:820px;">
-      <div class="panel accent-git">
-        <h3 style="margin-bottom:14px;color:var(--git)">Why this matters more than the encryption</h3>
-        <p style="font-size:15px; color:var(--ink-dim); line-height:1.75; margin:0;">
-          Most secrets tools give you a stronger lock and then ask you to change how your team
-          works. EnvSeal changes nothing about your Git workflow — it just makes the vault a
-          first-class citizen of it. That means PRs, <code>git blame</code>, code review, and
-          history all apply to your secrets the same way they apply to your code. And because
-          the vault is encrypted for recipients, <strong>a leaked repo is not a leaked secret</strong>.
-        </p>
-      </div>
-    </div>
+<!-- ============================================================
+     WORKFLOW
+     ============================================================ -->
+<section class="wrap" id="workflow">
+  <div class="sec-head reveal">
+    <div class="sec-num">02 — The workflow</div>
   </div>
-</section>
 
-<!-- ============ 4. BRANCHES ============ -->
-<section class="scene" data-scene="4" id="scene-4">
-  <div class="scene-inner">
-    <div class="eyebrow reveal"><span class="dot" style="background:var(--branch);box-shadow:0 0 16px var(--branch-glow)"></span>04 — Branch-Aware Secrets</div>
+  <h2 class="reveal" style="margin-bottom: 32px;">
+    Two columns. <span class="serif">That's the whole pitch.</span>
+  </h2>
 
-    <h2 class="reveal">
-      The vault knows<br><span class="accent-branch">what branch you're on.</span>
-    </h2>
+  <p class="lede reveal">
+    You set up the vault, commit it, and push. Your teammate pulls, runs their app,
+    and it works. Same keys, correct branch, zero DMs.
+  </p>
 
-    <p class="lede reveal" style="max-width:74ch">
-      <strong>envseal run</strong> calls <code>git rev-parse --abbrev-ref HEAD</code> behind the
-      scenes. If a stored tag matches your current branch name, it's applied automatically.
-      Base secrets fill the gaps. No manual swapping. No stale config. No accidentally
-      testing experimental code against production.
-    </p>
-
-    <div class="branch-grid">
-      <div class="track reveal">
-        <div class="branch-name">main <span class="badge">base</span></div>
-        <div class="resolve">
-          <div><span class="k">DATABASE_URL</span><span class="arrow">→</span><span class="v">prod-db.internal</span></div>
-          <div><span class="k">STRIPE_PUBLIC_KEY</span><span class="arrow">→</span><span class="v">pk_live_…</span></div>
-          <div class="fallback">applies everywhere</div>
-        </div>
+  <div class="split">
+    <div class="reveal">
+      <div class="split-head">
+        <span class="split-head-label you">You</span>
+        <span class="split-head-title">Setting up</span>
       </div>
-
-      <div class="track reveal">
-        <div class="branch-name">staging <span class="badge">tag</span></div>
-        <div class="resolve">
-          <div><span class="k">DATABASE_URL</span><span class="arrow">→</span><span class="v">staging-db.internal</span></div>
-          <div class="fallback">overrides base on <code>staging</code></div>
-          <div class="fallback">inherits STRIPE_PUBLIC_KEY</div>
-        </div>
-      </div>
-
-      <div class="track reveal">
-        <div class="branch-name">feature/stripe-v2 <span class="badge">tag</span></div>
-        <div class="resolve">
-          <div><span class="k">STRIPE_SECRET</span><span class="arrow">→</span><span class="v">sk_test_…</span></div>
-          <div class="fallback">overrides base on this branch</div>
-          <div class="fallback">inherits DATABASE_URL</div>
-        </div>
-      </div>
-    </div>
-
-    <p class="reveal" style="margin-top:40px; font-family:var(--sans); font-size:14.5px; color:var(--ink-faint); line-height:1.8; max-width:74ch">
-      <strong style="color:var(--ink)">Prefer separate files?</strong> Use <code style="color:var(--branch-2)">-e staging</code> to target <code style="color:var(--branch-2)">.staging.envseal</code> instead of relying on branch tags.
-    </p>
-
-    <div class="reveal" style="margin-top:28px; max-width:740px">
-      <div class="cmd" data-copy="envseal set --tag staging DATABASE_URL">
-        <span class="prompt">$</span>
-        <code><span class="bin">envseal</span> set <span class="flag">--tag</span> <span class="str">staging</span> DATABASE_URL</code>
-        <button class="copy">copy</button>
-      </div>
-    </div>
-  </div>
-</section>
-
-<!-- ============ 5. GUARDRAILS ============ -->
-<section class="scene" data-scene="5" id="scene-5">
-  <div class="scene-inner">
-    <div class="eyebrow reveal"><span class="dot" style="background:var(--auth);box-shadow:0 0 16px var(--auth-glow)"></span>05 — Git Guardrails</div>
-
-    <h2 class="reveal">
-      One command installs<br><span class="accent-auth">the guardrails.</span>
-    </h2>
-
-    <p class="lede reveal" style="max-width:74ch">
-      <strong>envseal git-setup</strong> writes a pre-commit hook and registers a custom merge
-      driver. The hook bounces raw plaintext back before it reaches Git history. The driver
-      resolves vault conflicts without a diff editor in sight — including a fixed, non-interactive
-      rule for CI runners.
-    </p>
-
-    <div class="gate-wrap">
-      <div class="gate reveal">
-        <div class="gate-bar l"></div>
-        <div class="gate-bar r"></div>
-        <div class="gate-beam"></div>
-        <div class="gate-file rejected">.env</div>
-        <div class="gate-file passed">.envseal</div>
-        <div class="gate-label">pre-commit barrier</div>
-      </div>
-
-      <div class="reveal" style="display:flex;flex-direction:column;gap:16px">
-        <div class="cmd" data-copy="envseal git-setup">
-          <span class="prompt">$</span>
-          <code><span class="bin">envseal</span> git-setup</code>
-          <button class="copy">copy</button>
-        </div>
-
-        <div class="panel accent-exp">
-          <h3 style="margin-bottom:12px;color:var(--raw-2)">On a plaintext stage</h3>
-          <div class="codeblock" style="font-size:12.5px"><span class="warn">[envseal] COMMIT REJECTED:</span>
-Staged plaintext .env file(s) detected:
-  → .env
-
-Unstage them, or run `envseal init --local`
-to create an encrypted .envseal vault.</div>
-        </div>
-
-        <div class="panel accent-branch">
-          <h3 style="margin-bottom:12px;color:var(--branch-2)">Merge driver resolves conflicts</h3>
-          <div class="codeblock" style="font-size:12.5px"><span class="cmt"># Keep current branch's values</span>
-git -c envseal.merge.strategy=ours merge feature-branch
-
-<span class="cmt"># Accept incoming branch's values</span>
-git -c envseal.merge.strategy=theirs merge feature-branch
-
-<span class="cmt"># Set a fixed rule for CI runners</span>
-git config envseal.merge.strategy theirs</div>
-        </div>
-      </div>
-    </div>
-  </div>
-</section>
-
-<!-- ============ 6. TEAM ============ -->
-<section class="scene" data-scene="6" id="scene-6">
-  <div class="scene-inner">
-    <div class="eyebrow reveal"><span class="dot" style="background:var(--auth);box-shadow:0 0 16px var(--auth-glow)"></span>06 — Team Access</div>
-
-    <h2 class="reveal">
-      Add a teammate with their<br><span class="accent-auth">public key.</span> Not a password in Slack.
-    </h2>
-
-    <p class="lede reveal" style="max-width:72ch">
-      Asymmetric encryption means the vault is sealed <em>to</em> recipients. Nobody — not even
-      you — needs to transmit a plaintext secret to grant access. Your identity signs the vault;
-      theirs unwraps it. Adding a collaborator is a one-line Git commit, reviewed like any
-      other change.
-    </p>
-
-    <div class="recip-list">
-      <div class="recip reveal">
-        <div class="ring"></div>
-        <div>
-          <div class="who">you</div>
-          <div class="key">age1ql3z7hjy54pw3hyww5ayyfg7zqgvc7w3j2elw8zmrj2kg5sfn9aqmcac8p</div>
-        </div>
-        <div class="status">local identity</div>
-      </div>
-
-      <div class="recip reveal">
-        <div class="ring"></div>
-        <div>
-          <div class="who">@teammate-github-handle</div>
-          <div class="key">age1m0k4z9vq2… · resolved via GitHub SSH keys</div>
-        </div>
-        <div class="status">recipient</div>
-      </div>
-
-      <div class="recip reveal">
-        <div class="ring"></div>
-        <div>
-          <div class="who">priya</div>
-          <div class="key">age1ql3z7hjy54pw3hy… · added from file</div>
-        </div>
-        <div class="status">recipient</div>
-      </div>
-    </div>
-
-    <div class="reveal" style="margin-top:44px; display:flex; flex-direction:column; gap:12px; max-width:780px">
-      <div class="cmd" data-copy="envseal recipient id">
-        <span class="prompt">$</span>
-        <code><span class="bin">envseal</span> recipient id</code>
-        <button class="copy">copy</button>
-      </div>
-      <div class="cmd" data-copy="envseal recipient add @teammate-github-handle">
-        <span class="prompt">$</span>
-        <code><span class="bin">envseal</span> recipient add <span class="str">@teammate-github-handle</span></code>
-        <button class="copy">copy</button>
-      </div>
-      <div class="cmd" data-copy='envseal recipient add "age1ql3z7hjy54pw3hy... # priya"'>
-        <span class="prompt">$</span>
-        <code><span class="bin">envseal</span> recipient add <span class="str">"age1ql3z7hjy54pw3hy… # priya"</span></code>
-        <button class="copy">copy</button>
-      </div>
-      <div class="cmd" data-copy="envseal recipient rm @teammate-github-handle">
-        <span class="prompt">$</span>
-        <code><span class="bin">envseal</span> recipient rm <span class="str">@teammate-github-handle</span> <span class="cmt"># revoke + re-encrypt</span></code>
-        <button class="copy">copy</button>
-      </div>
-    </div>
-  </div>
-</section>
-
-<!-- ============ 7. RUNTIME ============ -->
-<section class="scene" data-scene="7" id="scene-7">
-  <div class="scene-inner" style="display:flex;flex-direction:column;align-items:center;text-align:center">
-    <div class="eyebrow reveal" style="justify-content:center"><span class="dot" style="background:var(--eph);box-shadow:0 0 16px var(--eph-glow)"></span>07 — Ephemeral Runtime</div>
-
-    <h2 class="reveal" style="max-width:26ch">
-      Secrets exist for exactly<br><span class="accent-eph">as long as the process.</span>
-    </h2>
-
-    <p class="lede reveal" style="max-width:62ch; margin-bottom:8px;">
-      <strong>envseal run</strong> decrypts into the child process's memory and injects it as
-      environment variables. Nothing hits disk. When the process exits, the secrets are gone.
-    </p>
-
-    <div class="runtime-stage">
-      <div class="term-window reveal" id="termWindow">
+      <div class="term">
         <div class="term-bar">
-          <span class="led"></span>
-          <span>envseal run -- npm start</span>
+          <div class="term-dots"><span class="term-dot"></span><span class="term-dot"></span><span class="term-dot"></span></div>
+          <span class="term-title">~/api — bash</span>
         </div>
         <div class="term-body">
-          <div class="stream"></div>
-          <div class="stream-line">▸ injecting DATABASE_URL → child process env</div>
-          <div class="stream-line">▸ injecting STRIPE_SECRET → child process env</div>
-          <div class="stream-line">▸ injecting JWT_SIGNING_KEY → child process env</div>
-          <div style="margin-top:16px">&gt; app@1.0.0 start</div>
-          <div>&gt; node server.js</div>
-          <div style="color:var(--auth-2)">listening on :3000</div>
-          <div class="evaporate" style="margin-top:16px">Process exited. Secrets gone.<br><span style="color:var(--eph-2)">0 plaintext bytes on disk.</span></div>
+          <div class="term-line"><span class="pr">$</span><span class="cmd">envseal init --local</span></div>
+          <div class="term-line"><span class="pr">$</span><span class="cmd">envseal git-setup</span></div>
+          <div class="term-line"><span class="pr">$</span><span class="cmd">envseal set DATABASE_URL</span></div>
+          <div class="term-line"><span class="pr-git">$</span><span class="cmd git">git add .envseal .gitattributes</span></div>
+          <div class="term-line"><span class="pr-git">$</span><span class="cmd git">git commit -m "seal secrets"</span></div>
+          <div class="term-line"><span class="out">[main 3f9c2a1] seal secrets</span></div>
+          <div class="term-line"><span class="pr-git">$</span><span class="cmd git">git push</span></div>
+          <div class="term-line"><span class="out">→ main  →  main</span></div>
+          <div class="term-line gap"><span class="dim"># vault travels with the repo.</span></div>
+          <div class="term-line"><span class="dim"># no DM. no screenshot. no password.</span></div>
         </div>
       </div>
+    </div>
 
-      <div class="term-hint reveal">click to inject · click to evaporate</div>
-
-      <div class="dual" style="width:min(900px, 96%); margin-top: 40px;">
-        <div class="panel accent-eph reveal">
-          <h3 style="color:var(--eph-2)">Ephemeral execution</h3>
-          <div class="cmd" data-copy="envseal run -- npm start" style="margin-bottom:14px">
-            <span class="prompt">$</span>
-            <code><span class="bin">envseal</span> run <span class="flag">--</span> npm start</code>
-            <button class="copy">copy</button>
-          </div>
-          <p style="font-size:13.5px; color:var(--ink-faint); line-height:1.7; margin:0; text-align:left;">
-            The safe default. Secrets live only in the child process and evaporate on exit.
-          </p>
+    <div class="reveal">
+      <div class="split-head">
+        <span class="split-head-label them">Teammate</span>
+        <span class="split-head-title">Onboarding</span>
+      </div>
+      <div class="term">
+        <div class="term-bar">
+          <div class="term-dots"><span class="term-dot"></span><span class="term-dot"></span><span class="term-dot"></span></div>
+          <span class="term-title">~/api — bash</span>
         </div>
-        <div class="panel accent-tok reveal">
-          <h3 style="color:var(--tok-2)">Interactive shell</h3>
-          <div class="cmd" data-copy='eval "$(envseal load)"' style="margin-bottom:14px">
-            <span class="prompt">$</span>
-            <code><span class="bin">eval</span> <span class="str">"$(envseal load)"</span></code>
-            <button class="copy">copy</button>
-          </div>
-          <p style="font-size:13.5px; color:var(--ink-faint); line-height:1.7; margin:0; text-align:left;">
-            For debugging only. Once loaded, secrets stay in your shell until you close it. Prefer <code>run</code>.
-          </p>
+        <div class="term-body">
+          <div class="term-line"><span class="pr-git">$</span><span class="cmd git">git clone …</span></div>
+          <div class="term-line"><span class="out">Cloning into 'api'…</span></div>
+          <div class="term-line gap"><span class="pr">$</span><span class="cmd">envseal recipient id</span></div>
+          <div class="term-line"><span class="key">age1ql3z7hjy54pw3hyww5ayyf…</span></div>
+          <div class="term-line gap"><span class="dim"># you run, once:</span></div>
+          <div class="term-line"><span class="pr">$</span><span class="cmd">envseal recipient add @them</span></div>
+          <div class="term-line gap"><span class="pr">$</span><span class="cmd">envseal run -- npm start</span></div>
+          <div class="term-line"><span class="dim">▸</span><span class="out">secrets injected</span></div>
+          <div class="term-line"><span class="ok">listening on :3000</span></div>
         </div>
       </div>
     </div>
   </div>
 </section>
 
-<!-- ============ 8. CI / GLOBAL ============ -->
-<section class="scene" data-scene="8" id="scene-8">
-  <div class="scene-inner">
-    <div class="eyebrow reveal"><span class="dot" style="background:var(--tok);box-shadow:0 0 16px var(--tok-glow)"></span>08 — Scoped CI &amp; Global Vault</div>
+<!-- ============================================================
+     FEATURES
+     ============================================================ -->
+<section class="wrap" id="features">
+  <div class="sec-head reveal">
+    <div class="sec-num">03 — What's inside</div>
+  </div>
 
-    <h2 class="reveal">
-      Borrow exactly what CI needs.<br>
-      <span class="accent-tok">For exactly as long as it needs it.</span>
-    </h2>
+  <h2 class="reveal">
+    Six decisions <span class="serif">that shape everything else.</span>
+  </h2>
 
-    <p class="lede reveal" style="max-width:74ch">
-      Never paste your personal SSH or Age key into a CI runner. A CI token is a temporary,
-      scoped channel into the vault — limited by tag, by key, and by an expiration.
-      Separately, your personal configuration lives outside any repository in a Global Vault.
-    </p>
-
-    <div class="dual">
-      <div class="panel accent-tok reveal">
-        <h3 style="margin-bottom:16px;color:var(--tok-2)">Scoped CI token</h3>
-        <div class="codeblock" style="font-size:12.5px; margin-bottom:18px"><span class="bin">envseal</span> token <span class="flag">--tag</span> <span class="str">prod</span> \
-  <span class="flag">-o</span> <span class="str">./ci.token</span> <span class="flag">--exp</span> <span class="str">3600</span> \
-  STRIPE_SECRET DATABASE_URL</div>
-        <div class="codeblock" style="font-size:12.5px"><span class="ok">✔</span> token written to <span class="str">./ci.token</span>
-  scoped to: <span class="key">STRIPE_SECRET, DATABASE_URL</span>
-  expires:   <span class="key">3600s</span> <span class="dim">(CLI-enforced)</span></div>
-        <p style="font-family:var(--sans); font-size:13.5px;color:var(--ink-faint);margin-top:16px;line-height:1.75">
-          Short-lived tokens keep your long-term identity out of runners. Prefer <code>--exp 3600</code>
-          or less. Expiry is enforced by the CLI, not by cryptography — see the candor section below.
-        </p>
-      </div>
-
-      <div class="panel accent-branch reveal">
-        <h3 style="margin-bottom:16px;color:var(--branch-2)">Global developer vault</h3>
-        <div class="codeblock" style="font-size:12.5px; margin-bottom:14px"><span class="prompt">$</span> <span class="bin">envseal</span> <span class="flag">--global</span> init</div>
-        <div class="codeblock" style="font-size:12.5px; margin-bottom:14px"><span class="prompt">$</span> <span class="bin">envseal</span> link <span class="str">myapp</span>
-<span class="ok">✔</span> linked <span class="key">myapp</span> → global vault</div>
-        <div class="codeblock" style="font-size:12.5px; margin-bottom:18px"><span class="prompt">$</span> <span class="bin">envseal</span> <span class="flag">--global</span> run <span class="flag">--</span> ./deploy.sh</div>
-        <p style="font-family:var(--sans); font-size:13.5px;color:var(--ink-faint);line-height:1.75">
-          For personal scripts and one-off secrets that don't belong to any repo.
-          One system-wide vault, attached to as many local directories as you like.
-        </p>
-      </div>
+  <div class="features reveal">
+    <div class="feature">
+      <span class="feature-num">01</span>
+      <div class="feature-title">Git-native by design</div>
+      <div class="feature-desc">The vault is a file in your repo. Pull requests, <code>git blame</code>, and history apply to secrets the same way they apply to code.</div>
+    </div>
+    <div class="feature">
+      <span class="feature-num">02</span>
+      <div class="feature-title">Branch-aware</div>
+      <div class="feature-desc"><code>envseal run</code> reads <code>git rev-parse --abbrev-ref HEAD</code> and applies the matching tag automatically. No manual swapping.</div>
+    </div>
+    <div class="feature">
+      <span class="feature-num">03</span>
+      <div class="feature-title">Per-recipient access</div>
+      <div class="feature-desc">The vault is sealed to individual public keys. Adding or removing a teammate is a Git commit, not a shared-key redistribution.</div>
+    </div>
+    <div class="feature">
+      <span class="feature-num">04</span>
+      <div class="feature-title">Ephemeral runtime</div>
+      <div class="feature-desc">Secrets decrypt into the child process and evaporate on exit. Zero plaintext on disk, zero leakage into your interactive shell.</div>
+    </div>
+    <div class="feature">
+      <span class="feature-num">05</span>
+      <div class="feature-title">Pre-commit shield</div>
+      <div class="feature-desc">A hook blocks staged <code>.env</code>, <code>.env.local</code>, and <code>.env.staging</code> files before they reach Git history. The encrypted vault passes through.</div>
+    </div>
+    <div class="feature">
+      <span class="feature-num">06</span>
+      <div class="feature-title">Merge driver included</div>
+      <div class="feature-desc">Two people editing secrets on different branches usually resolve silently. Same key, different values? You pick <code>ours</code> or <code>theirs</code>.</div>
     </div>
   </div>
 </section>
 
-<!-- ============ 9. CANDOR ============ -->
-<section class="scene" data-scene="9" id="scene-9">
-  <div class="scene-inner">
-    <div class="eyebrow reveal"><span class="dot" style="background:var(--exp);box-shadow:0 0 16px rgba(255, 59, 82, 0.45)"></span>09 — Engineering Candor</div>
+<!-- ============================================================
+     COMPARE
+     ============================================================ -->
+<section class="wrap" id="compare">
+  <div class="sec-head reveal">
+    <div class="sec-num">04 — Compare</div>
+  </div>
 
-    <h2 class="reveal" style="max-width:26ch">
-      Things worth knowing<br><span class="serif" style="color:var(--ink-dim)">before you trust any encryption tool.</span>
-    </h2>
+  <h2 class="reveal" style="margin-bottom: 32px;">
+    No secrets tool is <span class="serif">perfect for every setup.</span>
+  </h2>
 
-    <p class="lede reveal" style="max-width:64ch; margin-bottom:56px">
-      Cryptography is very good at math and very bad at knowing whether you actually meant to
-      leave the front door open. A few honest caveats, stated plainly.
-    </p>
+  <p class="lede reveal">
+    If your team needs a dashboard, an audit log, or SSO, use Doppler or Infisical — they're
+    good at that, and that's a different problem. If you're deep in Kubernetes and cloud KMS,
+    SOPS fits your pipeline better. EnvSeal is for the team in between.
+  </p>
 
-    <div class="caveat-list">
-      <div class="caveat reveal">
-        <div class="num">01</div>
-        <div class="head">Removing someone doesn't erase what they already saw.</div>
-        <div class="body">
+  <div class="table-scroll reveal">
+    <table class="compare">
+      <thead>
+        <tr>
+          <th></th>
+          <th>Plain .env</th>
+          <th>dotenvx</th>
+          <th>Mozilla SOPS</th>
+          <th class="us">EnvSeal</th>
+          <th>Doppler / Infisical</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td>Cost</td>
+          <td>Free</td>
+          <td>Free; paid tiers from ~$3 to $299/mo</td>
+          <td>Free</td>
+          <td class="us"><strong>Free, no account needed</strong></td>
+          <td>Free tier; paid from ~$8–46/seat/mo</td>
+        </tr>
+        <tr>
+          <td>Works offline</td>
+          <td>Yes</td>
+          <td>Yes — local CLI</td>
+          <td>Yes with age. Cloud KMS modes need connectivity</td>
+          <td class="us"><strong>Yes, fully</strong></td>
+          <td>Cached fallback after first fetch. Self-hosted available at Enterprise tier</td>
+        </tr>
+        <tr>
+          <td>Auto-switches per branch</td>
+          <td>No</td>
+          <td>No — manual <code>-f</code> selection</td>
+          <td>No</td>
+          <td class="us"><strong>Yes</strong></td>
+          <td>No — requires dashboard/API config</td>
+        </tr>
+        <tr>
+          <td>Stops accidental commits</td>
+          <td>No</td>
+          <td>Partial (<code>dotenvx precommit</code>)</td>
+          <td>No</td>
+          <td class="us"><strong>Yes, built-in hook</strong></td>
+          <td>Yes, via CLI wrapper</td>
+        </tr>
+        <tr>
+          <td>Team onboarding</td>
+          <td>Manual file sharing</td>
+          <td>Manual <code>.env.keys</code> sharing</td>
+          <td>Manual age key exchange + <code>sops updatekeys</code></td>
+          <td class="us"><strong>Add a GitHub handle (or exchange age keys)</strong></td>
+          <td>Invite via dashboard</td>
+        </tr>
+        <tr>
+          <td>Merge conflicts</td>
+          <td>N/A</td>
+          <td>N/A — shared key, not file</td>
+          <td>No built-in driver (Clef third-party)</td>
+          <td class="us"><strong>Built-in <code>ours</code> / <code>theirs</code></strong></td>
+          <td>N/A — cloud-managed</td>
+        </tr>
+        <tr>
+          <td>Best suited for</td>
+          <td>Solo hackathon, no real secrets</td>
+          <td>Solo/small teams wanting encrypted <code>.env</code></td>
+          <td>K8s / GitOps teams on cloud KMS</td>
+          <td class="us"><strong>Small-to-mid teams who want secrets to live in Git</strong></td>
+          <td>Orgs wanting GUI, audit logs, and a budget</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+
+  <p class="reveal" style="margin-top:24px; font-size:13px; color:var(--t4); max-width:80ch; line-height:1.7;">
+    Verified early 2026. dotenvx does more than a table row can capture — it has real encryption,
+    rotation, and git-diff audit. The architectural difference: dotenvx uses a single shared private
+    key per environment, while EnvSeal seals to individual recipients.
+  </p>
+</section>
+
+<!-- ============================================================
+     THE DEAL
+     ============================================================ -->
+<section class="wrap" id="deal">
+  <div class="sec-head reveal">
+    <div class="sec-num">05 — The deal</div>
+  </div>
+
+  <h2 class="reveal" style="margin-bottom: 32px;">
+    Read this <span class="serif">before you trust any encryption tool.</span>
+  </h2>
+
+  <p class="lede reveal" style="margin-bottom: 40px;">
+    Most encryption tools hide their limits in the fine print. We put them on the landing page.
+    If any of them is a dealbreaker, EnvSeal is not for you — and that's fine.
+  </p>
+
+  <div class="caveats">
+    <div class="caveat reveal" role="button" tabindex="0" aria-expanded="false">
+      <div class="caveat-head">
+        <div class="caveat-num">01</div>
+        <div class="caveat-title">Removing someone doesn't erase what they already saw.</div>
+        <div class="caveat-indicator">+</div>
+      </div>
+      <div class="caveat-body">
+        <div class="caveat-body-inner">
           <code>envseal recipient rm</code> stops a person from decrypting <strong>future</strong> commits.
-          But Git history is permanent — anyone who cloned earlier still has old encrypted commits
-          and could decrypt them with a key they already hold. If someone leaves under bad terms,
-          rotate the <em>actual</em> credentials too, not just the vault. Removing their access is
-          taking away the house key after they've already made a copy.
+          But Git history is permanent — anyone who cloned earlier still has old encrypted commits and
+          could decrypt them with a key they already hold. If someone leaves under bad terms, rotate the
+          <strong>actual credentials</strong> too, not just the vault. Removing their access is taking
+          away the house key after they've already made a copy.
         </div>
       </div>
+    </div>
 
-      <div class="caveat reveal">
-        <div class="num">02</div>
-        <div class="head"><code>envseal rotate</code> protects the future, not the past.</div>
-        <div class="body">
-          Rotation generates a fresh key and re-encrypts the <strong>current</strong> state of the vault.
-          It does <em>not</em> retroactively re-encrypt old Git commits — those snapshots stay encrypted
-          under the old key. If a leaked token ever let someone extract the underlying material, they
-          could still decrypt old commits. The only thing that actually neutralizes a leaked secret is
-          changing the secret itself. So: rotate the vault <strong>and</strong> go rotate the API keys
-          or database passwords at the source.
+    <div class="caveat reveal" role="button" tabindex="0" aria-expanded="false">
+      <div class="caveat-head">
+        <div class="caveat-num">02</div>
+        <div class="caveat-title"><code>envseal rotate</code> protects the future, not the past.</div>
+        <div class="caveat-indicator">+</div>
+      </div>
+      <div class="caveat-body">
+        <div class="caveat-body-inner">
+          Rotation re-encrypts the <strong>current</strong> state of the vault, which is exactly what you
+          want after a compromise. But it does <strong>not</strong> retroactively re-encrypt old Git commits.
+          Those snapshots stay encrypted under the old key. The only thing that actually neutralizes a
+          leaked secret is changing the secret itself. So: rotate the vault <strong>and</strong> go
+          rotate the API keys or database passwords at the source.
         </div>
       </div>
+    </div>
 
-      <div class="caveat reveal">
-        <div class="num">03</div>
-        <div class="head">Token expiry is enforced by the CLI, not by cryptography.</div>
-        <div class="body">
+    <div class="caveat reveal" role="button" tabindex="0" aria-expanded="false">
+      <div class="caveat-head">
+        <div class="caveat-num">03</div>
+        <div class="caveat-title">Token expiry is enforced by the CLI, not by cryptography.</div>
+        <div class="caveat-indicator">+</div>
+      </div>
+      <div class="caveat-body">
+        <div class="caveat-body-inner">
           The <code>--exp</code> flag is a runtime check performed by EnvSeal itself. Because everything
           is offline, there's no server refusing an expired token — a sufficiently determined attacker
-          with the raw payload could bypass the clock check. Treat expiry as a guardrail, not a
-          cryptographic guarantee. If a CI runner is ever compromised, don't wait for the token to
-          expire: rotate the vault and the underlying secrets immediately.
+          with the raw payload could bypass the clock. Treat expiry as a guardrail, not a guarantee.
+          If a CI runner is ever compromised, rotate the vault and the underlying secrets immediately.
         </div>
       </div>
+    </div>
 
-      <div class="caveat reveal">
-        <div class="num">04</div>
-        <div class="head">If you're your only recipient, you're also your only point of failure.</div>
-        <div class="body">
+    <div class="caveat reveal" role="button" tabindex="0" aria-expanded="false">
+      <div class="caveat-head">
+        <div class="caveat-num">04</div>
+        <div class="caveat-title">If you're your only recipient, you're also your only point of failure.</div>
+        <div class="caveat-indicator">+</div>
+      </div>
+      <div class="caveat-body">
+        <div class="caveat-body-inner">
           EnvSeal has no "forgot password" button, and it never will — that's the entire point of
           zero-trust design. If your laptop dies, gets stolen, or falls in a lake, there's no cloud
           backup, no support ticket, and no admin override. Treat your Age/SSH identity like a seed
           phrase: <strong>back it up</strong> outside the repo, and consider adding a second recipient
-          (a spare key on another device, or a trusted friend) purely as a recovery path.
+          purely as a recovery path.
         </div>
       </div>
     </div>
-
-    <div class="fit-grid">
-      <div class="fit-card win reveal">
-        <div class="fit-title">✅ Where EnvSeal genuinely wins</div>
-        <ul class="fit-list">
-          <li><strong>Git-native by design.</strong> The vault is a file in your repo, not a parallel system you have to remember to sync.</li>
-          <li><strong>Free and offline.</strong> No accounts, no cloud, no telemetry. Works on a plane or behind a corporate firewall.</li>
-          <li><strong>Branch-aware.</strong> The only option in its class that switches secrets automatically on git checkout.</li>
-          <li><strong>Reviewable.</strong> Every secret change is a commit. PRs, git blame, and history all apply.</li>
-        </ul>
-      </div>
-      <div class="fit-card lose reveal">
-        <div class="fit-title">⚠️ Where it's honestly not the best fit</div>
-        <ul class="fit-list">
-          <li><strong>No web dashboard, no audit log.</strong> If you need to see who accessed what and when, you want a cloud tool.</li>
-          <li><strong>No non-technical UI.</strong> Everyone on the team touches a terminal. If that's a dealbreaker, look at Doppler or Infisical.</li>
-          <li><strong>You can lock yourself out permanently.</strong> Zero-trust means zero recovery. Back up your key.</li>
-          <li><strong>Kubernetes / cloud-KMS shops.</strong> If you're deep in GitOps, SOPS is a more natural fit than bolting EnvSeal on.</li>
-        </ul>
-      </div>
-    </div>
-
-    <p class="reveal" style="margin-top:44px; font-family:var(--sans); font-size:15px; color:var(--ink-faint); line-height:1.8; max-width:70ch; text-align:center; margin-left:auto; margin-right:auto;">
-      For a student or small-team codebase, the trade-off is easy: you're giving up a GUI you
-      probably wouldn't use anyway, in exchange for something free, offline, and native to the
-      Git workflow you're already using.
-    </p>
   </div>
-</section>
 
-<!-- ============ 10. COMMANDS ============ -->
-<section class="scene" data-scene="10" id="scene-10">
-  <div class="scene-inner">
-    <div class="eyebrow reveal"><span class="dot" style="background:var(--sealed);box-shadow:0 0 16px var(--sealed-glow)"></span>10 — Command Reference</div>
-
-    <h2 class="reveal">
-      The whole CLI,<br><span class="serif" style="color:var(--ink-dim);">at a glance.</span>
-    </h2>
-
-    <p class="lede reveal" style="max-width:70ch">
-      If you've used Git, this will feel familiar. Every command is a single verb, and
-      most of them have a natural Git analogue you already know.
-    </p>
-
-    <div class="cmd-sections">
-      <div class="cmd-group reveal">
-        <div class="cmd-group-title">Core</div>
-
-        <div class="cmd-row">
-          <div class="cmd-row-cmd"><span class="bin">envseal</span> init <span class="opt">[--local] [--git] [-r RECIPIENT]</span></div>
-          <div class="cmd-row-desc">Initialize a project or global vault.</div>
-        </div>
-        <div class="cmd-row">
-          <div class="cmd-row-cmd"><span class="bin">envseal</span> git-setup <span class="opt">[--init]</span></div>
-          <div class="cmd-row-desc">Register the Git merge driver and pre-commit shield.</div>
-        </div>
-        <div class="cmd-row">
-          <div class="cmd-row-cmd"><span class="bin">envseal</span> set <span class="opt">[-g GROUP] [-t TAG]</span> KEY</div>
-          <div class="cmd-row-desc">Store a secret (prompts without echoing input).</div>
-        </div>
-        <div class="cmd-row">
-          <div class="cmd-row-cmd"><span class="bin">envseal</span> get <span class="opt">[-g GROUP] [-t TAG] [--token TOK]</span> KEY</div>
-          <div class="cmd-row-desc">Print one decrypted value (use sparingly).</div>
-        </div>
-        <div class="cmd-row">
-          <div class="cmd-row-cmd"><span class="bin">envseal</span> run <span class="opt">[-g GROUP] [-t TAG] [--token TOK]</span> -- CMD</div>
-          <div class="cmd-row-desc">Run a command with secrets injected. Alias: <code>exec</code>.</div>
-        </div>
-        <div class="cmd-row">
-          <div class="cmd-row-cmd"><span class="bin">envseal</span> load <span class="opt">[-g GROUP] [-t TAG] [KEYS...]</span></div>
-          <div class="cmd-row-desc">Print shell exports for <code>eval</code>. Prefer <code>run</code>.</div>
-        </div>
-        <div class="cmd-row">
-          <div class="cmd-row-cmd"><span class="bin">envseal</span> list <span class="opt">[-g GROUP] [-t TAG]</span></div>
-          <div class="cmd-row-desc">List key names without revealing values. Alias: <code>ls</code>.</div>
-        </div>
-        <div class="cmd-row">
-          <div class="cmd-row-cmd"><span class="bin">envseal</span> edit <span class="opt">[-g GROUP] [-t TAG]</span></div>
-          <div class="cmd-row-desc">Edit key/value pairs in your default editor.</div>
-        </div>
-        <div class="cmd-row">
-          <div class="cmd-row-cmd"><span class="bin">envseal</span> remove <span class="opt">[-g GROUP] [-t TAG] [--force]</span> [KEY]</div>
-          <div class="cmd-row-desc">Delete a key, tag, or group. Alias: <code>rm</code>.</div>
-        </div>
-        <div class="cmd-row">
-          <div class="cmd-row-cmd"><span class="bin">envseal</span> link GROUP</div>
-          <div class="cmd-row-desc">Bind a global vault group to the current directory.</div>
-        </div>
-        <div class="cmd-row">
-          <div class="cmd-row-cmd"><span class="bin">envseal</span> clear</div>
-          <div class="cmd-row-desc">Wipe cached master keys from the OS keyring session.</div>
-        </div>
+  <div class="fit">
+    <div class="fit-col win reveal">
+      <div class="fit-label">
+        <span class="fit-label-dot"></span>
+        Where EnvSeal genuinely wins
       </div>
-
-      <div class="cmd-group reveal">
-        <div class="cmd-group-title">Access &amp; CI</div>
-
-        <div class="cmd-row">
-          <div class="cmd-row-cmd"><span class="bin">envseal</span> recipient id</div>
-          <div class="cmd-row-desc">Print your local public identity key.</div>
-        </div>
-        <div class="cmd-row">
-          <div class="cmd-row-cmd"><span class="bin">envseal</span> recipient add <span class="opt">&lt;@user | KEY | FILE&gt;</span></div>
-          <div class="cmd-row-desc">Authorize a collaborator.</div>
-        </div>
-        <div class="cmd-row">
-          <div class="cmd-row-cmd"><span class="bin">envseal</span> recipient ls</div>
-          <div class="cmd-row-desc">List authorized keys.</div>
-        </div>
-        <div class="cmd-row">
-          <div class="cmd-row-cmd"><span class="bin">envseal</span> recipient rm <span class="opt">&lt;NAME | INDEX | KEY&gt;</span></div>
-          <div class="cmd-row-desc">Revoke access and re-encrypt the vault.</div>
-        </div>
-        <div class="cmd-row">
-          <div class="cmd-row-cmd"><span class="bin">envseal</span> token <span class="opt">[-t TAG] [-o PATH] [--exp S] [KEYS...]</span></div>
-          <div class="cmd-row-desc">Mint a scoped, offline CI token.</div>
-        </div>
-        <div class="cmd-row">
-          <div class="cmd-row-cmd"><span class="bin">envseal</span> rotate</div>
-          <div class="cmd-row-desc">Rotate the encryption key, invalidating all existing tokens.</div>
-        </div>
-        <div class="cmd-row">
-          <div class="cmd-row-cmd"><span class="bin">envseal</span> import <span class="opt">[-t TAG]</span> PATH</div>
-          <div class="cmd-row-desc">Import variables from an existing <code>.env</code> file.</div>
-        </div>
-        <div class="cmd-row">
-          <div class="cmd-row-cmd"><span class="bin">envseal</span> export <span class="opt">[-t TAG] [-o PATH] [KEYS...]</span></div>
-          <div class="cmd-row-desc">Decrypt to a <code>.env</code> file with strict <code>0600</code> permissions.</div>
-        </div>
-
-        <div class="cmd-group-title" style="margin-top:32px;">Global flags</div>
-        <div class="cmd-row">
-          <div class="cmd-row-cmd"><span class="flag">-e</span>, <span class="flag">--env</span> PROFILE</div>
-          <div class="cmd-row-desc">Target a specific profile file (e.g. <code>-e staging</code> loads <code>.staging.envseal</code>).</div>
-        </div>
-        <div class="cmd-row">
-          <div class="cmd-row-cmd"><span class="flag">-G</span>, <span class="flag">--global</span></div>
-          <div class="cmd-row-desc">Target the system-wide vault.</div>
-        </div>
-        <div class="cmd-row">
-          <div class="cmd-row-cmd"><span class="flag">--no-env</span></div>
-          <div class="cmd-row-desc">Disable reading fallback identity keys from <code>ENVSEAL_IDENTITY</code>.</div>
-        </div>
-      </div>
+      <ul class="fit-list">
+        <li><strong>Git-native by design.</strong> The vault is a file in your repo, not a parallel system you have to remember to sync.</li>
+        <li><strong>Free and offline.</strong> No accounts, no cloud, no telemetry. Works on a plane or behind a corporate firewall.</li>
+        <li><strong>Branch-aware.</strong> The only option in its class that switches secrets automatically on <code>git checkout</code>.</li>
+        <li><strong>Per-recipient access.</strong> Adding or removing a teammate is a Git commit, not a shared-key redistribution.</li>
+      </ul>
     </div>
-
-    <div class="reveal" style="margin-top:56px; max-width:820px;">
-      <div class="panel accent-git">
-        <h3 style="margin-bottom:14px;color:var(--git)">Most common day-to-day commands</h3>
-        <div class="codeblock" style="font-size:12.5px; margin:0;"><span class="cmt"># See what keys exist (never shows values)</span>
-envseal list
-envseal list --tag staging
-
-<span class="cmt"># One-off peek at a single value (use sparingly)</span>
-envseal get DATABASE_URL
-
-<span class="cmt"># Import an existing .env you already have</span>
-envseal import .env
-
-<span class="cmt"># Export only the keys you need for a temporary script</span>
-envseal export -o /tmp/temp.env DATABASE_URL STRIPE_SECRET</div>
+    <div class="fit-col lose reveal">
+      <div class="fit-label">
+        <span class="fit-label-dot"></span>
+        Where it's honestly not the best fit
       </div>
+      <ul class="fit-list">
+        <li><strong>No web dashboard, no audit log.</strong> If you need to see <em>who accessed what and when</em>, use a cloud tool.</li>
+        <li><strong>No non-technical UI.</strong> Everyone on the team touches a terminal. If that's a dealbreaker, look at Doppler or Infisical.</li>
+        <li><strong>You can lock yourself out permanently.</strong> Zero-trust means zero recovery. Back up your key.</li>
+        <li><strong>Kubernetes / cloud-KMS shops.</strong> SOPS fits your existing pipeline better than bolting EnvSeal on.</li>
+      </ul>
     </div>
   </div>
 </section>
 
-<!-- ============ 11. SHELL INTEGRATION ============ -->
-<section class="scene" data-scene="11" id="scene-11">
-  <div class="scene-inner">
-    <div class="eyebrow reveal"><span class="dot" style="background:var(--tok);box-shadow:0 0 16px var(--tok-glow)"></span>11 — Optional Shell Integration</div>
+<!-- ============================================================
+     COMMANDS — FULL REFERENCE
+     ============================================================ -->
+<section class="wrap" id="commands">
+  <div class="sec-head reveal">
+    <div class="sec-num">06 — Reference</div>
+  </div>
 
-    <h2 class="reveal">
-      Load into your shell —<br><span class="accent-tok">only if you really want to.</span>
-    </h2>
+  <h2 class="reveal" style="margin-bottom: 32px;">
+    The whole CLI, <span class="serif">at a glance.</span>
+  </h2>
 
-    <p class="lede reveal" style="max-width:72ch">
-      <strong>envseal run -- &lt;CMD&gt;</strong> is the recommended usage, because secrets only exist
-      for the life of that process. If you'd rather load variables into your interactive shell
-      session for debugging, add one of these wrappers.
-    </p>
+  <p class="lede reveal">
+    Every command, every flag. If you've used Git, this will feel familiar — every command is a
+    single verb, and most have a natural Git analogue you already know.
+  </p>
 
-    <div class="reveal" style="margin-top:52px;">
-      <div class="tabs" role="tablist">
-        <button class="tab active" data-tab="bash" role="tab">Bash / Zsh</button>
-        <button class="tab" data-tab="fish" role="tab">Fish</button>
-        <button class="tab" data-tab="ps" role="tab">PowerShell</button>
+  <div class="cmds">
+    <!-- COLUMN 1: CORE -->
+    <div class="cmds-col reveal">
+      <h3>Core</h3>
+
+      <div class="cmd-item">
+        <div class="cmd-item-cmd"><span class="bin">envseal</span> init <span class="opt">[--local] [--git] [-r RECIPIENT]</span></div>
+        <div class="cmd-item-desc">Initialize a project-local vault or a global vault. <code>-r</code> adds an initial recipient.</div>
       </div>
 
-      <div class="tab-panel active" data-panel="bash">
-        <div class="codeblock" style="font-size:12.5px; margin-top:20px;"><span class="cmt"># ~/.bashrc or ~/.zshrc</span>
-envseal() {
-  if [ "$1" = "load" ]; then
-    for _arg in "$@"; do
-      if [ "$_arg" = "--help" ] || [ "$_arg" = "-h" ]; then
-        command envseal "$@"
-        return
-      fi
-    done
-    eval "$(command envseal "$@")"
-  else
-    command envseal "$@"
-  fi
-}</div>
+      <div class="cmd-item">
+        <div class="cmd-item-cmd"><span class="bin">envseal</span> git-setup <span class="opt">[--init]</span></div>
+        <div class="cmd-item-desc">Register the merge driver and pre-commit shield in the current repo.</div>
       </div>
 
-      <div class="tab-panel" data-panel="fish">
-        <div class="codeblock" style="font-size:12.5px; margin-top:20px;"><span class="cmt"># ~/.config/fish/config.fish</span>
-function envseal
-    if test "$argv[1]" = "load"
-        if contains -- --help $argv; or contains -- -h $argv
-            command envseal $argv
-        else
-            eval (command envseal $argv)
-        end
-    else
-        command envseal $argv
-    end
-end</div>
+      <div class="cmd-item">
+        <div class="cmd-item-cmd"><span class="bin">envseal</span> set <span class="opt">[-g GROUP] [-t TAG]</span> KEY</div>
+        <div class="cmd-item-desc">Store a secret. Prompts for the value without echoing it.</div>
       </div>
 
-      <div class="tab-panel" data-panel="ps">
-        <div class="codeblock" style="font-size:12.5px; margin-top:20px;"><span class="cmt"># $PROFILE</span>
-function envseal {
-    param(
-        [Parameter(ValueFromRemainingArguments = $true)]
-        [string[]]$EnvsealArgs
-    )
-    $exe = Get-Command envseal -CommandType Application -ErrorAction SilentlyContinue |
-        Select-Object -First 1 -ExpandProperty Source
-    if (-not $exe) {
-        Write-Error "envseal: not found on PATH. Install: winget install viswajith275.envseal"
-        return
-    }
-    if ($EnvsealArgs.Count -gt 0 -and $EnvsealArgs[0] -eq 'load') {
-        if ($EnvsealArgs -contains '--help' -or $EnvsealArgs -contains '-h') {
-            & $exe @EnvsealArgs
-            return
-        }
-        & $exe @EnvsealArgs | Invoke-Expression
-    }
-    else {
-        & $exe @EnvsealArgs
-    }
-}</div>
+      <div class="cmd-item">
+        <div class="cmd-item-cmd"><span class="bin">envseal</span> get <span class="opt">[-g GROUP] [-t TAG] [--token TOK]</span> KEY</div>
+        <div class="cmd-item-desc">Print one decrypted value. Use sparingly.</div>
+      </div>
+
+      <div class="cmd-item">
+        <div class="cmd-item-cmd"><span class="bin">envseal</span> run <span class="opt">[-g GROUP] [-t TAG] [--token TOK]</span> -- CMD <span class="alias">(alias: exec)</span></div>
+        <div class="cmd-item-desc">Run a command with secrets injected into the child process.</div>
+      </div>
+
+      <div class="cmd-item">
+        <div class="cmd-item-cmd"><span class="bin">envseal</span> load <span class="opt">[-g GROUP] [-t TAG] [--token TOK] [KEYS...]</span></div>
+        <div class="cmd-item-desc">Print shell export statements for <code>eval</code>. Prefer <code>run</code>.</div>
+      </div>
+
+      <div class="cmd-item">
+        <div class="cmd-item-cmd"><span class="bin">envseal</span> list <span class="opt">[-g GROUP] [-t TAG]</span> <span class="alias">(alias: ls)</span></div>
+        <div class="cmd-item-desc">List key names without revealing values.</div>
+      </div>
+
+      <div class="cmd-item">
+        <div class="cmd-item-cmd"><span class="bin">envseal</span> edit <span class="opt">[-g GROUP] [-t TAG]</span></div>
+        <div class="cmd-item-desc">Edit key/value pairs in your default editor. Faster than many <code>set</code> calls.</div>
+      </div>
+
+      <div class="cmd-item">
+        <div class="cmd-item-cmd"><span class="bin">envseal</span> remove <span class="opt">[-g GROUP] [-t TAG] [--force]</span> [KEY] <span class="alias">(alias: rm)</span></div>
+        <div class="cmd-item-desc">Delete a key, tag, or group. <code>--force</code> skips confirmation.</div>
+      </div>
+
+      <div class="cmd-item">
+        <div class="cmd-item-cmd"><span class="bin">envseal</span> link GROUP</div>
+        <div class="cmd-item-desc">Bind a global vault group to the current working directory.</div>
+      </div>
+
+      <div class="cmd-item">
+        <div class="cmd-item-cmd"><span class="bin">envseal</span> clear</div>
+        <div class="cmd-item-desc">Wipe cached master keys from the OS keyring session.</div>
       </div>
     </div>
 
-    <div class="reveal" style="margin-top:32px; max-width:820px;">
-      <div class="panel accent-exp">
-        <h3 style="margin-bottom:12px;color:var(--raw-2)">Heads up about <code style="color:var(--raw-2)">envseal load</code></h3>
-        <p style="font-size:14.5px; color:var(--ink-dim); line-height:1.75; margin:0;">
-          Once variables are in your interactive shell, they stay there until you <code>unset</code>
-          them or close the terminal — and they can leak into any subsequent command you run.
-          Prefer <code>envseal run -- ...</code> for almost every real workflow.
-        </p>
+    <!-- COLUMN 2: ACCESS & CI + GLOBAL FLAGS -->
+    <div class="cmds-col reveal">
+      <h3>Access &amp; CI</h3>
+
+      <div class="cmd-item">
+        <div class="cmd-item-cmd"><span class="bin">envseal</span> recipient id</div>
+        <div class="cmd-item-desc">Print your local public identity key. Share it once with the vault owner.</div>
       </div>
-    </div>
 
-    <div class="reveal" style="margin-top:56px; max-width:900px;">
-      <h3 style="margin-bottom:20px;">Troubleshooting quick hits</h3>
-      <div class="drift-grid" style="margin-top:0;">
-        <div class="drift-card" style="border-color: rgba(255, 59, 82, 0.25);">
-          <h3 style="color:var(--exp)">SEAL TAMPERED</h3>
-          <pre><span class="missing">Ed25519 signature verification failed.</span>
-<span class="cmt"># The .envseal file was edited manually</span>
-<span class="cmt"># or corrupted outside the tool.</span>
+      <div class="cmd-item">
+        <div class="cmd-item-cmd"><span class="bin">envseal</span> recipient add <span class="opt">&lt;@user | KEY | FILE&gt;</span></div>
+        <div class="cmd-item-desc"><code>@user</code> fetches GitHub SSH keys. Falls back to a manual age key if they have none.</div>
+      </div>
 
-<span class="ok">Fix:</span> git checkout -- .envseal</pre>
-        </div>
+      <div class="cmd-item">
+        <div class="cmd-item-cmd"><span class="bin">envseal</span> recipient ls</div>
+        <div class="cmd-item-desc">List all authorized recipient keys.</div>
+      </div>
 
-        <div class="drift-card" style="border-color: rgba(255, 59, 82, 0.25);">
-          <h3 style="color:var(--exp)">Access Denied</h3>
-          <pre><span class="missing">Identity not authorized for this env.</span>
-<span class="cmt"># Your key isn't registered in this vault.</span>
+      <div class="cmd-item">
+        <div class="cmd-item-cmd"><span class="bin">envseal</span> recipient rm <span class="opt">&lt;NAME | INDEX | KEY&gt;</span></div>
+        <div class="cmd-item-desc">Revoke access and re-encrypt the vault for the remaining recipients.</div>
+      </div>
 
-<span class="ok">Fix:</span> Ask a teammate to run
-<span class="v">envseal recipient add @you</span></pre>
-        </div>
+      <div class="cmd-item">
+        <div class="cmd-item-cmd"><span class="bin">envseal</span> token <span class="opt">[-t TAG] [-o PATH] [--exp S] [KEYS...]</span></div>
+        <div class="cmd-item-desc">Mint a scoped, offline CI token. Limit by tag, by key, and by expiry.</div>
+      </div>
 
-        <div class="drift-card" style="border-color: rgba(255, 176, 32, 0.25);">
-          <h3 style="color:var(--tok-2)">Token Scope Mismatch</h3>
-          <pre><span class="conflict">Token was minted for a different tag.</span>
-<span class="cmt"># You're running against 'staging'</span>
-<span class="cmt"># but the token only has 'prod' keys.</span>
+      <div class="cmd-item">
+        <div class="cmd-item-cmd"><span class="bin">envseal</span> rotate</div>
+        <div class="cmd-item-desc">Rotate the encryption key. Every existing token becomes unreadable.</div>
+      </div>
 
-<span class="ok">Fix:</span> Re-mint for the correct tag.
-<span class="v">envseal token --tag staging ...</span></pre>
-        </div>
+      <div class="cmd-item">
+        <div class="cmd-item-cmd"><span class="bin">envseal</span> import <span class="opt">[-t TAG]</span> PATH</div>
+        <div class="cmd-item-desc">Import variables from an existing <code>.env</code> file. Original left in place.</div>
+      </div>
 
-        <div class="drift-card" style="border-color: rgba(255, 176, 32, 0.25);">
-          <h3 style="color:var(--tok-2)">Command not found</h3>
-          <pre><span class="conflict">envseal: command not found</span>
-<span class="cmt"># The install script falls back to</span>
-<span class="cmt"># ~/.local/bin on restricted systems.</span>
+      <div class="cmd-item">
+        <div class="cmd-item-cmd"><span class="bin">envseal</span> export <span class="opt">[-t TAG] [-o PATH]</span> [KEYS...]</div>
+        <div class="cmd-item-desc">Decrypt to a <code>.env</code> file with strict <code>0600</code> permissions.</div>
+      </div>
 
-<span class="ok">Fix:</span> restart terminal or run `hash -r`
-<span class="v">export PATH="$HOME/.local/bin:$PATH"</span></pre>
-        </div>
+      <h3 style="margin-top: 48px;">Global flags</h3>
+
+      <div class="cmd-item">
+        <div class="cmd-item-cmd"><span class="flag">-e</span>, <span class="flag">--env</span> PROFILE</div>
+        <div class="cmd-item-desc">Target a specific profile file. <code>-e staging</code> loads <code>.staging.envseal</code>.</div>
+      </div>
+
+      <div class="cmd-item">
+        <div class="cmd-item-cmd"><span class="flag">-G</span>, <span class="flag">--global</span></div>
+        <div class="cmd-item-desc">Target the system-wide vault. Comes before the subcommand: <code>envseal --global init</code>.</div>
+      </div>
+
+      <div class="cmd-item">
+        <div class="cmd-item-cmd"><span class="flag">--no-env</span></div>
+        <div class="cmd-item-desc">Disable reading fallback identity keys from <code>ENVSEAL_IDENTITY</code>.</div>
       </div>
     </div>
   </div>
 </section>
 
-<!-- ============ 12. SETTLE ============ -->
-<section class="scene" data-scene="12" id="scene-12" style="padding-bottom: 120px;">
-  <div class="scene-inner">
-    <div class="finale">
-      <div class="eyebrow reveal" style="justify-content:center"><span class="dot" style="background:var(--sealed);box-shadow:0 0 16px var(--sealed-glow)"></span>12 — Settle</div>
+<!-- ============================================================
+     FINALE
+     ============================================================ -->
+<section class="finale wrap">
+  <h2 class="reveal">
+    Your secrets already live in the repo.<br>
+    <span class="serif" style="color: var(--accent-2);">They're just not encrypted yet.</span>
+  </h2>
 
-      <h2 class="reveal">
-        One file. One vault.<br>
-        <span class="accent">Zero babysitting.</span>
-      </h2>
+  <p class="lede reveal" style="margin: 0 auto; text-align:center; max-width: 50ch;">
+    One file. One command. No more "does anyone have the new key?"
+  </p>
 
-      <div class="reveal" style="width:min(700px,96%); display:flex; flex-direction:column; gap:14px; margin-top:10px">
-        <div class="cmd" data-copy="envseal list">
-          <span class="prompt">$</span>
-          <code><span class="bin">envseal</span> list</code>
-          <button class="copy">copy</button>
+  <div class="finale-actions reveal">
+    <a class="btn primary" href="https://github.com/viswajith275/EnvSeal-CLI" target="_blank" rel="noopener">
+      ★ View on GitHub
+    </a>
+    <button class="btn" data-copy="curl -sSfL https://raw.githubusercontent.com/viswajith275/EnvSeal-CLI/master/scripts/install.sh | bash">
+      Install now
+    </button>
+  </div>
+
+  <div class="faq-wrap">
+    <div class="caveats" style="margin-top: 80px;">
+      <div class="caveat reveal" role="button" tabindex="0" aria-expanded="false">
+        <div class="caveat-head">
+          <div class="caveat-num">Q</div>
+          <div class="caveat-title">Does it work with Docker / Docker Compose?</div>
+          <div class="caveat-indicator">+</div>
         </div>
-        <div class="codeblock" style="text-align:left; font-size:13px"><span class="cmt"># keys only — values never printed</span>
-DATABASE_URL
-STRIPE_SECRET
-JWT_SIGNING_KEY
-AWS_ACCESS_KEY_ID</div>
+        <div class="caveat-body">
+          <div class="caveat-body-inner">
+            Yes. Build your image normally, then at runtime do <code>envseal run -- docker compose up</code>,
+            or inject only the keys you need into the container environment.
+          </div>
+        </div>
       </div>
 
-      <p class="reveal" style="font-family:var(--display); font-size:clamp(19px,1.7vw,24px); color:#fff; max-width:38ch; line-height:1.5; font-weight:500; letter-spacing:-0.02em;">
-        Go seal your secrets and stop being the unofficial IT department for your own group project.
-      </p>
-
-      <div class="finale-links reveal">
-        <a class="btn primary" href="https://github.com/viswajith275/EnvSeal-CLI" target="_blank" rel="noopener">★ GitHub Repository</a>
-        <button class="btn git" data-copy="curl -sSfL https://raw.githubusercontent.com/viswajith275/EnvSeal-CLI/master/scripts/install.sh | bash">Install now</button>
+      <div class="caveat reveal" role="button" tabindex="0" aria-expanded="false">
+        <div class="caveat-head">
+          <div class="caveat-num">Q</div>
+          <div class="caveat-title">Does it work with monorepos?</div>
+          <div class="caveat-indicator">+</div>
+        </div>
+        <div class="caveat-body">
+          <div class="caveat-body-inner">
+            Yes. Keep one <code>.envseal</code> at the root, or use the <code>-e</code> profile
+            mechanism for per-package vaults within the same repository.
+          </div>
+        </div>
       </div>
-    </div>
 
-    <div style="margin-top: 120px; width: 100%; max-width: 800px; margin-left: auto; margin-right: auto;">
-      <h3 class="reveal" style="text-align:center; margin-bottom: 28px; color:var(--ink-faint); font-size:12px;">Common Questions</h3>
-      <div class="caveat-list">
-        <div class="caveat faq reveal">
-          <div class="num">Q</div>
-          <div class="head">Can I use EnvSeal with Docker / Docker Compose?</div>
-          <div class="body">
-            Yes. Build your image normally, then at runtime do something like
-            <br><br><code>envseal run -- docker compose up</code><br><br>
-            or inject only the keys you need directly into the container environment.
+      <div class="caveat reveal" role="button" tabindex="0" aria-expanded="false">
+        <div class="caveat-head">
+          <div class="caveat-num">Q</div>
+          <div class="caveat-title">What happens when two people edit secrets at the same time?</div>
+          <div class="caveat-indicator">+</div>
+        </div>
+        <div class="caveat-body">
+          <div class="caveat-body-inner">
+            The Git merge driver resolves most edits silently. If two contributors change the
+            <em>same</em> key to different values, it stops and asks you to pick a side via
+            <code>--ours</code> or <code>--theirs</code>.
           </div>
         </div>
+      </div>
 
-        <div class="caveat faq reveal">
-          <div class="num">Q</div>
-          <div class="head">Does it work with monorepos?</div>
-          <div class="body">
-            Yes. You can keep one <code>.envseal</code> at the root, or use the <code>-e</code> /
-            profile mechanism to manage separate per-package vaults within the repository.
+      <div class="caveat reveal" role="button" tabindex="0" aria-expanded="false">
+        <div class="caveat-head">
+          <div class="caveat-num">Q</div>
+          <div class="caveat-title">What if my teammate doesn't have SSH keys on GitHub?</div>
+          <div class="caveat-indicator">+</div>
+        </div>
+        <div class="caveat-body">
+          <div class="caveat-body-inner">
+            <code>envseal recipient add @handle</code> will fail. Ask them to run
+            <code>envseal recipient id</code>, which generates an age key for them. They send you
+            the output, and you add it with <code>envseal recipient add "age1..."</code>. Same
+            result, one extra paste.
           </div>
         </div>
+      </div>
 
-        <div class="caveat faq reveal">
-          <div class="num">Q</div>
-          <div class="head">What happens if two people add different secrets at the same time?</div>
-          <div class="body">
-            EnvSeal registers as a native Git merge driver, so most merges resolve silently in the
-            background. If two contributors change the <em>same</em> key to different values, it
-            stops and asks you to pick a side via <code>--ours</code> or <code>--theirs</code>.
-          </div>
+      <div class="caveat reveal" role="button" tabindex="0" aria-expanded="false">
+        <div class="caveat-head">
+          <div class="caveat-num">Q</div>
+          <div class="caveat-title">I forgot my private key and I'm the only recipient.</div>
+          <div class="caveat-indicator">+</div>
         </div>
-
-        <div class="caveat faq reveal">
-          <div class="num">Q</div>
-          <div class="head">Can I still keep a local <code>.env</code> for personal overrides?</div>
-          <div class="body">
-            Yes, but the pre-commit shield will block you from accidentally committing it. Treat
-            personal overrides as truly local and never stage them.
-          </div>
-        </div>
-
-        <div class="caveat faq reveal">
-          <div class="num">Q</div>
-          <div class="head">I forgot my private key and I'm the only recipient. What now?</div>
-          <div class="body">
-            This is not a bug EnvSeal can fix — it's a backup problem. The vault is designed so that
-            only holders of the recipient keys can decrypt it, and there is no override, no cloud
-            recovery, and no support ticket that will get it back. If you still have the identity
-            file somewhere (another machine, a backup drive, a password manager), restore it and
+        <div class="caveat-body">
+          <div class="caveat-body-inner">
+            This is not a bug EnvSeal can fix — it's a backup problem. If you still have the identity
+            file somewhere (another machine, a password manager, a printed seed), restore it and
             you're fine. If you don't, the vault is a locked box with no key.
           </div>
         </div>
@@ -2159,504 +1545,176 @@ AWS_ACCESS_KEY_ID</div>
 </main>
 
 <footer>
-  <div>EnvSeal CLI · v6.1.0 · MIT · Built in Rust · Offline by design</div>
-  <div>
-    <a href="https://github.com/viswajith275/EnvSeal-CLI" target="_blank" rel="noopener">github.com/viswajith275/EnvSeal-CLI</a>
+  <div class="footer-grid">
+    <div class="footer-left">
+      <a class="footer-brand" href="#top">
+        <span class="brand-mark" aria-hidden="true">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M12 2 L21 7 L21 17 L12 22 L3 17 L3 7 Z"/>
+            <path d="M12 8 L12 12" opacity="0.6"/>
+            <circle cx="12" cy="14.5" r="1.5" fill="currentColor" opacity="0.9"/>
+          </svg>
+        </span>
+        EnvSeal CLI
+      </a>
+      <span class="footer-meta">
+        v6.1.0 <span class="dot">·</span> MIT <span class="dot">·</span> Rust <span class="dot">·</span> Offline by design
+      </span>
+    </div>
+    <div class="footer-links">
+      <a href="https://github.com/viswajith275/EnvSeal-CLI" target="_blank" rel="noopener">GitHub</a>
+      <a href="https://github.com/viswajith275/EnvSeal-CLI#readme" target="_blank" rel="noopener">Docs</a>
+      <a href="https://github.com/viswajith275/EnvSeal-CLI/issues" target="_blank" rel="noopener">Issues</a>
+    </div>
   </div>
 </footer>
 
-<script src="https://cdnjs.cloudflare.com/ajax/libs/gsap/3.12.5/gsap.min.js"></script>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/gsap/3.12.5/ScrollTrigger.min.js"></script>
 <script>
 (function(){
-'use strict';
+  'use strict';
 
-const NS = 'http://www.w3.org/2000/svg';
-const reduceMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+  const reduceMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
 
-if (!window.gsap || !window.ScrollTrigger) {
-  document.documentElement.classList.remove('js');
-  return;
-}
-
-gsap.registerPlugin(ScrollTrigger);
-
-/* ============================================================
-   1. THE ENVSEAL MARK
-   ============================================================ */
-
-const NODES_BASE = [
-  [  0, -78], [-64, -22], [ 64, -22],
-  [  0,   0], [-64,  22], [ 64,  22],
-  [  0,  78]
-];
-const OUTER_SEQ = [0, 1, 4, 6, 5, 2];
-
-function buildOuter(n){
-  let d = 'M ' + n[0][0].toFixed(2) + ' ' + n[0][1].toFixed(2);
-  for (let i = 1; i < OUTER_SEQ.length; i++){
-    const p = n[OUTER_SEQ[i]];
-    d += ' L ' + p[0].toFixed(2) + ' ' + p[1].toFixed(2);
+  /* ---------- Reading progress ---------- */
+  const progressBar = document.getElementById('progressBar');
+  let ticking = false;
+  function updateProgress(){
+    const h = document.documentElement;
+    const scrolled = h.scrollTop;
+    const max = h.scrollHeight - h.clientHeight;
+    const pct = max > 0 ? (scrolled / max) * 100 : 0;
+    progressBar.style.width = pct.toFixed(2) + '%';
+    ticking = false;
   }
-  return d + ' Z';
-}
-function buildInner(n){
-  const c = n[3];
-  return 'M ' + c[0].toFixed(2) + ' ' + c[1].toFixed(2) + ' L ' + n[0][0].toFixed(2) + ' ' + n[0][1].toFixed(2) +
-         ' M ' + c[0].toFixed(2) + ' ' + c[1].toFixed(2) + ' L ' + n[4][0].toFixed(2) + ' ' + n[4][1].toFixed(2) +
-         ' M ' + c[0].toFixed(2) + ' ' + c[1].toFixed(2) + ' L ' + n[5][0].toFixed(2) + ' ' + n[5][1].toFixed(2);
-}
-function scaleNodes(s){
-  return NODES_BASE.map(function(p){ return [p[0] * s, p[1] * s]; });
-}
-function baseState(over){
-  return Object.assign({
-    n: scaleNodes(1), outerOp: 1, innerOp: .75, sw: 2, nr: 4,
-    nodeOp: 1, color: '#4D8DFF', dash: 'none', jitter: 0,
-    halo: 0, haloR: 96, satOp: 0, satSpread: 1
-  }, over);
-}
-function stateRaw(){
-  const n = NODES_BASE.map(function(p){
-    return [p[0] + (Math.random() - .5) * 12, p[1] + (Math.random() - .5) * 12];
-  });
-  return baseState({ n: n, outerOp: .35, innerOp: .2, sw: 1.3, nr: 2.2,
-    nodeOp: .45, color: '#FF4D4D', dash: '5 7', jitter: 2.6, halo: 0 });
-}
-function stateSealed(s){
-  return baseState({ n: scaleNodes(s || .85), outerOp: 1, innerOp: .75, sw: 2.1, nr: 4.2,
-    nodeOp: 1, color: '#4D8DFF', dash: 'none', jitter: 0, halo: .5, haloR: 92 });
-}
-function stateBranch(){
-  const n = NODES_BASE.map(function(p){ return [p[0] * .82, p[1] * .82]; });
-  n[4][0] -= 34; n[4][1] += 16;
-  n[5][0] += 34; n[5][1] += 16;
-  n[0][1] -= 10;
-  n[6][1] += 12;
-  n[1][0] -= 6; n[2][0] += 6;
-  return baseState({ n: n, outerOp: 1, innerOp: .55, sw: 1.9, nr: 4,
-    color: '#BD6BFF', dash: 'none', halo: .3, haloR: 108 });
-}
-function stateAuthorized(){
-  return baseState({ n: scaleNodes(.92), outerOp: 1, innerOp: .75, sw: 2, nr: 4.4,
-    color: '#2EE59D', dash: 'none', halo: .45, haloR: 104, satOp: 1, satSpread: 1 });
-}
-function stateEphemeral(){
-  return baseState({ n: scaleNodes(1.05), outerOp: 1, innerOp: .85, sw: 2.4, nr: 5,
-    color: '#22D3EE', dash: 'none', halo: .8, haloR: 118 });
-}
-function stateCalm(){
-  return baseState({ n: scaleNodes(.72), outerOp: .75, innerOp: .45, sw: 1.5, nr: 3,
-    nodeOp: .65, color: '#FF3B52', dash: 'none', halo: .15, haloR: 80 });
-}
-function stateGit(){
-  return baseState({ n: scaleNodes(.9), outerOp: 1, innerOp: .7, sw: 2.2, nr: 4.3,
-    nodeOp: 1, color: '#F05033', dash: 'none', jitter: 0, halo: .55, haloR: 100 });
-}
+  window.addEventListener('scroll', function(){
+    if (!ticking){ requestAnimationFrame(updateProgress); ticking = true; }
+  }, { passive: true });
+  updateProgress();
 
-const mOuter = document.getElementById('mOuter');
-const mInner = document.getElementById('mInner');
-const mNodesG = document.getElementById('mNodes');
-const mSatsG  = document.getElementById('mSats');
-const mHalo   = document.getElementById('mHalo');
-const markWrap = document.getElementById('markWrap');
-const spine    = document.getElementById('spine');
-const threadFlow = document.getElementById('threadFlow');
-const ghostPaths = [
-  document.querySelector('.thread-ghost.g1'),
-  document.querySelector('.thread-ghost.g2'),
-  document.querySelector('.thread-ghost.g3')
-];
-
-const nodeEls = [];
-for (let i = 0; i < 7; i++){
-  const c = document.createElementNS(NS, 'circle');
-  c.setAttribute('class', 'm-node');
-  mNodesG.appendChild(c);
-  nodeEls.push(c);
-}
-const satEls = [];
-for (let i = 0; i < 3; i++){
-  const c = document.createElementNS(NS, 'circle');
-  c.setAttribute('class', 'm-sat');
-  mSatsG.appendChild(c);
-  satEls.push(c);
-}
-
-let cur = baseState({});
-function lerp(a, b, t){ return a + (b - a) * t; }
-function lerpState(a, b, t){
-  const n = [];
-  for (let i = 0; i < 7; i++){
-    n.push([ lerp(a.n[i][0], b.n[i][0], t), lerp(a.n[i][1], b.n[i][1], t) ]);
+  /* ---------- Reveal on scroll ---------- */
+  const revealEls = document.querySelectorAll('.reveal');
+  if ('IntersectionObserver' in window && !reduceMotion){
+    const io = new IntersectionObserver(function(entries){
+      entries.forEach(function(e){
+        if (e.isIntersecting){
+          e.target.classList.add('in');
+          io.unobserve(e.target);
+        }
+      });
+    }, { rootMargin: '0px 0px -10% 0px', threshold: 0.05 });
+    revealEls.forEach(function(el){ io.observe(el); });
+  } else {
+    revealEls.forEach(function(el){ el.classList.add('in'); });
   }
-  return {
-    n: n,
-    outerOp: lerp(a.outerOp, b.outerOp, t),
-    innerOp: lerp(a.innerOp, b.innerOp, t),
-    sw: lerp(a.sw, b.sw, t),
-    nr: lerp(a.nr, b.nr, t),
-    nodeOp: lerp(a.nodeOp, b.nodeOp, t),
-    color: t < .5 ? a.color : b.color,
-    dash: t < .5 ? a.dash : b.dash,
-    jitter: lerp(a.jitter, b.jitter, t),
-    halo: lerp(a.halo, b.halo, t),
-    haloR: lerp(a.haloR, b.haloR, t),
-    satOp: lerp(a.satOp, b.satOp, t),
-    satSpread: lerp(a.satSpread, b.satSpread, t)
-  };
-}
 
-let clock = 0;
-function renderMark(){
-  const n = cur.n;
-  const t = clock;
-  let pts = n;
-  if (cur.jitter > 0.01){
-    pts = n.map(function(p, i){
-      const ph = i * 1.73;
-      return [
-        p[0] + Math.sin(t * 2.1 + ph) * cur.jitter,
-        p[1] + Math.cos(t * 1.67 + ph) * cur.jitter
-      ];
+  /* ---------- Terminal line reveal ---------- */
+  const heroTerm = document.getElementById('heroTerm');
+  if (heroTerm && !reduceMotion){
+    const lines = heroTerm.querySelectorAll('.term-line');
+    let armed = false;
+    const termIO = new IntersectionObserver(function(entries){
+      entries.forEach(function(e){
+        if (e.isIntersecting && !armed){
+          armed = true;
+          lines.forEach(function(line, i){
+            setTimeout(function(){ line.classList.add('in'); }, 100 + i * 90);
+          });
+          termIO.disconnect();
+        }
+      });
+    }, { threshold: 0.15 });
+    termIO.observe(heroTerm);
+  } else if (heroTerm){
+    heroTerm.querySelectorAll('.term-line').forEach(function(l){ l.classList.add('in'); });
+  }
+
+  /* ---------- Split terminal line reveals ---------- */
+  if (!reduceMotion){
+    const splitTerms = document.querySelectorAll('.split .term');
+    splitTerms.forEach(function(term){
+      const lines = term.querySelectorAll('.term-line');
+      const io = new IntersectionObserver(function(entries){
+        entries.forEach(function(e){
+          if (e.isIntersecting){
+            lines.forEach(function(line, i){
+              setTimeout(function(){ line.classList.add('in'); }, 80 + i * 60);
+            });
+            io.disconnect();
+          }
+        });
+      }, { threshold: 0.15 });
+      io.observe(term);
     });
-  }
-  mOuter.setAttribute('d', buildOuter(pts));
-  mOuter.setAttribute('stroke', cur.color);
-  mOuter.setAttribute('stroke-width', cur.sw.toFixed(2));
-  mOuter.setAttribute('opacity', cur.outerOp.toFixed(3));
-  mOuter.setAttribute('stroke-dasharray', cur.dash);
-
-  mInner.setAttribute('d', buildInner(pts));
-  mInner.setAttribute('stroke', cur.color);
-  mInner.setAttribute('stroke-width', (cur.sw * .7).toFixed(2));
-  mInner.setAttribute('opacity', cur.innerOp.toFixed(3));
-  mInner.setAttribute('stroke-dasharray', cur.dash);
-
-  for (let i = 0; i < 7; i++){
-    const el = nodeEls[i];
-    el.setAttribute('cx', pts[i][0].toFixed(2));
-    el.setAttribute('cy', pts[i][1].toFixed(2));
-    el.setAttribute('r', cur.nr.toFixed(2));
-    el.setAttribute('fill', '#08080a');
-    el.setAttribute('stroke', cur.color);
-    el.setAttribute('stroke-width', (cur.sw * .8).toFixed(2));
-    el.setAttribute('opacity', cur.nodeOp.toFixed(3));
+  } else {
+    document.querySelectorAll('.split .term-line').forEach(function(l){ l.classList.add('in'); });
   }
 
-  const satAngles = [ -Math.PI * .82, -Math.PI * .18, Math.PI * .5 ];
-  for (let i = 0; i < 3; i++){
-    const el = satEls[i];
-    const a = satAngles[i];
-    const r = cur.haloR * cur.satSpread + 14;
-    el.setAttribute('cx', (Math.cos(a) * r).toFixed(2));
-    el.setAttribute('cy', (Math.sin(a) * r).toFixed(2));
-    el.setAttribute('r', 3.4);
-    el.setAttribute('stroke', '#2EE59D');
-    el.setAttribute('opacity', cur.satOp.toFixed(3));
-  }
-
-  mHalo.setAttribute('r', cur.haloR.toFixed(2));
-  mHalo.setAttribute('stroke', cur.color);
-  mHalo.setAttribute('opacity', (cur.halo * .35).toFixed(3));
-  mHalo.setAttribute('stroke-dasharray', '2 10');
-}
-
-let morphTween = null;
-function goTo(factory, duration){
-  const from = {
-    n: cur.n.map(function(p){ return [p[0], p[1]]; }),
-    outerOp: cur.outerOp, innerOp: cur.innerOp, sw: cur.sw, nr: cur.nr,
-    nodeOp: cur.nodeOp, color: cur.color, dash: cur.dash,
-    jitter: cur.jitter, halo: cur.halo, haloR: cur.haloR,
-    satOp: cur.satOp, satSpread: cur.satSpread
-  };
-  const to = factory();
-  const proxy = { t: 0 };
-  if (morphTween) morphTween.kill();
-  morphTween = gsap.to(proxy, {
-    t: 1,
-    duration: reduceMotion ? 0.001 : (duration || 0.95),
-    ease: 'power2.inOut',
-    onUpdate: function(){
-      cur = lerpState(from, to, proxy.t);
-      renderMark();
-    }
-  });
-}
-
-/* ============================================================
-   2. THREAD + POSE
-   ============================================================ */
-
-const pose = { x: 0.5, y: 0.5, s: 1.6, op: 0.9 };
-
-function applyPose(){
-  const W = window.innerWidth;
-  const H = window.innerHeight;
-  const mx = pose.x * W;
-  const my = pose.y * H;
-
-  markWrap.style.transform = 'translate(' + mx.toFixed(1) + 'px,' + my.toFixed(1) + 'px) scale(' + pose.s.toFixed(3) + ')';
-  const safeOpacity = Math.min(0.5, Math.max(0.16, pose.op));
-  markWrap.style.opacity = safeOpacity;
-
-  const d =
-    'M ' + (W * .5).toFixed(1) + ' -40 ' +
-    'C ' + (W * .5).toFixed(1) + ' ' + (my * .55).toFixed(1) + ', ' +
-            mx.toFixed(1) + ' ' + (my * .62).toFixed(1) + ', ' +
-            mx.toFixed(1) + ' ' + my.toFixed(1) + ' ' +
-    'C ' + mx.toFixed(1) + ' ' + (my + (H - my) * .38).toFixed(1) + ', ' +
-            (W * .5).toFixed(1) + ' ' + (my + (H - my) * .5).toFixed(1) + ', ' +
-            (W * .5).toFixed(1) + ' ' + (H + 40);
-
-  spine.setAttribute('d', d);
-  threadFlow.setAttribute('d', d);
-}
-
-/* ============================================================
-   3. SCENES
-   ============================================================ */
-
-const SCENES = {
-  1:  { pose: { x: .5,  y: .5,  s: 2.8,  op: 0.42 }, state: stateGit,               dur: 1.1, ghosts: 0 },
-  2:  { pose: { x: .5,  y: .5,  s: 3.2,  op: 0.32 }, state: stateRaw,               dur: 1.1, ghosts: 1 },
-  3:  { pose: { x: .5,  y: .5,  s: 2.6,  op: 0.40 }, state: stateGit,               dur: 1.0, ghosts: 2 },
-  4:  { pose: { x: .5,  y: .32, s: 1.3,  op: 0.42 }, state: stateBranch,            dur: .95, ghosts: 3 },
-  5:  { pose: { x: .5,  y: .34, s: 1.35, op: 0.48 }, state: function(){ return stateSealed(.8); }, dur: .85, ghosts: 0 },
-  6:  { pose: { x: .5,  y: .32, s: 1.3,  op: 0.42 }, state: stateAuthorized,        dur: .85, ghosts: 0 },
-  7:  { pose: { x: .5,  y: .5,  s: 3.2,  op: 0.42 }, state: stateEphemeral,         dur: 1.1, ghosts: 0 },
-  8:  { pose: { x: .5,  y: .5,  s: 2.4,  op: 0.42 }, state: function(){ return stateSealed(.8); }, dur: .95, ghosts: 0 },
-  9:  { pose: { x: .78, y: .5,  s: 1.6,  op: 0.32 }, state: stateCalm,              dur: 1.3, ghosts: 0 },
-  10: { pose: { x: .5,  y: .5,  s: 2.2,  op: 0.35 }, state: function(){ return stateSealed(.8); }, dur: 1.0, ghosts: 0 },
-  11: { pose: { x: .5,  y: .5,  s: 2.4,  op: 0.35 }, state: stateGit,               dur: 1.0, ghosts: 0 },
-  12: { pose: { x: .5,  y: .36, s: 2.4,  op: 0.48 }, state: function(){ return stateSealed(.85); }, dur: 1.1, ghosts: 0 }
-};
-
-const railItems = Array.prototype.slice.call(document.querySelectorAll('.rail-item'));
-
-function setGhosts(count){
-  for (let i = 0; i < 3; i++){
-    const p = ghostPaths[i];
-    const active = i < count;
-    gsap.to(p, { opacity: active ? .3 : 0, duration: .85, ease: 'power2.out' });
-    if (active){
-      const W = window.innerWidth, H = window.innerHeight;
-      const off = (i - 1) * 70;
-      p.setAttribute('d',
-        'M ' + (W * .5 + off) + ' -40 ' +
-        'C ' + (W * .5 + off) + ' ' + (H * .3) + ', ' +
-                (W * .5 + off * 1.6) + ' ' + (H * .55) + ', ' +
-                (W * .5 + off * 1.2) + ' ' + (H * .5) + ' ' +
-        'C ' + (W * .5 + off * .8) + ' ' + (H * .45) + ', ' +
-                (W * .5 + off) + ' ' + (H * .72) + ', ' +
-                (W * .5 + off) + ' ' + (H + 40));
-    }
-  }
-}
-
-let activeScene = 0;
-
-function activate(id){
-  if (id === activeScene) return;
-  activeScene = id;
-  const cfg = SCENES[id];
-  if (!cfg) return;
-
-  gsap.to(pose, {
-    x: cfg.pose.x, y: cfg.pose.y, s: cfg.pose.s, op: cfg.pose.op,
-    duration: reduceMotion ? .001 : 1.1,
-    ease: 'power3.inOut',
-    onUpdate: applyPose
-  });
-
-  goTo(cfg.state, cfg.dur);
-  setGhosts(cfg.ghosts || 0);
-
-  railItems.forEach(function(el){
-    el.classList.toggle('active', parseInt(el.dataset.r, 10) === id);
-  });
-
-  gsap.to(threadFlow, {
-    opacity: id === 7 ? .75 : 0,
-    duration: .85,
-    ease: 'power2.out'
-  });
-}
-
-/* ============================================================
-   4. SCROLL TRIGGERS
-   ============================================================ */
-
-document.querySelectorAll('.scene').forEach(function(sec){
-  const id = parseInt(sec.dataset.scene, 10);
-  ScrollTrigger.create({
-    trigger: sec,
-    start: 'top 60%',
-    end: 'bottom 40%',
-    onToggle: function(self){ if (self.isActive) activate(id); }
-  });
-});
-
-gsap.utils.toArray('.reveal').forEach(function(el, i){
-  gsap.fromTo(el,
-    { opacity: 0, y: 30 },
-    {
-      opacity: 1, y: 0,
-      duration: reduceMotion ? .001 : .9,
-      ease: 'power3.out',
-      delay: (i % 4) * .07,
-      scrollTrigger: {
-        trigger: el,
-        start: 'top 88%',
-        toggleActions: 'play none none none'
+  /* ---------- Copy buttons ---------- */
+  document.querySelectorAll('[data-copy]').forEach(function(el){
+    el.addEventListener('click', function(){
+      const text = el.getAttribute('data-copy');
+      const finish = function(){
+        el.classList.add('copied');
+        const chipCopy = el.querySelector('.chip-copy');
+        if (chipCopy) chipCopy.textContent = 'copied';
+        if (el.classList.contains('btn')){
+          const orig = el.textContent;
+          el.textContent = 'Copied ✓';
+          setTimeout(function(){ el.textContent = orig; }, 1500);
+        }
+        setTimeout(function(){
+          el.classList.remove('copied');
+          if (chipCopy) chipCopy.textContent = 'copy';
+        }, 1500);
+      };
+      if (navigator.clipboard && navigator.clipboard.writeText){
+        navigator.clipboard.writeText(text).then(finish).catch(finish);
+      } else {
+        const ta = document.createElement('textarea');
+        ta.value = text;
+        ta.style.position = 'fixed';
+        ta.style.opacity = '0';
+        document.body.appendChild(ta);
+        ta.select();
+        try { document.execCommand('copy'); } catch(e){}
+        document.body.removeChild(ta);
+        finish();
       }
-    }
-  );
-});
-
-ScrollTrigger.create({
-  trigger: document.body,
-  start: 'top top',
-  end: 'bottom bottom',
-  onUpdate: function(self){
-    const offset = -self.progress * 900;
-    threadFlow.style.strokeDashoffset = offset;
-  }
-});
-
-/* ============================================================
-   5. INTERACTIONS
-   ============================================================ */
-
-document.querySelectorAll('[data-copy]').forEach(function(el){
-  const btn = el.querySelector('.copy');
-  if (!btn) return;
-  btn.addEventListener('click', function(e){
-    e.stopPropagation();
-    const text = el.getAttribute('data-copy');
-    const done = function(){
-      btn.textContent = 'copied';
-      btn.classList.add('done');
-      setTimeout(function(){
-        btn.textContent = 'copy';
-        btn.classList.remove('done');
-      }, 1700);
-    };
-    if (navigator.clipboard && navigator.clipboard.writeText){
-      navigator.clipboard.writeText(text).then(done).catch(done);
-    } else {
-      const ta = document.createElement('textarea');
-      ta.value = text;
-      document.body.appendChild(ta);
-      ta.select();
-      try { document.execCommand('copy'); } catch(err){}
-      document.body.removeChild(ta);
-      done();
-    }
+    });
   });
-});
 
-document.querySelectorAll('.btn[data-copy]').forEach(function(btn){
-  btn.addEventListener('click', function(){
-    const text = btn.getAttribute('data-copy');
-    if (navigator.clipboard && navigator.clipboard.writeText){
-      navigator.clipboard.writeText(text);
+  /* ---------- Caveats / FAQ ---------- */
+  document.querySelectorAll('.caveat').forEach(function(c){
+    function toggle(){
+      const open = c.classList.toggle('open');
+      c.setAttribute('aria-expanded', open ? 'true' : 'false');
     }
-    const original = btn.textContent;
-    btn.textContent = 'Copied to clipboard';
-    setTimeout(function(){ btn.textContent = original; }, 1700);
-  });
-});
-
-document.querySelectorAll('.caveat').forEach(function(c){
-  c.setAttribute('role', 'button');
-  c.setAttribute('tabindex', '0');
-  c.setAttribute('aria-expanded', 'false');
-
-  function toggle(){
-    const open = c.classList.toggle('open');
-    c.setAttribute('aria-expanded', open ? 'true' : 'false');
-  }
-  c.addEventListener('click', function(e){
-    if (e.target.closest('a')) return;
-    toggle();
-  });
-  c.addEventListener('keydown', function(e){
-    if (e.key === 'Enter' || e.key === ' ' || e.key === 'Spacebar'){
-      e.preventDefault();
+    c.addEventListener('click', function(e){
+      if (e.target.closest('a')) return;
       toggle();
-    }
+    });
+    c.addEventListener('keydown', function(e){
+      if (e.key === 'Enter' || e.key === ' ' || e.key === 'Spacebar'){
+        e.preventDefault();
+        toggle();
+      }
+    });
   });
-});
 
-/* Tabs */
-document.querySelectorAll('.tab').forEach(function(tab){
-  tab.addEventListener('click', function(){
-    const target = tab.dataset.tab;
-    document.querySelectorAll('.tab').forEach(function(t){ t.classList.remove('active'); });
-    document.querySelectorAll('.tab-panel').forEach(function(p){ p.classList.remove('active'); });
-    tab.classList.add('active');
-    const panel = document.querySelector('.tab-panel[data-panel="' + target + '"]');
-    if (panel) panel.classList.add('active');
+  /* ---------- Smooth anchor scrolling ---------- */
+  document.querySelectorAll('a[href^="#"]').forEach(function(a){
+    a.addEventListener('click', function(e){
+      const id = a.getAttribute('href');
+      if (id.length > 1){
+        const target = document.querySelector(id);
+        if (target){
+          e.preventDefault();
+          const top = target.getBoundingClientRect().top + window.scrollY - 60;
+          window.scrollTo({ top: top, behavior: reduceMotion ? 'auto' : 'smooth' });
+        }
+      }
+    });
   });
-});
-
-const termWindow = document.getElementById('termWindow');
-if (termWindow){
-  let live = false;
-  termWindow.addEventListener('click', function(){
-    live = !live;
-    termWindow.classList.toggle('live', live);
-    termWindow.classList.toggle('dead', !live);
-    if (live && activeScene === 7){
-      gsap.fromTo(markWrap,
-        { filter: 'brightness(1)' },
-        { filter: 'brightness(2.4)', duration: .2, yoyo: true, repeat: 3, ease: 'power2.inOut',
-          onComplete: function(){ markWrap.style.filter = 'none'; } }
-      );
-    }
-  });
-}
-
-/* ============================================================
-   6. TICKER + RESIZE
-   ============================================================ */
-
-let last = performance.now();
-gsap.ticker.add(function(){
-  const now = performance.now();
-  const dt = (now - last) / 1000;
-  last = now;
-  clock += dt;
-  if (!reduceMotion && cur.jitter > 0.01) renderMark();
-});
-
-let resizeTimer;
-window.addEventListener('resize', function(){
-  clearTimeout(resizeTimer);
-  resizeTimer = setTimeout(function(){
-    applyPose();
-    const cfg = SCENES[activeScene];
-    if (cfg) setGhosts(cfg.ghosts || 0);
-    ScrollTrigger.refresh();
-  }, 150);
-});
-
-/* ============================================================
-   7. BOOT
-   ============================================================ */
-
-cur = stateGit();
-renderMark();
-applyPose();
-activate(1);
-activeScene = 0;
-activate(1);
-
-setTimeout(function(){
-  if (activeScene === 1) goTo(stateGit, 1.5);
-}, 450);
 
 })();
 </script>
