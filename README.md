@@ -34,7 +34,10 @@ curl -sSfL https://raw.githubusercontent.com/viswajith275/EnvSeal-CLI/master/scr
 winget install --id viswajith275.envseal -e
 
 # From source
-cargo install envseal
+git clone https://github.com/viswajith275/EnvSeal-CLI.git
+cd EnvSeal-CLI
+
+cargo build --release
 ```
 
 Verify:
