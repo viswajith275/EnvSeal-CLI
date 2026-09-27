@@ -1,11 +1,11 @@
-use clap::{ArgAction, Parser, Subcommand, ValueEnum, ValueHint};
+use clap::{ArgAction, Args, Parser, Subcommand, ValueEnum, ValueHint};
 use std::path::PathBuf;
 
 #[derive(Parser)]
 #[command(
     name = "envseal",
     about = "Encrypted vault for secrets and API keys stop committing plaintext .env files.",
-    version = "v6.1.0",
+    version = "v6.2.0",
     propagate_version = true
 )]
 pub struct Cli {
@@ -48,6 +48,36 @@ pub enum RecipientCommands {
         /// Public key string to remove
         target: String,
     },
+}
+
+#[derive(Args, Clone, Debug, Default)]
+pub struct OverrideArgs {
+    /// Take only these keys from the global vault if it exists (e.g. KEY1,KEY2)
+    #[arg(
+        long = "override",
+        value_delimiter = ',',
+        value_name = "KEY",
+        conflicts_with = "with_global"
+    )]
+    pub r#override: Vec<String>, // keyword or smthg add r# before
+
+    /// Overlay all keys from the global vault (global has more precedence)
+    #[arg(long = "with-global", conflicts_with = "override")]
+    pub with_global: bool,
+
+    /// Which group inside the global vault to use (defaults to directory's linked group)
+    #[arg(long = "global-group")]
+    pub global_group: Option<String>,
+
+    /// Optional tag inside that global group (defaults to base)
+    #[arg(long = "global-tag")]
+    pub global_tag: Option<String>,
+}
+
+impl OverrideArgs {
+    pub fn is_active(&self) -> bool {
+        self.with_global || !self.r#override.is_empty()
+    }
 }
 
 #[derive(Subcommand)]
@@ -125,6 +155,8 @@ pub enum Commands {
         /// Offline token string, path to token file, or '-' for stdin
         #[arg(long)]
         token: Option<String>,
+        #[command(flatten)]
+        overrides: OverrideArgs,
 
         /// Specific keys to export (exports all if omitted)
         keys: Vec<String>,
@@ -196,6 +228,8 @@ pub enum Commands {
         /// Offline token string, path to token file, or '-' for stdin
         #[arg(long)]
         token: Option<String>,
+        #[command(flatten)]
+        overrides: OverrideArgs,
 
         /// Specific keys to load (loads all if omitted)
         keys: Vec<String>,
@@ -249,6 +283,8 @@ pub enum Commands {
         /// Offline token string, path to token file, or '-' for stdin
         #[arg(long)]
         token: Option<String>,
+        #[command(flatten)]
+        overrides: OverrideArgs,
 
         /// Command and arguments to execute (e.g., `npm start` or `-- python app.py`)
         #[arg(trailing_var_arg = true, allow_hyphen_values = true, required = true)]

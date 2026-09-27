@@ -21,6 +21,26 @@ fn main() -> Result<std::process::ExitCode> {
         ));
     }
 
+    if global {
+        match &cli.command {
+            Commands::Run { overrides, .. }
+            | Commands::Load { overrides, .. }
+            | Commands::Export { overrides, .. } => {
+                if overrides.is_active() {
+                    return Err(anyhow!(
+                            "Conflict: Cannot use --override or --with-global when operating directly on the global (-G / --global) vault."
+                        ));
+                }
+                if overrides.global_group.is_some() || overrides.global_tag.is_some() {
+                    return Err(anyhow!(
+                            "Conflict: Use --group and --tag instead of --global-group and --global-tag while using -G / --global is set."
+                        ));
+                }
+            }
+            _ => {}
+        }
+    }
+
     if let Some(name) = pref {
         if !name
             .chars()
@@ -39,6 +59,7 @@ fn main() -> Result<std::process::ExitCode> {
             tag,
             cmd_args,
             token,
+            overrides,
         } => {
             let code = commands::run::cmd_run(
                 group.as_deref(),
@@ -48,6 +69,7 @@ fn main() -> Result<std::process::ExitCode> {
                 global,
                 pref,
                 allow_env,
+                &overrides,
             )?;
             return Ok(std::process::ExitCode::from(code));
         }
@@ -83,6 +105,7 @@ fn main() -> Result<std::process::ExitCode> {
             tag,
             keys,
             token,
+            overrides,
         } => commands::load::cmd_load(
             group.as_deref(),
             tag.as_deref(),
@@ -91,6 +114,7 @@ fn main() -> Result<std::process::ExitCode> {
             global,
             pref,
             allow_env,
+            &overrides,
         )?,
         Commands::Remove {
             group,
@@ -123,6 +147,7 @@ fn main() -> Result<std::process::ExitCode> {
             keys,
             output_path,
             token,
+            overrides,
         } => commands::export::cmd_export(
             group.as_deref(),
             tag.as_deref(),
@@ -132,6 +157,7 @@ fn main() -> Result<std::process::ExitCode> {
             pref,
             &output_path,
             allow_env,
+            &overrides,
         )?,
         Commands::Link { group } => commands::link::cmd_link(&group, global, pref, allow_env)?,
         Commands::Token {

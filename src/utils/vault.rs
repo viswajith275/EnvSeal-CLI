@@ -579,7 +579,7 @@ impl Vault {
         let base_scope_dek = crypto::derive_scope_dek(master_dek, &group_name, BASE_TAG);
 
         for var_name in group_entry.base.keys() {
-            if filter_keys.map_or(true, |fk| fk.is_empty() || fk.contains(var_name)) {
+            if filter_keys.is_none_or(|fk| fk.is_empty() || fk.contains(var_name)) {
                 let entry_key = crypto::derive_entry_key(&base_scope_dek, var_name);
                 token_keys.insert(var_name.clone(), Zeroizing::new(entry_key.to_vec()));
             }
@@ -591,7 +591,7 @@ impl Vault {
                     let active_scope_dek =
                         crypto::derive_scope_dek(master_dek, &group_name, target_tag);
                     for var_name in tag_entry.entries.keys() {
-                        if filter_keys.map_or(true, |fk| fk.is_empty() || fk.contains(var_name)) {
+                        if filter_keys.is_none_or(|fk| fk.is_empty() || fk.contains(var_name)) {
                             let entry_key = crypto::derive_entry_key(&active_scope_dek, var_name);
                             token_keys.insert(var_name.clone(), Zeroizing::new(entry_key.to_vec()));
                         }

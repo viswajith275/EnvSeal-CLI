@@ -13,7 +13,7 @@ pub fn cmd_get(
     let vault = Vault::load(global, pref)?;
     let token_str = resolve::load_token(token)?;
     let mut decrypted_envs =
-        resolve::resolve_environment(&vault, group, tag, token_str.as_deref(), allow_env)?;
+        resolve::resolve_environment(&vault, group, tag, token_str.as_deref(), allow_env, None)?;
 
     if let Some(value) = decrypted_envs.remove(key) {
         println!("{}: {}", key, value.as_str());

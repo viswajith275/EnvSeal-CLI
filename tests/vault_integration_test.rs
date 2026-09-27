@@ -345,9 +345,15 @@ mod vault_integration_tests {
         fs::write(&token_file_path, &token_string).unwrap();
 
         let loaded = resolve::load_token(Some(token_file_path.to_str().unwrap())).unwrap();
-        let resolved =
-            resolve::resolve_environment(&vault, None, Some("prod"), loaded.as_deref(), false)
-                .unwrap();
+        let resolved = resolve::resolve_environment(
+            &vault,
+            None,
+            Some("prod"),
+            loaded.as_deref(),
+            false,
+            None,
+        )
+        .unwrap();
         assert_eq!(
             resolved.get("SHARED_HOST").map(|s| s.as_str()),
             Some("base.internal")
@@ -490,8 +496,14 @@ mod vault_integration_tests {
             )
             .unwrap();
 
-        let resolve_err =
-            resolve::resolve_environment(&vault, None, Some("staging"), Some(&token_string), false);
+        let resolve_err = resolve::resolve_environment(
+            &vault,
+            None,
+            Some("staging"),
+            Some(&token_string),
+            false,
+            None,
+        );
         assert!(resolve_err.is_err());
         assert!(resolve_err
             .unwrap_err()
@@ -627,5 +639,59 @@ mod vault_integration_tests {
         assert!(!is_valid_env_key("ENV.KEY"));
         assert!(!is_valid_env_key("API KEY"));
         assert!(!is_valid_env_key(""));
+    }
+
+    #[test]
+    fn test_override_spec_is_active_detection() {
+        let empty_vals = resolve::OverrideVals::default();
+        assert!(!empty_vals.is_active());
+
+        let keys = vec!["AWS_KEY".to_string()];
+        let selective_vals = resolve::OverrideVals {
+            keys: &keys,
+            with_global: false,
+            global_group: None,
+            global_tag: None,
+        };
+        assert!(selective_vals.is_active());
+
+        let global_vals = resolve::OverrideVals {
+            keys: &[],
+            with_global: true,
+            global_group: None,
+            global_tag: None,
+        };
+        assert!(global_vals.is_active());
+    }
+
+    #[test]
+    fn test_resolve_environment_rejects_overrides_when_primary_is_global() {
+        let env = TestEnv::new("seal-encrypted.toml");
+        // Initialize as a global vault (local = false, global = true)
+        Vault::init(vec![env.recipient.clone()], false, true, None).unwrap();
+        let mut vault = Vault::load_from_file(&env.vault_path).unwrap();
+        let keys = vault.unlock(true).unwrap();
+        vault
+            .set_entry(&keys, Some("personal"), None, "KEY", "val")
+            .unwrap();
+
+        let override_keys = vec!["KEY".to_string()];
+        let vals = resolve::OverrideVals {
+            keys: &override_keys,
+            with_global: false,
+            global_group: Some("personal"),
+            global_tag: None,
+        };
+
+        // When primary vault is not local, overrides must be rejected
+        let result =
+            resolve::resolve_environment(&vault, Some("personal"), None, None, true, Some(&vals));
+
+        assert!(result.is_err());
+        let err_msg = result.unwrap_err().to_string();
+        assert!(
+            err_msg.contains("Cannot apply global overrides when already targeting a global vault"),
+            "Expected global vault conflict error, got: {err_msg}"
+        );
     }
 }

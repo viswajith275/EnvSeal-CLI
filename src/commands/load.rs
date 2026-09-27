@@ -1,3 +1,4 @@
+use crate::cli::OverrideArgs;
 use crate::utils::is_valid_env_key;
 use crate::utils::{resolve, vault::Vault};
 use anyhow::Result;
@@ -36,6 +37,7 @@ pub fn cmd_load(
     global: bool,
     pref: Option<&str>,
     allow_env: bool,
+    overrides: &OverrideArgs,
 ) -> Result<()> {
     let vault = Vault::load(global, pref)?;
     let group_name = vault.resolve_group_name(group)?;
@@ -63,8 +65,22 @@ pub fn cmd_load(
     eprintln!("{}", message);
 
     let token_str = resolve::load_token(token)?;
-    let mut sorted_envs =
-        resolve::resolve_environment(&vault, group, tag, token_str.as_deref(), allow_env)?;
+
+    let override_val = resolve::OverrideVals {
+        keys: &overrides.r#override,
+        with_global: overrides.with_global,
+        global_group: overrides.global_group.as_deref(),
+        global_tag: overrides.global_tag.as_deref(),
+    };
+
+    let mut sorted_envs = resolve::resolve_environment(
+        &vault,
+        group,
+        tag,
+        token_str.as_deref(),
+        allow_env,
+        Some(&override_val),
+    )?;
 
     // filter derived to find specified keys
     if !keys.is_empty() {
