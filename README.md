@@ -15,6 +15,8 @@
 [![Build](https://github.com/viswajith275/EnvSeal-CLI/actions/workflows/release.yml/badge.svg)](https://github.com/viswajith275/EnvSeal-CLI/actions)
 [![Downloads](https://img.shields.io/github/downloads/viswajith275/EnvSeal-CLI/total.svg)](https://github.com/viswajith275/EnvSeal-CLI/releases)
 [![Made with Rust](https://img.shields.io/badge/made%20with-Rust-orange.svg)](https://www.rust-lang.org/)
+[![Featured on VibeLeaderboard](https://img.shields.io/endpoint?url=https%3A%2F%2Fwww.vibeleaderboard.ai%2Fapi%2Fv1%2Fapps%2F809f8383-8172-424b-aa45-1afca134a053%2Fbadge)](https://www.vibeleaderboard.ai/app/809f8383-8172-424b-aa45-1afca134a053)
+[![PRs Welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg)](http://makeapullrequest.com)
 
 > **Git for secrets.** An offline, Git-native secrets manager built on SSH and Age. Your vault is a file in your repo — encrypted for the people who need it, switched by branch, and mergeable like code.
 
