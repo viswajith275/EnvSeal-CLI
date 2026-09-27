@@ -5,6 +5,14 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>EnvSeal — Git for secrets</title>
 <meta name="description" content="A single encrypted file that travels with your repo. Switches with your branch. Merges like code. No cloud. No accounts.">
+<meta name="theme-color" content="#0a0a0b">
+
+<!-- Open Graph / Social Sharing -->
+<meta property="og:title" content="EnvSeal — Git for secrets">
+<meta property="og:description" content="A single encrypted file that travels with your repo. Switches with your branch. Merges like code. No cloud. No accounts.">
+<meta property="og:type" content="website">
+<meta property="og:url" content="https://github.com/viswajith275/EnvSeal-CLI">
+
 <script>document.documentElement.classList.add('js');</script>
 
 <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -12,7 +20,6 @@
 <link href="https://fonts.googleapis.com/css2?family=Inter:opsz,wght@14..32,300;14..32,400;14..32,500;14..32,600;14..32,700&family=Instrument+Serif:ital@0;1&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
 
 <style>
-
 :root {
   --bg:      #0a0a0b;
   --bg-1:    #0e0e10;
@@ -23,7 +30,7 @@
   --t1: #ededf0;
   --t2: #b0b0b8;
   --t3: #7a7a82;
-  --t4: #52525a;
+  --t4: #81818b; /* Improved contrast for small text (WCAG AA) */
   --t5: #37373d;
 
   --line-1: rgba(255,255,255,0.055);
@@ -53,12 +60,15 @@
   --pad-x: clamp(24px, 6vw, 96px);
   --max-w: 1280px;
   --content-w: 720px;
+
+  color-scheme: dark;
 }
 
 * { box-sizing: border-box; margin: 0; padding: 0; }
 
 html {
   scroll-behavior: smooth;
+  scroll-padding-top: 80px; /* Prevents fixed header from covering anchor targets */
   -webkit-text-size-adjust: 100%;
   font-feature-settings: "ss01", "cv11";
 }
@@ -612,7 +622,7 @@ table.compare tbody tr:hover td.us { background: rgba(139,139,240,0.05); }
   margin-top: 0;
 }
 .caveat.open .caveat-body {
-  max-height: 600px;
+  max-height: 1000px; /* Increased from 600px to prevent clipping on large fonts/zoom */
   opacity: 1;
   margin-top: 20px;
 }
@@ -912,6 +922,26 @@ footer {
     </a>
   </div>
 
+  <!-- Download counter strip -->
+  <div class="dl-counter reveal d3" style="display:flex;gap:32px;flex-wrap:wrap;margin-bottom:48px;padding:20px 24px;background:var(--bg-1);border:1px solid var(--line-1);border-radius:12px;">
+    <div style="display:flex;align-items:center;gap:10px;">
+      <span style="font-family:var(--mono);font-size:22px;font-weight:600;color:var(--t1);" id="dlCount">—</span>
+      <span style="font-size:12px;color:var(--t3);text-transform:uppercase;letter-spacing:0.08em;font-family:var(--mono);">downloads</span>
+    </div>
+    <div style="display:flex;align-items:center;gap:10px;">
+      <span style="font-family:var(--mono);font-size:22px;font-weight:600;color:var(--t1);" id="starCount">—</span>
+      <span style="font-size:12px;color:var(--t3);text-transform:uppercase;letter-spacing:0.08em;font-family:var(--mono);">stars</span>
+    </div>
+    <div style="display:flex;align-items:center;gap:10px;">
+      <span style="font-family:var(--mono);font-size:22px;font-weight:600;color:var(--t1);" id="forkCount">—</span>
+      <span style="font-size:12px;color:var(--t3);text-transform:uppercase;letter-spacing:0.08em;font-family:var(--mono);">forks</span>
+    </div>
+    <div style="display:flex;align-items:center;gap:10px;">
+      <span style="font-family:var(--mono);font-size:22px;font-weight:600;color:var(--t1);" id="releaseCount">—</span>
+      <span style="font-size:12px;color:var(--t3);text-transform:uppercase;letter-spacing:0.08em;font-family:var(--mono);">releases</span>
+    </div>
+  </div>
+
   <div class="term reveal d4" id="heroTerm">
     <div class="term-bar">
       <div class="term-dots">
@@ -1121,10 +1151,10 @@ footer {
         <tr>
           <td>Cost</td>
           <td>Free</td>
-          <td>Free; paid tiers from ~$3 to $299/mo</td>
+          <td>Free; Pro $36/yr, Team $20/mo, Business $90/mo</td>
           <td>Free</td>
           <td class="us"><strong>Free, no account needed</strong></td>
-          <td>Free tier; paid from ~$8–46/seat/mo</td>
+          <td>Doppler: free for 3 users, $8/mo per additional user. Infisical: free up to 5 identities, Pro $18/identity/mo</td>
         </tr>
         <tr>
           <td>Works offline</td>
@@ -1179,7 +1209,7 @@ footer {
   </div>
 
   <p class="reveal" style="margin-top:24px; font-size:13px; color:var(--t4); max-width:80ch; line-height:1.7;">
-    Verified early 2026. dotenvx does more than a table row can capture — it has real encryption,
+    Verified September 2026. dotenvx does more than a table row can capture — it has real encryption,
     rotation, and git-diff audit. The architectural difference: dotenvx uses a single shared private
     key per environment, while EnvSeal seals to individual recipients.
   </p>
@@ -1203,13 +1233,13 @@ footer {
   </p>
 
   <div class="caveats">
-    <div class="caveat reveal" role="button" tabindex="0" aria-expanded="false">
+    <div class="caveat reveal" role="button" tabindex="0" aria-expanded="false" aria-controls="caveat-1-body">
       <div class="caveat-head">
         <div class="caveat-num">01</div>
         <div class="caveat-title">Removing someone doesn't erase what they already saw.</div>
         <div class="caveat-indicator">+</div>
       </div>
-      <div class="caveat-body">
+      <div id="caveat-1-body" class="caveat-body">
         <div class="caveat-body-inner">
           <code>envseal recipient rm</code> stops a person from decrypting <strong>future</strong> commits.
           But Git history is permanent — anyone who cloned earlier still has old encrypted commits and
@@ -1220,13 +1250,13 @@ footer {
       </div>
     </div>
 
-    <div class="caveat reveal" role="button" tabindex="0" aria-expanded="false">
+    <div class="caveat reveal" role="button" tabindex="0" aria-expanded="false" aria-controls="caveat-2-body">
       <div class="caveat-head">
         <div class="caveat-num">02</div>
         <div class="caveat-title"><code>envseal rotate</code> protects the future, not the past.</div>
         <div class="caveat-indicator">+</div>
       </div>
-      <div class="caveat-body">
+      <div id="caveat-2-body" class="caveat-body">
         <div class="caveat-body-inner">
           Rotation re-encrypts the <strong>current</strong> state of the vault, which is exactly what you
           want after a compromise. But it does <strong>not</strong> retroactively re-encrypt old Git commits.
@@ -1237,13 +1267,13 @@ footer {
       </div>
     </div>
 
-    <div class="caveat reveal" role="button" tabindex="0" aria-expanded="false">
+    <div class="caveat reveal" role="button" tabindex="0" aria-expanded="false" aria-controls="caveat-3-body">
       <div class="caveat-head">
         <div class="caveat-num">03</div>
         <div class="caveat-title">Token expiry is enforced by the CLI, not by cryptography.</div>
         <div class="caveat-indicator">+</div>
       </div>
-      <div class="caveat-body">
+      <div id="caveat-3-body" class="caveat-body">
         <div class="caveat-body-inner">
           The <code>--exp</code> flag is a runtime check performed by EnvSeal itself. Because everything
           is offline, there's no server refusing an expired token — a sufficiently determined attacker
@@ -1253,13 +1283,13 @@ footer {
       </div>
     </div>
 
-    <div class="caveat reveal" role="button" tabindex="0" aria-expanded="false">
+    <div class="caveat reveal" role="button" tabindex="0" aria-expanded="false" aria-controls="caveat-4-body">
       <div class="caveat-head">
         <div class="caveat-num">04</div>
         <div class="caveat-title">If you're your only recipient, you're also your only point of failure.</div>
         <div class="caveat-indicator">+</div>
       </div>
-      <div class="caveat-body">
+      <div id="caveat-4-body" class="caveat-body">
         <div class="caveat-body-inner">
           EnvSeal has no "forgot password" button, and it never will — that's the entire point of
           zero-trust design. If your laptop dies, gets stolen, or falls in a lake, there's no cloud
@@ -1304,7 +1334,7 @@ footer {
      ============================================================ -->
 <section class="wrap" id="commands">
   <div class="sec-head reveal">
-    <div class="sec-num">06 — Reference</div>
+    <div class="sec-num">06 — Reference</div> <!-- Fixed numbering gap (was 08) -->
   </div>
 
   <h2 class="reveal" style="margin-bottom: 32px;">
@@ -1465,13 +1495,13 @@ footer {
 
   <div class="faq-wrap">
     <div class="caveats" style="margin-top: 80px;">
-      <div class="caveat reveal" role="button" tabindex="0" aria-expanded="false">
+      <div class="caveat reveal" role="button" tabindex="0" aria-expanded="false" aria-controls="faq-1-body">
         <div class="caveat-head">
           <div class="caveat-num">Q</div>
           <div class="caveat-title">Does it work with Docker / Docker Compose?</div>
           <div class="caveat-indicator">+</div>
         </div>
-        <div class="caveat-body">
+        <div id="faq-1-body" class="caveat-body">
           <div class="caveat-body-inner">
             Yes. Build your image normally, then at runtime do <code>envseal run -- docker compose up</code>,
             or inject only the keys you need into the container environment.
@@ -1479,13 +1509,13 @@ footer {
         </div>
       </div>
 
-      <div class="caveat reveal" role="button" tabindex="0" aria-expanded="false">
+      <div class="caveat reveal" role="button" tabindex="0" aria-expanded="false" aria-controls="faq-2-body">
         <div class="caveat-head">
           <div class="caveat-num">Q</div>
           <div class="caveat-title">Does it work with monorepos?</div>
           <div class="caveat-indicator">+</div>
         </div>
-        <div class="caveat-body">
+        <div id="faq-2-body" class="caveat-body">
           <div class="caveat-body-inner">
             Yes. Keep one <code>.envseal</code> at the root, or use the <code>-e</code> profile
             mechanism for per-package vaults within the same repository.
@@ -1493,13 +1523,13 @@ footer {
         </div>
       </div>
 
-      <div class="caveat reveal" role="button" tabindex="0" aria-expanded="false">
+      <div class="caveat reveal" role="button" tabindex="0" aria-expanded="false" aria-controls="faq-3-body">
         <div class="caveat-head">
           <div class="caveat-num">Q</div>
           <div class="caveat-title">What happens when two people edit secrets at the same time?</div>
           <div class="caveat-indicator">+</div>
         </div>
-        <div class="caveat-body">
+        <div id="faq-3-body" class="caveat-body">
           <div class="caveat-body-inner">
             The Git merge driver resolves most edits silently. If two contributors change the
             <em>same</em> key to different values, it stops and asks you to pick a side via
@@ -1508,13 +1538,13 @@ footer {
         </div>
       </div>
 
-      <div class="caveat reveal" role="button" tabindex="0" aria-expanded="false">
+      <div class="caveat reveal" role="button" tabindex="0" aria-expanded="false" aria-controls="faq-4-body">
         <div class="caveat-head">
           <div class="caveat-num">Q</div>
           <div class="caveat-title">What if my teammate doesn't have SSH keys on GitHub?</div>
           <div class="caveat-indicator">+</div>
         </div>
-        <div class="caveat-body">
+        <div id="faq-4-body" class="caveat-body">
           <div class="caveat-body-inner">
             <code>envseal recipient add @handle</code> will fail. Ask them to run
             <code>envseal recipient id</code>, which generates an age key for them. They send you
@@ -1524,13 +1554,13 @@ footer {
         </div>
       </div>
 
-      <div class="caveat reveal" role="button" tabindex="0" aria-expanded="false">
+      <div class="caveat reveal" role="button" tabindex="0" aria-expanded="false" aria-controls="faq-5-body">
         <div class="caveat-head">
           <div class="caveat-num">Q</div>
           <div class="caveat-title">I forgot my private key and I'm the only recipient.</div>
           <div class="caveat-indicator">+</div>
         </div>
-        <div class="caveat-body">
+        <div id="faq-5-body" class="caveat-body">
           <div class="caveat-body-inner">
             This is not a bug EnvSeal can fix — it's a backup problem. If you still have the identity
             file somewhere (another machine, a password manager, a printed seed), restore it and
@@ -1709,12 +1739,73 @@ footer {
         const target = document.querySelector(id);
         if (target){
           e.preventDefault();
-          const top = target.getBoundingClientRect().top + window.scrollY - 60;
+          // Native CSS scroll-padding-top handles most of this, but we keep JS for reduced-motion fallback
+          const top = target.getBoundingClientRect().top + window.scrollY - 80;
           window.scrollTo({ top: top, behavior: reduceMotion ? 'auto' : 'smooth' });
         }
       }
     });
   });
+
+  /* ---------- Live repo stats (fetch from GitHub API) ---------- */
+  const GITHUB_REPO = 'viswajith275/EnvSeal-CLI';
+  const GITHUB_API = 'https://api.github.com/repos/' + GITHUB_REPO;
+  const RELEASES_API = 'https://api.github.com/repos/' + GITHUB_REPO + '/releases';
+
+  function formatNum(n){
+    if (typeof n !== 'number') return '—';
+    if (n >= 1000000) return (n / 1000000).toFixed(1) + 'M';
+    if (n >= 1000) return (n / 1000).toFixed(1) + 'k';
+    return n.toLocaleString();
+  }
+
+  function animateValue(el, target, suffix){
+    if (reduceMotion){ el.textContent = formatNum(target) + (suffix || ''); return; }
+    const start = 0;
+    const duration = 1200;
+    const startTime = performance.now();
+    function tick(now){
+      const elapsed = now - startTime;
+      const progress = Math.min(elapsed / duration, 1);
+      const eased = 1 - Math.pow(1 - progress, 3);
+      const current = Math.round(start + (target - start) * eased);
+      el.textContent = formatNum(current) + (suffix || '');
+      if (progress < 1) requestAnimationFrame(tick);
+    }
+    requestAnimationFrame(tick);
+  }
+
+  // Fetch repo stats (stars, forks)
+  fetch(GITHUB_API, { headers: { 'Accept': 'application/vnd.github.v3+json' } })
+    .then(function(r){ return r.ok ? r.json() : Promise.reject(r.status); })
+    .then(function(data){
+      var stars = data.stargazers_count || 0;
+      var forks = data.forks_count || 0;
+      var sc = document.getElementById('starCount');
+      if (sc) animateValue(sc, stars);
+      var fc = document.getElementById('forkCount');
+      if (fc) animateValue(fc, forks);
+    })
+    .catch(function(){ /* silently fail, keep em-dashes */ });
+
+  // Fetch releases: count + total asset downloads
+  fetch(RELEASES_API, { headers: { 'Accept': 'application/vnd.github.v3+json' } })
+    .then(function(r){ return r.ok ? r.json() : Promise.reject(r.status); })
+    .then(function(releases){
+      if (!Array.isArray(releases)) return;
+      var count = releases.length;
+      var totalDownloads = 0;
+      releases.forEach(function(rel){
+        if (rel.assets) {
+          rel.assets.forEach(function(a){ totalDownloads += a.download_count || 0; });
+        }
+      });
+      var rc = document.getElementById('releaseCount');
+      if (rc) animateValue(rc, count);
+      var dc = document.getElementById('dlCount');
+      if (dc) animateValue(dc, totalDownloads);
+    })
+    .catch(function(){ /* silently fail */ });
 
 })();
 </script>
