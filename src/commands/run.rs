@@ -1,3 +1,4 @@
+use crate::cli::OverrideArgs;
 use crate::utils::{git, resolve, vault::Vault};
 use anyhow::{Context, Result};
 use std::process::Command;
@@ -10,6 +11,7 @@ pub fn cmd_run(
     global: bool,
     pref: Option<&str>,
     allow_env: bool,
+    overrides: &OverrideArgs,
 ) -> Result<u8> {
     if command.is_empty() {
         anyhow::bail!("No command specified to run.");
@@ -35,12 +37,20 @@ pub fn cmd_run(
             .then_some(branch)
     });
 
+    let override_val = resolve::OverrideVals {
+        keys: &overrides.r#override,
+        with_global: overrides.with_global,
+        global_group: overrides.global_group.as_deref(),
+        global_tag: overrides.global_tag.as_deref(),
+    };
+
     let env_vars = resolve::resolve_environment(
         &vault,
         group,
         auto_tag.as_deref(),
         token_str.as_deref(),
         allow_env,
+        Some(&override_val),
     )?;
 
     let mut child = Command::new(&command[0]);

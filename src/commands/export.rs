@@ -1,3 +1,4 @@
+use crate::cli::OverrideArgs;
 use crate::utils::format_env_value;
 use crate::utils::{resolve, vault::Vault};
 use anyhow::{Context, Result};
@@ -16,6 +17,7 @@ pub fn cmd_export(
     pref: Option<&str>,
     output_path: &Path,
     allow_env: bool,
+    overrides: &OverrideArgs,
 ) -> Result<()> {
     let vault = Vault::load(global, pref)?;
 
@@ -37,8 +39,22 @@ pub fn cmd_export(
     }
 
     let token_str = resolve::load_token(token)?;
-    let mut decrypted_envs =
-        resolve::resolve_environment(&vault, group, tag, token_str.as_deref(), allow_env)?;
+
+    let override_val = resolve::OverrideVals {
+        keys: &overrides.r#override,
+        with_global: overrides.with_global,
+        global_group: overrides.global_group.as_deref(),
+        global_tag: overrides.global_tag.as_deref(),
+    };
+
+    let mut decrypted_envs = resolve::resolve_environment(
+        &vault,
+        group,
+        tag,
+        token_str.as_deref(),
+        allow_env,
+        Some(&override_val),
+    )?;
 
     if !keys.is_empty() {
         for &key in &keys {

@@ -616,3 +616,494 @@ fn test_branch_binding_and_precommit_shield() {
     let target = "@torvalds";
     assert_eq!(target.strip_prefix('@'), Some("torvalds"));
 }
+
+/// Isolated test harness providing both a local project directory and a mock OS config directory.
+struct OverlayTestHarness {
+    _temp_dir: tempfile::TempDir,
+    pub local_dir: PathBuf,
+    pub config_dir: PathBuf,
+    pub identity_sec: String,
+    pub recipient_pub: String,
+}
+
+impl OverlayTestHarness {
+    fn new() -> Self {
+        let temp = tempdir().expect("Failed to create tempdir");
+        let local_dir = temp.path().join("project_repo");
+        let config_dir = temp.path().join("mock_config");
+        fs::create_dir_all(&local_dir).unwrap();
+        fs::create_dir_all(&config_dir).unwrap();
+
+        let id = age::x25519::Identity::generate();
+        let recipient_pub = id.to_public().to_string();
+        let identity_sec = id.to_string().expose_secret().to_string();
+
+        Self {
+            _temp_dir: temp,
+            local_dir,
+            config_dir,
+            identity_sec,
+            recipient_pub,
+        }
+    }
+
+    /// Prepares an envseal command isolated from host system secrets and user configs.
+    fn cmd(&self) -> Command {
+        let mut cmd = Command::cargo_bin("envseal").expect("Failed to locate envseal binary");
+        cmd.current_dir(&self.local_dir);
+        cmd.env_remove("ENVSEAL_TEST_PATH");
+        cmd.env_remove("ENVSEAL_TOKEN");
+        cmd.env("ENVSEAL_IDENTITY", &self.identity_sec);
+
+        // Direct OS configuration directories to our temporary config folder
+        cmd.env("XDG_CONFIG_HOME", &self.config_dir);
+        cmd.env("HOME", &self.config_dir);
+        cmd.env("USERPROFILE", &self.config_dir);
+        cmd.env("APPDATA", &self.config_dir);
+        cmd
+    }
+
+    /// Initializes both local and global vaults with test secrets.
+    fn bootstrap_dual_vaults(&self) {
+        // 1. Initialize local vault
+        self.cmd()
+            .args(["init", "-l", "-r", &self.recipient_pub])
+            .assert()
+            .success();
+
+        // 2. Initialize global vault
+        self.cmd()
+            .args(["init", "-G", "-r", &self.recipient_pub])
+            .assert()
+            .success();
+
+        // 3. Set local project secrets
+        self.cmd()
+            .args(["set", "PROJECT_NAME"])
+            .write_stdin("EnvSealApp")
+            .assert()
+            .success();
+
+        self.cmd()
+            .args(["set", "DATABASE_URL"])
+            .write_stdin("postgres://shared-cluster:5432/main")
+            .assert()
+            .success();
+
+        self.cmd()
+            .args(["set", "AWS_ACCESS_KEY_ID"])
+            .write_stdin("AKIA_SHARED_PROJECT_KEY")
+            .assert()
+            .success();
+
+        // 4. Set personal secrets in global vault under group 'personal'
+        self.cmd()
+            .args(["set", "-G", "--group", "personal", "AWS_ACCESS_KEY_ID"])
+            .write_stdin("AKIA_MY_PERSONAL_SANDBOX_KEY")
+            .assert()
+            .success();
+
+        self.cmd()
+            .args(["set", "-G", "--group", "personal", "PERSONAL_DEBUG_LEVEL"])
+            .write_stdin("verbose")
+            .assert()
+            .success();
+    }
+}
+
+#[test]
+fn test_cli_override_flag_conflicts_and_validations() {
+    let harness = OverlayTestHarness::new();
+    harness.bootstrap_dual_vaults();
+
+    // 1. Cannot use --override and --with-global together (clap mutual exclusion)
+    harness
+        .cmd()
+        .args([
+            "run",
+            "--override",
+            "AWS_KEY",
+            "--with-global",
+            "--",
+            "echo",
+            "test",
+        ])
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("cannot be used with"));
+
+    // 2. Cannot use --override when already targeting global vault (-G)
+    harness
+        .cmd()
+        .args(["run", "-G", "--override", "AWS_KEY", "--", "echo", "test"])
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains(
+            "Cannot use --override or --with-global when operating directly on the global",
+        ));
+
+    // 3. Cannot use --with-global when already targeting global vault (-G)
+    harness
+        .cmd()
+        .args(["load", "-G", "--with-global"])
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains(
+            "Cannot use --override or --with-global when operating directly on the global",
+        ));
+
+    // 4. Cannot use --global-group when already targeting global vault (-G)
+    harness
+        .cmd()
+        .args(["export", "-G", "--global-group", "personal"])
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains(
+            "Use --group and --tag instead of --global-group and --global-tag",
+        ));
+}
+
+#[test]
+fn test_cli_run_selective_override_replaces_only_specified_keys() {
+    let harness = OverlayTestHarness::new();
+    harness.bootstrap_dual_vaults();
+
+    #[cfg(unix)]
+    let (prog, args) = (
+        "sh",
+        vec![
+            "-c",
+            "echo AWS=$AWS_ACCESS_KEY_ID DB=$DATABASE_URL DEBUG=$PERSONAL_DEBUG_LEVEL",
+        ],
+    );
+    #[cfg(windows)]
+    let (prog, args) = (
+        "cmd.exe",
+        vec![
+            "/C",
+            "echo AWS=%AWS_ACCESS_KEY_ID% DB=%DATABASE_URL% DEBUG=%PERSONAL_DEBUG_LEVEL%",
+        ],
+    );
+
+    // Run with selective override for AWS_ACCESS_KEY_ID
+    harness
+        .cmd()
+        .args([
+            "run",
+            "--override",
+            "AWS_ACCESS_KEY_ID",
+            "--global-group",
+            "personal",
+            "--",
+            prog,
+        ])
+        .args(&args)
+        .assert()
+        .success()
+        // Overridden by global vault
+        .stdout(predicate::str::contains("AWS=AKIA_MY_PERSONAL_SANDBOX_KEY"))
+        // Maintained from local vault
+        .stdout(predicate::str::contains(
+            "DB=postgres://shared-cluster:5432/main",
+        ))
+        // Unselected global keys must NOT be injected
+        .stdout(predicate::str::contains("DEBUG=").and(predicate::str::contains("verbose").not()));
+}
+
+#[test]
+fn test_cli_run_with_global_full_overlay() {
+    let harness = OverlayTestHarness::new();
+    harness.bootstrap_dual_vaults();
+
+    #[cfg(unix)]
+    let (prog, args) = (
+        "sh",
+        vec![
+            "-c",
+            "echo AWS=$AWS_ACCESS_KEY_ID DB=$DATABASE_URL DEBUG=$PERSONAL_DEBUG_LEVEL",
+        ],
+    );
+    #[cfg(windows)]
+    let (prog, args) = (
+        "cmd.exe",
+        vec![
+            "/C",
+            "echo AWS=%AWS_ACCESS_KEY_ID% DB=%DATABASE_URL% DEBUG=%PERSONAL_DEBUG_LEVEL%",
+        ],
+    );
+
+    // Run with full global overlay
+    harness
+        .cmd()
+        .args([
+            "run",
+            "--with-global",
+            "--global-group",
+            "personal",
+            "--",
+            prog,
+        ])
+        .args(&args)
+        .assert()
+        .success()
+        // Global collided key wins
+        .stdout(predicate::str::contains("AWS=AKIA_MY_PERSONAL_SANDBOX_KEY"))
+        // Local project key retained
+        .stdout(predicate::str::contains(
+            "DB=postgres://shared-cluster:5432/main",
+        ))
+        // Additional global key injected
+        .stdout(predicate::str::contains("DEBUG=verbose"));
+}
+
+#[test]
+fn test_cli_link_directory_serves_as_default_override_group() {
+    let harness = OverlayTestHarness::new();
+    harness.bootstrap_dual_vaults();
+
+    // Link the current directory to 'personal' in the global vault
+    harness
+        .cmd()
+        .args(["link", "personal"])
+        .assert()
+        .success()
+        .stderr(predicate::str::contains("linked group 'personal'"));
+
+    #[cfg(unix)]
+    let (prog, args) = ("sh", vec!["-c", "echo AWS=$AWS_ACCESS_KEY_ID"]);
+    #[cfg(windows)]
+    let (prog, args) = ("cmd.exe", vec!["/C", "echo AWS=%AWS_ACCESS_KEY_ID%"]);
+
+    // Run --override WITHOUT specifying --global-group; should resolve via link
+    harness
+        .cmd()
+        .args(["run", "--override", "AWS_ACCESS_KEY_ID", "--", prog])
+        .args(&args)
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("AWS=AKIA_MY_PERSONAL_SANDBOX_KEY"));
+}
+
+#[test]
+fn test_cli_global_tag_resolution_with_base_fallback() {
+    let harness = OverlayTestHarness::new();
+    harness.bootstrap_dual_vaults();
+
+    // Add a tagged secret inside the global vault's 'personal' group
+    harness
+        .cmd()
+        .args([
+            "set",
+            "-G",
+            "--group",
+            "personal",
+            "--tag",
+            "staging",
+            "AWS_ACCESS_KEY_ID",
+        ])
+        .write_stdin("AKIA_STAGING_PERSONAL_KEY")
+        .assert()
+        .success();
+
+    #[cfg(unix)]
+    let (prog, args) = (
+        "sh",
+        vec![
+            "-c",
+            "echo AWS=$AWS_ACCESS_KEY_ID DEBUG=$PERSONAL_DEBUG_LEVEL",
+        ],
+    );
+    #[cfg(windows)]
+    let (prog, args) = (
+        "cmd.exe",
+        vec![
+            "/C",
+            "echo AWS=%AWS_ACCESS_KEY_ID% DEBUG=%PERSONAL_DEBUG_LEVEL%",
+        ],
+    );
+
+    // Target the 'staging' tag inside the global group
+    harness
+        .cmd()
+        .args([
+            "run",
+            "--with-global",
+            "--global-group",
+            "personal",
+            "--global-tag",
+            "staging",
+            "--",
+            prog,
+        ])
+        .args(&args)
+        .assert()
+        .success()
+        // Takes value from 'staging' tag
+        .stdout(predicate::str::contains("AWS=AKIA_STAGING_PERSONAL_KEY"))
+        // Falls back to 'base' for secrets absent in 'staging'
+        .stdout(predicate::str::contains("DEBUG=verbose"));
+}
+
+#[test]
+fn test_cli_missing_override_key_warns_and_continues() {
+    let harness = OverlayTestHarness::new();
+    harness.bootstrap_dual_vaults();
+
+    #[cfg(unix)]
+    let (prog, args) = ("sh", vec!["-c", "echo DB=$DATABASE_URL"]);
+    #[cfg(windows)]
+    let (prog, args) = ("cmd.exe", vec!["/C", "echo DB=%DATABASE_URL%"]);
+
+    // Override a key that does not exist in the global vault
+    harness
+        .cmd()
+        .args([
+            "run",
+            "--override",
+            "NON_EXISTENT_SECRET",
+            "--global-group",
+            "personal",
+            "--",
+            prog,
+        ])
+        .args(&args)
+        .assert()
+        .success()
+        // Warns on stderr
+        .stderr(predicate::str::contains(
+            "Warning: Override key 'NON_EXISTENT_SECRET' was not found",
+        ))
+        // Continues execution normally
+        .stdout(predicate::str::contains(
+            "DB=postgres://shared-cluster:5432/main",
+        ));
+}
+
+#[test]
+fn test_cli_missing_global_vault_errors_cleanly() {
+    let harness = OverlayTestHarness::new();
+    // Initialize ONLY the local vault; global vault is not present
+    harness
+        .cmd()
+        .args(["init", "-l", "-r", &harness.recipient_pub])
+        .assert()
+        .success();
+
+    harness
+        .cmd()
+        .args([
+            "run",
+            "--override",
+            "AWS_ACCESS_KEY_ID",
+            "--global-group",
+            "personal",
+            "--",
+            "echo",
+            "test",
+        ])
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains(
+            "Global vault not found or could not be loaded",
+        ));
+}
+
+#[test]
+fn test_cli_load_and_export_with_overrides() {
+    let harness = OverlayTestHarness::new();
+    harness.bootstrap_dual_vaults();
+
+    // 1. Test 'load' command output formatting
+    harness
+        .cmd()
+        .args([
+            "load",
+            "--override",
+            "AWS_ACCESS_KEY_ID",
+            "--global-group",
+            "personal",
+        ])
+        .env("SHELL", "/bin/bash")
+        .assert()
+        .success()
+        .stdout(predicate::str::contains(
+            "export AWS_ACCESS_KEY_ID='AKIA_MY_PERSONAL_SANDBOX_KEY'",
+        ))
+        .stdout(predicate::str::contains(
+            "export DATABASE_URL='postgres://shared-cluster:5432/main'",
+        ));
+
+    // 2. Test 'export' command file output
+    let export_file = harness.local_dir.join("personal_merged.env");
+    harness
+        .cmd()
+        .args([
+            "export",
+            "-o",
+            export_file.to_str().unwrap(),
+            "--with-global",
+            "--global-group",
+            "personal",
+        ])
+        .assert()
+        .success();
+
+    assert!(export_file.exists());
+    let contents = fs::read_to_string(&export_file).unwrap();
+    assert!(contents.contains("AWS_ACCESS_KEY_ID=AKIA_MY_PERSONAL_SANDBOX_KEY"));
+    assert!(contents.contains("DATABASE_URL=postgres://shared-cluster:5432/main"));
+    assert!(contents.contains("PERSONAL_DEBUG_LEVEL=verbose"));
+}
+
+#[test]
+fn test_cli_offline_token_with_global_overrides() {
+    let harness = OverlayTestHarness::new();
+    harness.bootstrap_dual_vaults();
+
+    // Generate an offline token scoped to PROJECT_NAME and AWS_ACCESS_KEY_ID
+    let token_file = harness.local_dir.join("ci_scoped.token");
+    harness
+        .cmd()
+        .args([
+            "token",
+            "-o",
+            token_file.to_str().unwrap(),
+            "PROJECT_NAME",
+            "AWS_ACCESS_KEY_ID",
+        ])
+        .assert()
+        .success();
+
+    #[cfg(unix)]
+    let (prog, args) = (
+        "sh",
+        vec!["-c", "echo PROJ=$PROJECT_NAME AWS=$AWS_ACCESS_KEY_ID"],
+    );
+    #[cfg(windows)]
+    let (prog, args) = (
+        "cmd.exe",
+        vec!["/C", "echo PROJ=%PROJECT_NAME% AWS=%AWS_ACCESS_KEY_ID%"],
+    );
+
+    // Execute with offline token while overriding AWS credentials with personal ones
+    harness
+        .cmd()
+        .args([
+            "run",
+            "--token",
+            token_file.to_str().unwrap(),
+            "--override",
+            "AWS_ACCESS_KEY_ID",
+            "--global-group",
+            "personal",
+            "--",
+            prog,
+        ])
+        .args(&args)
+        .assert()
+        .success()
+        // Decrypted via offline token from local vault
+        .stdout(predicate::str::contains("PROJ=EnvSealApp"))
+        // Overridden by personal global credentials
+        .stdout(predicate::str::contains("AWS=AKIA_MY_PERSONAL_SANDBOX_KEY"));
+}

@@ -1,6 +1,6 @@
 [package]
 name = "envseal"
-version = "6.1.0"
+version = "6.2.0"
 edition = "2021"
 
 [dependencies]
@@ -40,7 +40,7 @@ predicates = "3.1"
 
 # Production Release Profile
 [profile.release]
-opt-level = 3            # Full optimizations
+opt-level = "z"          # Full optimizations
 lto = "fat"              # Aggressive Link-Time Optimization across all crates
 codegen-units = 1        # Single code unit enables maximum cross-crate inlining
 panic = "abort"          # Eliminates unneeded unwinding landing pads and runtime tables

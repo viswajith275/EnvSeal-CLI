@@ -12,7 +12,6 @@ pub const KEY_LEN: usize = 32;
 pub const NONCE_LEN: usize = 12;
 
 /// Runs argon2 to output a variable output length
-
 pub fn derive_scope_dek(
     master_dek: &[u8; KEY_LEN],
     group: &str,
