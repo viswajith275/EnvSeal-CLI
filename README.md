@@ -98,8 +98,7 @@ Both work. Path A is one command with zero manual key exchange. Path B is still 
 ## Real examples
 
 **Switching branches:**
-
-```text
+```
 $ git checkout staging
 $ envseal run -- npm start
 ▸ loading tag 'staging' (matched current branch)
@@ -108,8 +107,7 @@ $ envseal run -- npm start
 ```
 
 **Accidentally staging a `.env`:**
-
-```text
+```
 $ git add .
 $ git commit -m "wip"
 [envseal] COMMIT REJECTED: staged plaintext .env file detected
@@ -120,8 +118,7 @@ to create an encrypted .envseal vault.
 ```
 
 **Someone leaves the team:**
-
-```text
+```
 $ envseal recipient rm @teammate
 ✔ access revoked for @teammate
 ✔ vault re-encrypted for 3 remaining recipients
@@ -129,8 +126,7 @@ $ envseal recipient rm @teammate
 ```
 
 **App exits:**
-
-```text
+```
 $ envseal run -- npm start
 > app@1.0.0 start
 > node server.js
@@ -140,7 +136,6 @@ Process exited. Secrets gone. 0 plaintext bytes on disk.
 ```
 
 **Mixing global and local vaults:**
-
 ```bash
 # Pull only DATABASE_URL from the global vault
 envseal run --override DATABASE_URL -- npm start
@@ -153,7 +148,6 @@ envseal run --with-global --global-group shared-aws --global-tag prod -- ./deplo
 ```
 
 **Bulk editing secrets in your editor:**
-
 ```bash
 # Open the base secrets for the current group in $EDITOR
 envseal edit
@@ -164,6 +158,7 @@ envseal edit --tag staging
 # Edit a specific group in the global vault
 envseal edit --group myapp
 ```
+The `edit` command decrypts the selected secrets into a temporary file, opens it in your default editor, and writes only the net changes back into the encrypted vault. The temporary file is securely zeroed on exit. This is ideal for bulk updates or when you prefer a native editor over repeated `set`/`rm` commands.
 
 ---
 
@@ -398,19 +393,24 @@ Most encryption tools hide their limits in the fine print. We put them on the RE
 
 Pricing and capabilities verified as of early 2026.
 
+Every tool below solves the same underlying problems — accidental commits, environment switching, team access — just through a different mechanism. The table shows *how* each one addresses the same concern, so you can judge which trade-off fits your team. If your team needs a dashboard or audit log, use Doppler or Infisical. If you're deep in Kubernetes and cloud KMS, SOPS fits your pipeline better. EnvSeal is for the team in between.
+
 |                              | Plain `.env`                    | dotenvx                                                  | Mozilla SOPS                                                | **EnvSeal**                                             | Doppler / Infisical                                          |
 | ---------------------------- | ------------------------------- | -------------------------------------------------------- | ----------------------------------------------------------- | ------------------------------------------------------- | ------------------------------------------------------------ |
-| Cost                         | Free                            | Free; paid tiers from ~$3/mo to $299/mo                  | Free                                                        | Free, no account needed                                 | Free tier; paid from ~$8–46/seat/mo depending on tier        |
+| Cost                         | Free                            | Free; Pro $36/yr, Team $20/mo, Business $90/mo           | Free                                                        | Free, no account needed                                 | Doppler: free for 3 users, $8/mo per additional user. Infisical: free up to 5 identities, Pro $18/identity/mo |
 | Works offline                | Yes                             | Yes — local CLI                                          | Yes with age. Cloud KMS modes need connectivity to encrypt/decrypt | Yes, fully                                       | Cached fallback only after first fetch. Infisical self-hosted available at Enterprise tier |
-| Auto-switches per Git branch | No                              | No — manual `-f .env.production` selection               | No                                                          | Yes                                                     | No — requires dashboard/API config                           |
-| Stops accidental commits     | No                              | Partial (`dotenvx precommit`)                            | No                                                          | Yes, built-in hook                                      | Yes, via CLI wrapper                                         |
-| Team onboarding              | Manual file sharing             | Manual `.env.keys` sharing; docs recommend using 1Password | New member generates age key → added to `.sops.yaml` → `sops updatekeys` | Add a GitHub handle (or exchange age keys)    | Invite via dashboard                                         |
-| Merge conflicts              | N/A                             | N/A — `.env.keys` is the shared secret, not the file     | No built-in merge driver (Clef is a third-party option)     | Built-in merge driver with `ours`/`theirs`              | N/A — cloud-managed                                          |
+| Environment / branch switching | Manual file swap (`.env`, `.env.staging`) | Manual `-f .env.production` at invocation           | Per-file, driven by CI env vars or shell aliases            | Auto-binds to the current Git branch (tag match)        | `--config` flag at runtime, or a project setting in the dashboard |
+| Preventing accidental commits | Relies on `.gitignore` discipline | Optional `dotenvx precommit` hook                     | `.gitignore` + decrypt only in CI; nothing plaintext is committed | Built-in pre-commit shield blocks `.env*`          | Nothing to commit — secrets never touch the repo             |
+| Team onboarding              | Manual file sharing             | Share `.env.keys` (one key per environment)              | Add each age key to `.sops.yaml`, run `sops updatekeys`     | Add a GitHub handle, or paste an age key                | Invite via dashboard; SSO available on paid tiers            |
+| Merge behavior               | Git text merge                  | Git text merge on the encrypted file; re-key on conflict | Git text merge on YAML/JSON, optional `sops merge`          | Native merge driver with `ours` / `theirs`              | N/A — cloud-managed, no file to merge                        |
+| Personal / local overrides   | `.env.local` (gitignored)       | `.env.local` overrides `.env`                            | Separate `.sops.yaml` per developer, or shell env vars      | Global vault + `--override` / `--with-global`           | Personal configs in dashboard, or `--personal` flag          |
 | Best suited for              | Solo hackathon, no real secrets | Solo devs and small teams wanting encrypted `.env` syntax | K8s / GitOps teams already on cloud KMS                    | Small-to-mid teams who want secrets to live in Git      | Orgs that want a GUI, audit logs, and a budget               |
 
 **Where EnvSeal genuinely wins:** it's the only option here that's both free *and* branch-aware *and* lives inside Git without asking you to trust a third-party server. For a small team, that combination is hard to beat.
 
 **Where EnvSeal is honestly not the best fit:** no web dashboard, no built-in audit trail, no non-technical UI. If your team includes people who won't touch a terminal, or you need compliance-grade access logs, use Doppler or Infisical. If you're already deep in Kubernetes and cloud KMS, SOPS is the more natural fit.
+
+**A note on dotenvx and SOPS in this table:** dotenvx does more than a row can capture — it has real encryption, rotation, and git-diff audit. The architectural difference is that dotenvx uses a single shared private key per environment, while EnvSeal seals to individual recipients. SOPS is a mature, widely-used tool with strong KMS integrations; its trade-off is that recipient management and merge behavior are manual, which is a deliberate design choice for GitOps pipelines, not a shortcoming.
 
 For a typical student or small-team codebase, the trade-off is easy: you're giving up a GUI you probably wouldn't use anyway, in exchange for something free, offline, and native to the Git workflow you're already using.
 
@@ -459,6 +459,11 @@ For a typical student or small-team codebase, the trade-off is easy: you're givi
 - `-e, --env <PROFILE>` — target a specific profile file (e.g. `-e staging` loads `.staging.envseal`)
 - `-G, --global` — target the system-wide vault
 - `--no-env` — disable reading fallback identity keys from `ENVSEAL_IDENTITY`
+</details>
+
+<details>
+<summary><strong>Override flags</strong></summary>
+ 
 - `--override <KEY1,KEY2>` — pull only the named keys from the global vault (conflicts with `--with-global`)
 - `--with-global` — overlay all keys from the global vault (global wins on collision; conflicts with `--override`)
 - `--global-group <GROUP>` — which group inside the global vault to use (defaults to the directory's linked group)
@@ -705,7 +710,7 @@ A: The Git merge driver usually resolves it automatically. If they both changed 
 
 **Q: Can I still keep a local `.env` for personal overrides?**
 
-A: Yes, but EnvSeal's pre-commit hook will block you from committing it. Treat personal overrides as truly local and never stage them.
+A: Yes, but EnvSeal's pre-commit hook will block you from committing it. Treat personal overrides as truly local and never stage them. If you want a cleaner path for personal tokens, use the global vault with `--override` or `--with-global`.
 
 **Q: What if my teammate doesn't have SSH keys on GitHub?**
 
