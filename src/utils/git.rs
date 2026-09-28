@@ -114,7 +114,7 @@ pub fn sync_repo_git_conf(init_git: bool) -> Result<()> {
     let gitignore_path = repo_root.join(".gitignore");
     let existing_ignore = fs::read_to_string(&gitignore_path).unwrap_or_default();
 
-    let lock_rule = ".envseal*.lock";
+    let lock_rule = "*.envseal*.lock";
     if !existing_ignore.lines().any(|line| line.trim() == lock_rule) {
         let mut file = OpenOptions::new()
             .create(true)
@@ -130,7 +130,14 @@ pub fn sync_repo_git_conf(init_git: bool) -> Result<()> {
     }
 
     // hook for checking .env files and plain secrets
-    let hooks_dir = repo_root.join(".git").join("hooks");
+    let hooks_dir = Command::new("git")
+        .current_dir(&repo_root)
+        .args(["rev-parse", "--git-path", "hooks"])
+        .output()
+        .ok()
+        .and_then(|o| String::from_utf8(o.stdout).ok())
+        .map(|s| repo_root.join(s.trim()))
+        .unwrap_or_else(|| repo_root.join(".git").join("hooks"));
     let hook_path = hooks_dir.join("pre-commit");
 
     let existing_hook = fs::read_to_string(&hook_path).unwrap_or_default();

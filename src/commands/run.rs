@@ -65,5 +65,5 @@ pub fn cmd_run(
         .status()
         .with_context(|| format!("Failed to execute command '{}'", &command[0]))?;
 
-    std::process::exit(status.code().unwrap_or(1))
+    Ok(status.code().unwrap_or(1) as u8)
 }

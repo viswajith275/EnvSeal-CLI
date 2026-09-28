@@ -1,6 +1,7 @@
 use crate::utils::{unlock, vault::Vault};
 use anyhow::Result;
-use std::io::IsTerminal;
+use std::io::{stdin, stdout};
+use std::io::{IsTerminal, Write};
 
 pub fn cmd_remove(
     group: Option<&str>,
@@ -16,12 +17,13 @@ pub fn cmd_remove(
 
     if !force && std::io::stdin().is_terminal() {
         let target = key.unwrap_or(tag.unwrap_or("group"));
-        let confirmed = dialoguer::Confirm::new()
-            .with_prompt(format!("Are you sure you want to remove '{target}'?"))
-            .default(false)
-            .interact()?;
+        print!("Are you sure you want to remove '{target}'? [y/N]: ");
+        stdout().flush()?;
 
-        if !confirmed {
+        let mut input = String::new();
+        stdin().read_line(&mut input)?;
+
+        if !matches!(input.trim().to_ascii_lowercase().as_str(), "y" | "yes") {
             println!("Aborted by user!!");
             return Ok(());
         }

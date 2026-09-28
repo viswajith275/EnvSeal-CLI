@@ -40,6 +40,27 @@ fn resolve_strategy(cli_strategy: &MergeStrategy) -> MergeStrategy {
     MergeStrategy::Fail
 }
 
+fn resolve_entry<'a>(
+    b: Option<&'a str>,
+    o: Option<&'a str>,
+    t: Option<&'a str>,
+    strategy: MergeStrategy,
+) -> Option<Option<&'a str>> {
+    match (b, o, t) {
+        (_, Some(ours), Some(theirs)) if ours == theirs => Some(Some(ours)),
+        (b, o, Some(theirs)) if b == o => Some(Some(theirs)),
+        (b, o, None) if b == o => Some(None),
+        (b, Some(ours), t) if b == t => Some(Some(ours)),
+        (b, None, t) if b == t => Some(None),
+        (_, None, None) => Some(None),
+        _ => match strategy {
+            MergeStrategy::Ours => Some(o),
+            MergeStrategy::Theirs => Some(t),
+            MergeStrategy::Fail => None,
+        },
+    }
+}
+
 // decrypts all entries across base, ours, and theirs into memory simultaneously for 3-way diffing.
 pub fn cmd_merge(
     base_path: &PathBuf,
@@ -225,50 +246,28 @@ pub fn cmd_merge(
                 .collect();
 
             for key in all_keys {
-                let v_base = base_entries.get(&key);
-                let v_ours = ours_entries.get(&key);
-                let v_theirs = theirs_entries.get(&key);
+                let v_base = base_entries.get(&key).map(|s| s.as_str());
+                let v_ours = ours_entries.get(&key).map(|s| s.as_str());
+                let v_theirs = theirs_entries.get(&key).map(|s| s.as_str());
 
-                let resolution: Option<Zeroizing<String>> = match (v_base, v_ours, v_theirs) {
-                    (_, Some(o), Some(t)) if o == t => Some(o.clone()),
-                    (b, o, Some(t)) if b == o => Some(t.clone()),
-                    (b, o, None) if b == o => None,
-                    (b, Some(o), t) if b == t => Some(o.clone()),
-                    (b, None, t) if b == t => None,
-                    _ => match strategy {
-                        MergeStrategy::Ours => v_ours.cloned(),
-                        MergeStrategy::Theirs => v_theirs.cloned(),
-                        _ => {
-                            conflicts.push(format!(
-                                "Key '{key}' in group '{group_name}' [tag: '{tag_name}'] (conflicting modifications)"
-                            ));
-                            None
-                        }
-                    },
-                };
-
-                if conflicts.is_empty() {
-                    match resolution {
-                        Some(val) => {
-                            ours_vault.set_entry(
-                                &ours_keys,
+                match resolve_entry(v_base, v_ours, v_theirs, *strategy) {
+                    Some(Some(val)) => {
+                        ours_vault.set_entry(&ours_keys, Some(&group_name), tag_opt, &key, val)?;
+                    }
+                    Some(None) => {
+                        if v_ours.is_some() {
+                            ours_vault.remove_entry(
+                                &ours_keys.signing_key,
                                 Some(&group_name),
                                 tag_opt,
-                                &key,
-                                val.as_str(),
+                                Some(&key),
                             )?;
                         }
-                        None => {
-                            // Only attempt removal if the key actually exists in ours
-                            if v_ours.is_some() {
-                                ours_vault.remove_entry(
-                                    &ours_keys.signing_key,
-                                    Some(&group_name),
-                                    tag_opt,
-                                    Some(&key),
-                                )?;
-                            }
-                        }
+                    }
+                    None => {
+                        conflicts.push(format!(
+                            "Key '{key}' in group '{group_name}' [tag: '{tag_name}'] (conflicting modifications)"
+                        ));
                     }
                 }
             }
@@ -291,7 +290,7 @@ pub fn cmd_merge(
     ours_vault.seal_integrity(&ours_keys.signing_key)?;
     ours_vault.save()?;
 
-    let _ = fs::remove_file(ours_path.with_extension("lock"));
+    let _ = fs::remove_file(format!("{}.lock", ours_path.display()));
 
     eprintln!(
         "[envseal] Successfully merged and resealed vault at '{}'",

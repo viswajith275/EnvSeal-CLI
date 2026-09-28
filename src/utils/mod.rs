@@ -32,6 +32,19 @@ pub fn format_env_value(value: &str) -> Cow<'_, str> {
     }
 }
 
+fn unquote(v: &str) -> &str {
+    let s = v.trim();
+    if (s.starts_with('"') && s.ends_with('"')) || (s.starts_with('\'') && s.ends_with('\'')) {
+        if s.len() >= 2 {
+            &s[1..s.len() - 1]
+        } else {
+            s
+        }
+    } else {
+        s
+    }
+}
+
 pub fn parse_env_lines(raw: &str) -> Vec<(String, String)> {
     let mut entries = Vec::new();
     for line in raw.lines() {
@@ -46,7 +59,7 @@ pub fn parse_env_lines(raw: &str) -> Vec<(String, String)> {
                 eprintln!("Warning: skipping invalid key '{key}!!'");
                 continue;
             }
-            let val = v.trim().trim_matches(|c| c == '"' || c == '\'');
+            let val = unquote(v);
             entries.push((key.to_string(), val.to_string()));
         }
     }

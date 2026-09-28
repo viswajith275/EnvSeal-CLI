@@ -48,9 +48,9 @@ pub fn cmd_edit(
     };
 
     let mut initial_content = format!(
-        "# envseal edit: group='{group_name}', tag='{active_tag}'\n
-        # e.g.) DATABASE_URL=[postgres_url]\n
-                PORT=[port_value]\n
+        "# envseal edit: group='{group_name}', tag='{active_tag}'\n\
+         # e.g.) DATABASE_URL=[postgres_url]\n\
+         # PORT=[port_value]\n\n\
         "
     );
     for key in &existing_keys {

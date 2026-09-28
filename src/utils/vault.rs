@@ -197,6 +197,7 @@ impl Vault {
     pub fn master_scope(&self) -> String {
         let mut hasher = Sha256::new();
         hasher.update(&self.public_key);
+        hasher.update(self.envelope.as_bytes());
         format!("master_{}", hex::encode(hasher.finalize()))
     }
 
@@ -230,6 +231,10 @@ impl Vault {
             }
         }
         None
+    }
+
+    pub fn lock_path(path: &Path) -> PathBuf {
+        PathBuf::from(format!("{}.lock", path.display()))
     }
 
     pub fn resolve_path(
@@ -320,7 +325,7 @@ impl Vault {
         if !path.exists() {
             anyhow::bail!("No vault found. Run 'envseal init' first.");
         }
-        let lock_path = path.with_extension("lock");
+        let lock_path = Self::lock_path(&path);
         let lock_file = OpenOptions::new()
             .read(true)
             .write(true)
@@ -357,7 +362,7 @@ impl Vault {
 
     pub fn save(&self) -> Result<()> {
         let path = self.file_path.as_ref().context("Vault path not defined")?;
-        let lock_path = path.with_extension("lock");
+        let lock_path = Self::lock_path(&path);
         let lock_file = OpenOptions::new()
             .read(true)
             .write(true)
@@ -522,6 +527,9 @@ impl Vault {
         let name_str = name.unwrap_or("");
 
         if tag.is_none() && name_str.is_empty() {
+            if self.is_local() {
+                anyhow::bail!("Cannot remove root group in local vault. Specify a key to delete!!");
+            }
             let removed_group = self
                 .entries
                 .remove(&group_name)

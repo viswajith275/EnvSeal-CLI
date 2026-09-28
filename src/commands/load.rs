@@ -97,9 +97,13 @@ pub fn cmd_load(
         }
     }
 
-    let shell_name = std::env::var("SHELL")
-        .ok()
-        .unwrap_or_else(|| "posix".to_string());
+    let shell_name = std::env::var("SHELL").unwrap_or_else(|_| {
+        if cfg!(windows) {
+            "powershell".to_string()
+        } else {
+            "posix".to_string()
+        }
+    });
 
     let shell = ShellType::from_name(&shell_name);
 
