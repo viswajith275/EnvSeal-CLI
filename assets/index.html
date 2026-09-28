@@ -30,7 +30,7 @@
   --t1: #ededf0;
   --t2: #b0b0b8;
   --t3: #7a7a82;
-  --t4: #81818b; /* Improved contrast for small text (WCAG AA) */
+  --t4: #81818b;
   --t5: #37373d;
 
   --line-1: rgba(255,255,255,0.055);
@@ -68,7 +68,7 @@
 
 html {
   scroll-behavior: smooth;
-  scroll-padding-top: 80px; /* Prevents fixed header from covering anchor targets */
+  scroll-padding-top: 80px;
   -webkit-text-size-adjust: 100%;
   font-feature-settings: "ss01", "cv11";
 }
@@ -486,6 +486,7 @@ a.underline:hover { border-color: var(--accent); }
   line-height: 1.6;
   color: var(--t3);
 }
+.feature-desc code { font-size: 0.85em; }
 @media (max-width: 900px) {
   .features { grid-template-columns: 1fr; }
   .feature { padding: 32px 24px 36px; }
@@ -622,7 +623,7 @@ table.compare tbody tr:hover td.us { background: rgba(139,139,240,0.05); }
   margin-top: 0;
 }
 .caveat.open .caveat-body {
-  max-height: 1000px; /* Increased from 600px to prevent clipping on large fonts/zoom */
+  max-height: 1000px;
   opacity: 1;
   margin-top: 20px;
 }
@@ -736,7 +737,6 @@ table.compare tbody tr:hover td.us { background: rgba(139,139,240,0.05); }
   padding: 1px 5px;
 }
 
-/* Sub-item: for nested things like recipient <id|add|ls|rm> */
 .cmd-sub {
   padding-left: 20px;
   border-left: 1px solid var(--line-1);
@@ -796,10 +796,16 @@ table.compare tbody tr:hover td.us { background: rgba(139,139,240,0.05); }
   box-shadow: 0 12px 32px -8px var(--accent-glow), 0 1px 0 rgba(255,255,255,0.2) inset;
 }
 
+/* FAQ wrapper: undo the centered alignment inherited from .finale
+   so the Q&A text reads left-aligned inside the accordion. */
 .faq-wrap {
   max-width: 800px;
   margin: 80px auto 0;
+  text-align: left;
 }
+.faq-wrap .caveat-title,
+.faq-wrap .caveat-body-inner,
+.faq-wrap .caveat-num { text-align: left; }
 
 footer {
   padding: 56px var(--pad-x) 64px;
@@ -884,7 +890,7 @@ footer {
       </svg>
     </span>
     EnvSeal
-    <span class="brand-ver">v6.1.0</span>
+    <span class="brand-ver">v6.2.0</span>
   </a>
   <nav class="top-links">
     <a class="top-link" href="#workflow">Workflow</a>
@@ -1080,7 +1086,7 @@ footer {
   </div>
 
   <h2 class="reveal">
-    Six decisions <span class="serif">that shape everything else.</span>
+    Nine decisions <span class="serif">that shape everything else.</span>
   </h2>
 
   <div class="features reveal">
@@ -1114,6 +1120,21 @@ footer {
       <div class="feature-title">Merge driver included</div>
       <div class="feature-desc">Two people editing secrets on different branches usually resolve silently. Same key, different values? You pick <code>ours</code> or <code>theirs</code>.</div>
     </div>
+    <div class="feature">
+      <span class="feature-num">07</span>
+      <div class="feature-title">Interactive editor</div>
+      <div class="feature-desc"><code>envseal edit</code> opens the vault in your <code>$EDITOR</code>, writes only the diff back, and zeroes the temporary plaintext on exit. Bulk edits without dozens of <code>set</code> calls.</div>
+    </div>
+    <div class="feature">
+      <span class="feature-num">08</span>
+      <div class="feature-title">Global + local vaults</div>
+      <div class="feature-desc">Keep personal tokens in a system-wide vault, then pull them into a project on demand — <code>--override KEY</code> for one key, <code>--with-global</code> for everything.</div>
+    </div>
+    <div class="feature">
+      <span class="feature-num">09</span>
+      <div class="feature-title">Multiple profiles</div>
+      <div class="feature-desc">Need more than branch tags? Target per-environment vaults with <code>-e staging</code> or <code>-e prod</code> — no extra repos, no extra setup.</div>
+    </div>
   </div>
 </section>
 
@@ -1130,9 +1151,11 @@ footer {
   </h2>
 
   <p class="lede reveal">
-    If your team needs a dashboard, an audit log, or SSO, use Doppler or Infisical — they're
-    good at that, and that's a different problem. If you're deep in Kubernetes and cloud KMS,
-    SOPS fits your pipeline better. EnvSeal is for the team in between.
+    Each tool below solves the same problems — accidental commits, environment switching, team access —
+    just through a different mechanism. This table shows <em>how</em> each one addresses the same concern,
+    so you can judge which trade-offs fit your team. If you need a dashboard or audit log, use Doppler
+    or Infisical. If you're deep in Kubernetes and cloud KMS, SOPS fits better. EnvSeal is for the team
+    in between.
   </p>
 
   <div class="table-scroll reveal">
@@ -1165,36 +1188,44 @@ footer {
           <td>Cached fallback after first fetch. Self-hosted available at Enterprise tier</td>
         </tr>
         <tr>
-          <td>Auto-switches per branch</td>
-          <td>No</td>
-          <td>No — manual <code>-f</code> selection</td>
-          <td>No</td>
-          <td class="us"><strong>Yes</strong></td>
-          <td>No — requires dashboard/API config</td>
+          <td>Environment / branch switching</td>
+          <td>Manual file swap (<code>.env</code>, <code>.env.staging</code>)</td>
+          <td>Manual <code>-f .env.production</code> at invocation</td>
+          <td>Per-file, driven by CI env vars or shell aliases</td>
+          <td class="us"><strong>Auto-binds to the current Git branch (tag match)</strong></td>
+          <td><code>--config</code> flag at runtime, or a project setting in the dashboard</td>
         </tr>
         <tr>
-          <td>Stops accidental commits</td>
-          <td>No</td>
-          <td>Partial (<code>dotenvx precommit</code>)</td>
-          <td>No</td>
-          <td class="us"><strong>Yes, built-in hook</strong></td>
-          <td>Yes, via CLI wrapper</td>
+          <td>Preventing accidental commits</td>
+          <td>Relies on <code>.gitignore</code> discipline</td>
+          <td>Optional <code>dotenvx precommit</code> hook</td>
+          <td><code>.gitignore</code> + decrypt only in CI; nothing plaintext is committed</td>
+          <td class="us"><strong>Built-in pre-commit shield blocks <code>.env*</code></strong></td>
+          <td>Nothing to commit — secrets never touch the repo</td>
         </tr>
         <tr>
           <td>Team onboarding</td>
           <td>Manual file sharing</td>
-          <td>Manual <code>.env.keys</code> sharing</td>
-          <td>Manual age key exchange + <code>sops updatekeys</code></td>
-          <td class="us"><strong>Add a GitHub handle (or exchange age keys)</strong></td>
-          <td>Invite via dashboard</td>
+          <td>Share <code>.env.keys</code> (one key per environment)</td>
+          <td>Add each age key to <code>.sops.yaml</code>, run <code>sops updatekeys</code></td>
+          <td class="us"><strong>Add a GitHub handle, or paste an age key</strong></td>
+          <td>Invite via dashboard; SSO available on paid tiers</td>
         </tr>
         <tr>
-          <td>Merge conflicts</td>
-          <td>N/A</td>
-          <td>N/A — shared key, not file</td>
-          <td>No built-in driver (Clef third-party)</td>
-          <td class="us"><strong>Built-in <code>ours</code> / <code>theirs</code></strong></td>
-          <td>N/A — cloud-managed</td>
+          <td>Merge behavior</td>
+          <td>Git text merge</td>
+          <td>Git text merge on the encrypted file; re-key on conflict</td>
+          <td>Git text merge on YAML/JSON, optional <code>sops merge</code></td>
+          <td class="us"><strong>Native merge driver with <code>ours</code> / <code>theirs</code></strong></td>
+          <td>N/A — cloud-managed, no file to merge</td>
+        </tr>
+        <tr>
+          <td>Personal / local overrides</td>
+          <td><code>.env.local</code> (gitignored)</td>
+          <td><code>.env.local</code> overrides <code>.env</code></td>
+          <td>Separate <code>.sops.yaml</code> per developer, or shell env vars</td>
+          <td class="us"><strong>Global vault + <code>--override</code> / <code>--with-global</code></strong></td>
+          <td>Personal configs in dashboard, or <code>--personal</code> flag</td>
         </tr>
         <tr>
           <td>Best suited for</td>
@@ -1312,6 +1343,7 @@ footer {
         <li><strong>Free and offline.</strong> No accounts, no cloud, no telemetry. Works on a plane or behind a corporate firewall.</li>
         <li><strong>Branch-aware.</strong> The only option in its class that switches secrets automatically on <code>git checkout</code>.</li>
         <li><strong>Per-recipient access.</strong> Adding or removing a teammate is a Git commit, not a shared-key redistribution.</li>
+        <li><strong>Global + local vault mixing.</strong> Personal tokens stay in a system vault; projects only pull what they need.</li>
       </ul>
     </div>
     <div class="fit-col lose reveal">
@@ -1334,7 +1366,7 @@ footer {
      ============================================================ -->
 <section class="wrap" id="commands">
   <div class="sec-head reveal">
-    <div class="sec-num">06 — Reference</div> <!-- Fixed numbering gap (was 08) -->
+    <div class="sec-num">06 — Reference</div>
   </div>
 
   <h2 class="reveal" style="margin-bottom: 32px;">
@@ -1372,12 +1404,12 @@ footer {
       </div>
 
       <div class="cmd-item">
-        <div class="cmd-item-cmd"><span class="bin">envseal</span> run <span class="opt">[-g GROUP] [-t TAG] [--token TOK]</span> -- CMD <span class="alias">(alias: exec)</span></div>
-        <div class="cmd-item-desc">Run a command with secrets injected into the child process.</div>
+        <div class="cmd-item-cmd"><span class="bin">envseal</span> run <span class="opt">[-g GROUP] [-t TAG] [--token TOK] [--override K1,K2 | --with-global]</span> -- CMD <span class="alias">(alias: exec)</span></div>
+        <div class="cmd-item-desc">Run a command with secrets injected into the child process. Mix in global-vault keys with <code>--override</code> or <code>--with-global</code>.</div>
       </div>
 
       <div class="cmd-item">
-        <div class="cmd-item-cmd"><span class="bin">envseal</span> load <span class="opt">[-g GROUP] [-t TAG] [--token TOK] [KEYS...]</span></div>
+        <div class="cmd-item-cmd"><span class="bin">envseal</span> load <span class="opt">[-g GROUP] [-t TAG] [--token TOK] [--override K1,K2 | --with-global] [KEYS...]</span></div>
         <div class="cmd-item-desc">Print shell export statements for <code>eval</code>. Prefer <code>run</code>.</div>
       </div>
 
@@ -1388,7 +1420,7 @@ footer {
 
       <div class="cmd-item">
         <div class="cmd-item-cmd"><span class="bin">envseal</span> edit <span class="opt">[-g GROUP] [-t TAG]</span></div>
-        <div class="cmd-item-desc">Edit key/value pairs in your default editor. Faster than many <code>set</code> calls.</div>
+        <div class="cmd-item-desc">Edit key/value pairs in your default editor. Temp file is zeroed on exit.</div>
       </div>
 
       <div class="cmd-item">
@@ -1447,7 +1479,7 @@ footer {
       </div>
 
       <div class="cmd-item">
-        <div class="cmd-item-cmd"><span class="bin">envseal</span> export <span class="opt">[-t TAG] [-o PATH]</span> [KEYS...]</div>
+        <div class="cmd-item-cmd"><span class="bin">envseal</span> export <span class="opt">[-t TAG] [-o PATH] [--override K1,K2 | --with-global]</span> [KEYS...]</div>
         <div class="cmd-item-desc">Decrypt to a <code>.env</code> file with strict <code>0600</code> permissions.</div>
       </div>
 
@@ -1466,6 +1498,28 @@ footer {
       <div class="cmd-item">
         <div class="cmd-item-cmd"><span class="flag">--no-env</span></div>
         <div class="cmd-item-desc">Disable reading fallback identity keys from <code>ENVSEAL_IDENTITY</code>.</div>
+      </div>
+
+      <h3 style="margin-top: 48px;">Global vault override</h3>
+
+      <div class="cmd-item">
+        <div class="cmd-item-cmd"><span class="flag">--override</span> KEY1,KEY2</div>
+        <div class="cmd-item-desc">Pull <strong>only</strong> the named keys from the global vault. Conflicts with <code>--with-global</code>.</div>
+      </div>
+
+      <div class="cmd-item">
+        <div class="cmd-item-cmd"><span class="flag">--with-global</span></div>
+        <div class="cmd-item-desc">Overlay <strong>all</strong> keys from the global vault. Global wins on collision. Conflicts with <code>--override</code>.</div>
+      </div>
+
+      <div class="cmd-item">
+        <div class="cmd-item-cmd"><span class="flag">--global-group</span> GROUP</div>
+        <div class="cmd-item-desc">Which group inside the global vault to use. Defaults to the directory's linked group.</div>
+      </div>
+
+      <div class="cmd-item">
+        <div class="cmd-item-cmd"><span class="flag">--global-tag</span> TAG</div>
+        <div class="cmd-item-desc">Optional tag inside that global group. Defaults to <code>base</code>.</div>
       </div>
     </div>
   </div>
@@ -1526,10 +1580,25 @@ footer {
       <div class="caveat reveal" role="button" tabindex="0" aria-expanded="false" aria-controls="faq-3-body">
         <div class="caveat-head">
           <div class="caveat-num">Q</div>
-          <div class="caveat-title">What happens when two people edit secrets at the same time?</div>
+          <div class="caveat-title">What's the difference between <code>--override</code> and <code>--with-global</code>?</div>
           <div class="caveat-indicator">+</div>
         </div>
         <div id="faq-3-body" class="caveat-body">
+          <div class="caveat-body-inner">
+            <code>--override KEY1,KEY2</code> pulls <strong>only</strong> the named keys from the global
+            vault. <code>--with-global</code> overlays <strong>all</strong> keys from the global vault,
+            with global values winning on collision. They are mutually exclusive.
+          </div>
+        </div>
+      </div>
+
+      <div class="caveat reveal" role="button" tabindex="0" aria-expanded="false" aria-controls="faq-4-body">
+        <div class="caveat-head">
+          <div class="caveat-num">Q</div>
+          <div class="caveat-title">What happens when two people edit secrets at the same time?</div>
+          <div class="caveat-indicator">+</div>
+        </div>
+        <div id="faq-4-body" class="caveat-body">
           <div class="caveat-body-inner">
             The Git merge driver resolves most edits silently. If two contributors change the
             <em>same</em> key to different values, it stops and asks you to pick a side via
@@ -1538,13 +1607,13 @@ footer {
         </div>
       </div>
 
-      <div class="caveat reveal" role="button" tabindex="0" aria-expanded="false" aria-controls="faq-4-body">
+      <div class="caveat reveal" role="button" tabindex="0" aria-expanded="false" aria-controls="faq-5-body">
         <div class="caveat-head">
           <div class="caveat-num">Q</div>
           <div class="caveat-title">What if my teammate doesn't have SSH keys on GitHub?</div>
           <div class="caveat-indicator">+</div>
         </div>
-        <div id="faq-4-body" class="caveat-body">
+        <div id="faq-5-body" class="caveat-body">
           <div class="caveat-body-inner">
             <code>envseal recipient add @handle</code> will fail. Ask them to run
             <code>envseal recipient id</code>, which generates an age key for them. They send you
@@ -1554,13 +1623,13 @@ footer {
         </div>
       </div>
 
-      <div class="caveat reveal" role="button" tabindex="0" aria-expanded="false" aria-controls="faq-5-body">
+      <div class="caveat reveal" role="button" tabindex="0" aria-expanded="false" aria-controls="faq-6-body">
         <div class="caveat-head">
           <div class="caveat-num">Q</div>
           <div class="caveat-title">I forgot my private key and I'm the only recipient.</div>
           <div class="caveat-indicator">+</div>
         </div>
-        <div id="faq-5-body" class="caveat-body">
+        <div id="faq-6-body" class="caveat-body">
           <div class="caveat-body-inner">
             This is not a bug EnvSeal can fix — it's a backup problem. If you still have the identity
             file somewhere (another machine, a password manager, a printed seed), restore it and
@@ -1588,7 +1657,7 @@ footer {
         EnvSeal CLI
       </a>
       <span class="footer-meta">
-        v6.1.0 <span class="dot">·</span> MIT <span class="dot">·</span> Rust <span class="dot">·</span> Offline by design
+        v6.2.0 <span class="dot">·</span> MIT <span class="dot">·</span> Rust <span class="dot">·</span> Offline by design
       </span>
     </div>
     <div class="footer-links">
@@ -1739,7 +1808,6 @@ footer {
         const target = document.querySelector(id);
         if (target){
           e.preventDefault();
-          // Native CSS scroll-padding-top handles most of this, but we keep JS for reduced-motion fallback
           const top = target.getBoundingClientRect().top + window.scrollY - 80;
           window.scrollTo({ top: top, behavior: reduceMotion ? 'auto' : 'smooth' });
         }
@@ -1775,7 +1843,6 @@ footer {
     requestAnimationFrame(tick);
   }
 
-  // Fetch repo stats (stars, forks)
   fetch(GITHUB_API, { headers: { 'Accept': 'application/vnd.github.v3+json' } })
     .then(function(r){ return r.ok ? r.json() : Promise.reject(r.status); })
     .then(function(data){
@@ -1788,7 +1855,6 @@ footer {
     })
     .catch(function(){ /* silently fail, keep em-dashes */ });
 
-  // Fetch releases: count + total asset downloads
   fetch(RELEASES_API, { headers: { 'Accept': 'application/vnd.github.v3+json' } })
     .then(function(r){ return r.ok ? r.json() : Promise.reject(r.status); })
     .then(function(releases){

@@ -98,7 +98,8 @@ Both work. Path A is one command with zero manual key exchange. Path B is still 
 ## Real examples
 
 **Switching branches:**
-```
+
+```text
 $ git checkout staging
 $ envseal run -- npm start
 ▸ loading tag 'staging' (matched current branch)
@@ -107,7 +108,8 @@ $ envseal run -- npm start
 ```
 
 **Accidentally staging a `.env`:**
-```
+
+```text
 $ git add .
 $ git commit -m "wip"
 [envseal] COMMIT REJECTED: staged plaintext .env file detected
@@ -118,7 +120,8 @@ to create an encrypted .envseal vault.
 ```
 
 **Someone leaves the team:**
-```
+
+```text
 $ envseal recipient rm @teammate
 ✔ access revoked for @teammate
 ✔ vault re-encrypted for 3 remaining recipients
@@ -126,13 +129,40 @@ $ envseal recipient rm @teammate
 ```
 
 **App exits:**
-```
+
+```text
 $ envseal run -- npm start
 > app@1.0.0 start
 > node server.js
 listening on :3000
 ^C
 Process exited. Secrets gone. 0 plaintext bytes on disk.
+```
+
+**Mixing global and local vaults:**
+
+```bash
+# Pull only DATABASE_URL from the global vault
+envseal run --override DATABASE_URL -- npm start
+
+# Overlay everything from the global vault (global wins)
+envseal run --with-global -- npm start
+
+# Use a specific global group and tag
+envseal run --with-global --global-group shared-aws --global-tag prod -- ./deploy.sh
+```
+
+**Bulk editing secrets in your editor:**
+
+```bash
+# Open the base secrets for the current group in $EDITOR
+envseal edit
+
+# Edit a specific tag
+envseal edit --tag staging
+
+# Edit a specific group in the global vault
+envseal edit --group myapp
 ```
 
 ---
@@ -179,6 +209,7 @@ EnvSeal keeps secrets *inside* your repository, but encrypted — so Git can do 
 - **A pre-commit hook stops the panic push.** If you (or a sleepy teammate) accidentally try to commit a raw `.env` file, EnvSeal blocks it before it reaches Git history.
 - **Migration is one command.** Already have a `.env`? `envseal import .env` brings it into the vault. Need a temporary plaintext file for a legacy tool? `envseal export` writes it with strict `0600` permissions.
 - **Interactive shell when you want it.** `envseal load` prints export statements so you can `eval "$(envseal load)"` — useful for debugging, while `envseal run` remains the safe default for everyday work.
+- **Global and local vaults can be mixed.** Use `--override` to pull specific keys from your global vault, or `--with-global` to overlay everything from it.
 
 In short: EnvSeal is what happens when you get tired of being the unofficial IT department for your own group project.
 
@@ -243,6 +274,38 @@ Need separate vaults for different environments without relying only on branch t
 envseal -e staging set DATABASE_URL
 envseal -e prod run -- npm start
 # targets .staging.envseal / .prod.envseal
+```
+
+### Global vault override
+
+Mix secrets from your system-wide global vault into a local project at runtime. These flags are available on `run`, `load`, and `export`.
+
+```bash
+# Pull only the named keys from the global vault
+envseal run --override DATABASE_URL,STRIPE_KEY -- npm start
+
+# Overlay all keys from the global vault (global takes precedence)
+envseal run --with-global -- npm start
+
+# Specify which global group and tag to use
+envseal run --with-global --global-group shared-aws --global-tag prod -- ./deploy.sh
+```
+
+`--override` and `--with-global` are mutually exclusive. If neither is given, the local vault is used alone. `--global-group` defaults to the directory's linked group, and `--global-tag` defaults to `base`.
+
+### Interactive editor
+
+Bulk-edit secrets using your familiar `$EDITOR` instead of repeated `set`/`rm` commands. EnvSeal decrypts the selected secrets into a temporary file, opens it in your preferred editor (`$EDITOR` / `$VISUAL`, falling back to `nano` on Unix or `notepad` on Windows), and writes only the net changes back into the vault. The temp file is securely zeroed on exit.
+
+```bash
+# Edit base secrets for the current/linked group
+envseal edit
+
+# Edit a specific tag
+envseal edit --tag staging
+
+# Edit a specific group
+envseal edit --group myapp
 ```
 
 ### Also included
@@ -364,8 +427,8 @@ For a typical student or small-team codebase, the trade-off is easy: you're givi
 | `git-setup` | `envseal git-setup [--init]`                                       | Register the Git merge driver and pre-commit shield.   |
 | `set`       | `envseal set [-g GROUP] [-t TAG] KEY`                              | Store a secret (prompts without echoing input).        |
 | `get`       | `envseal get [-g GROUP] [-t TAG] [--token TOK] KEY`                | Print one decrypted value.                             |
-| `run`       | `envseal run [-g GROUP] [-t TAG] [--token TOK] -- CMD`             | Run a command with secrets injected (alias: `exec`).   |
-| `load`      | `envseal load [-g GROUP] [-t TAG] [--token TOK] [KEYS...]`         | Print shell export statements for `eval`.              |
+| `run`       | `envseal run [-g GROUP] [-t TAG] [--token TOK] [--override K1,K2 \| --with-global] -- CMD` | Run a command with secrets injected (alias: `exec`). |
+| `load`      | `envseal load [-g GROUP] [-t TAG] [--token TOK] [--override K1,K2 \| --with-global] [KEYS...]` | Print shell export statements for `eval`.              |
 | `list`      | `envseal list [-g GROUP] [-t TAG]`                                 | List key names without revealing values (alias: `ls`). |
 | `link`      | `envseal link GROUP`                                               | Bind a global vault group to the current directory.    |
 | `remove`    | `envseal remove [-g GROUP] [-t TAG] [--force] [KEY]`               | Delete a key, tag, or group (alias: `rm`).             |
@@ -386,7 +449,7 @@ For a typical student or small-team codebase, the trade-off is easy: you're givi
 | `token`         | `envseal token [-t TAG] [-o PATH] [--exp S] [KEYS...]` | Mint a scoped, offline CI token.                             |
 | `rotate`        | `envseal rotate`                                       | Rotate the encryption key, invalidating all existing tokens. |
 | `import`        | `envseal import [-t TAG] PATH`                         | Import variables from an existing `.env` file.               |
-| `export`        | `envseal export [-t TAG] [-o PATH] [KEYS...]`          | Decrypt to a `.env` file with strict `0600` permissions.     |
+| `export`        | `envseal export [-t TAG] [-o PATH] [--override K1,K2 \| --with-global] [KEYS...]` | Decrypt to a `.env` file with strict `0600` permissions. |
 
 </details>
 
@@ -396,6 +459,10 @@ For a typical student or small-team codebase, the trade-off is easy: you're givi
 - `-e, --env <PROFILE>` — target a specific profile file (e.g. `-e staging` loads `.staging.envseal`)
 - `-G, --global` — target the system-wide vault
 - `--no-env` — disable reading fallback identity keys from `ENVSEAL_IDENTITY`
+- `--override <KEY1,KEY2>` — pull only the named keys from the global vault (conflicts with `--with-global`)
+- `--with-global` — overlay all keys from the global vault (global wins on collision; conflicts with `--override`)
+- `--global-group <GROUP>` — which group inside the global vault to use (defaults to the directory's linked group)
+- `--global-tag <TAG>` — optional tag inside that global group (defaults to `base`)
 
 </details>
 
@@ -549,6 +616,8 @@ function envseal {
 
 - **`@teammate` recipient add fails** — the teammate doesn't have SSH keys on GitHub. Ask them to run `envseal recipient id` and send you the age key, then add it with `envseal recipient add "age1..."`.
 
+- **`--override` and `--with-global` used together** — they are mutually exclusive. Pick one: `--override` to pull specific keys, or `--with-global` to overlay everything.
+
 **More common situations:**
 
 - **Command not found after install** — restart your terminal or run `hash -r` (bash/zsh) so the new binary is picked up.
@@ -641,6 +710,10 @@ A: Yes, but EnvSeal's pre-commit hook will block you from committing it. Treat p
 **Q: What if my teammate doesn't have SSH keys on GitHub?**
 
 A: `envseal recipient add @handle` will fail. Ask them to run `envseal recipient id`, which generates an age key for them. They send you the output, you add it with `envseal recipient add "age1..."`. Same result, one extra paste.
+
+**Q: What's the difference between `--override` and `--with-global`?**
+
+A: `--override KEY1,KEY2` pulls **only** the named keys from the global vault. `--with-global` overlays **all** keys from the global vault, with global values winning on collision. They are mutually exclusive.
 
 ---
 
