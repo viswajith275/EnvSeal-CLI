@@ -427,7 +427,7 @@ For a typical student or small-team codebase, the trade-off is easy: you're givi
 | `git-setup` | `envseal git-setup [--init]`                                       | Register the Git merge driver and pre-commit shield.   |
 | `set`       | `envseal set [-g GROUP] [-t TAG] KEY`                              | Store a secret (prompts without echoing input).        |
 | `get`       | `envseal get [-g GROUP] [-t TAG] [--token TOK] KEY`                | Print one decrypted value.                             |
-| `run`       | `envseal run [-g GROUP] [-t TAG] [--token TOK] [--override K1,K2 \| --with-global] -- CMD` | Run a command with secrets injected (alias: `exec`). |
+| `run`       | `envseal run [-g GROUP] [-t TAG] [--token TOK] [--clear] [--override K1,K2 \| --with-global] -- CMD` | Run a command with secrets injected (alias: `exec`). |
 | `load`      | `envseal load [-g GROUP] [-t TAG] [--token TOK] [--override K1,K2 \| --with-global] [KEYS...]` | Print shell export statements for `eval`.              |
 | `list`      | `envseal list [-g GROUP] [-t TAG]`                                 | List key names without revealing values (alias: `ls`). |
 | `link`      | `envseal link GROUP`                                               | Bind a global vault group to the current directory.    |
