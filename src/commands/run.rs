@@ -11,6 +11,7 @@ pub fn cmd_run(
     global: bool,
     pref: Option<&str>,
     allow_env: bool,
+    clear: bool,
     overrides: &OverrideArgs,
 ) -> Result<u8> {
     if command.is_empty() {
@@ -54,6 +55,10 @@ pub fn cmd_run(
     )?;
 
     let mut child = Command::new(&command[0]);
+
+    if clear {
+        child.env_clear();
+    }
 
     child.args(&command[1..]);
 

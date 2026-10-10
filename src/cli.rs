@@ -5,7 +5,7 @@ use std::path::PathBuf;
 #[command(
     name = "envseal",
     about = "Encrypted vault for secrets and API keys stop committing plaintext .env files.",
-    version = "v6.2.0",
+    version = "v6.2.1",
     propagate_version = true
 )]
 pub struct Cli {
@@ -285,6 +285,10 @@ pub enum Commands {
         token: Option<String>,
         #[command(flatten)]
         overrides: OverrideArgs,
+
+        /// Clear the current process environment before injecting secrets
+        #[arg(long)]
+        clear: bool,
 
         /// Command and arguments to execute (e.g., `npm start` or `-- python app.py`)
         #[arg(trailing_var_arg = true, allow_hyphen_values = true, required = true)]

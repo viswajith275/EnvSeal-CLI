@@ -945,7 +945,7 @@ dependencies = [
 
 [[package]]
 name = "envseal"
-version = "6.2.0"
+version = "6.2.1"
 dependencies = [
  "aes-gcm 0.11.1",
  "age",

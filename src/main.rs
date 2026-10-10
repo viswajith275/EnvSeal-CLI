@@ -59,6 +59,7 @@ fn main() -> Result<std::process::ExitCode> {
             tag,
             cmd_args,
             token,
+            clear,
             overrides,
         } => {
             let code = commands::run::cmd_run(
@@ -69,6 +70,7 @@ fn main() -> Result<std::process::ExitCode> {
                 global,
                 pref,
                 allow_env,
+                clear,
                 &overrides,
             )?;
             return Ok(std::process::ExitCode::from(code));
