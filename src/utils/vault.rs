@@ -1,6 +1,7 @@
 use super::token::{TokenKeyMaterial, TokenManager, TokenPayload};
 use super::{crypto, envelope};
 use anyhow::{anyhow, Context, Result};
+use base64::Engine;
 use directories::ProjectDirs;
 use ed25519_dalek::{Signature, Signer, SigningKey, Verifier, VerifyingKey};
 use fs2::FileExt;
@@ -17,6 +18,7 @@ use zeroize::{Zeroize, ZeroizeOnDrop, Zeroizing};
 
 pub const BASE_TAG: &str = "base";
 pub const LOCAL_GROUP_NAME: &str = "project";
+pub const MAX_SECRET_FILE_SIZE: u64 = 10 * 1024 * 1024;
 
 #[derive(Zeroize, ZeroizeOnDrop)]
 pub struct VaultKeys {
@@ -67,8 +69,20 @@ impl<'de> Deserialize<'de> for Entry {
 }
 
 #[derive(Serialize, Deserialize, Default, Clone, PartialEq, Eq, Debug)]
+pub struct FileMeta {
+    pub filename: String,
+    pub compression: String,
+    pub original_size: u64,
+    pub sha256: String,
+    pub env: String,
+}
+
+#[derive(Serialize, Deserialize, Default, Clone, PartialEq, Eq, Debug)]
 pub struct Tag {
     pub entries: BTreeMap<String, Entry>,
+
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub files: BTreeMap<String, FileMeta>,
 }
 
 #[derive(Serialize, Deserialize, Default, Clone, PartialEq, Eq, Debug)]
@@ -76,6 +90,9 @@ pub struct Group {
     pub link: PathBuf,
     pub base: BTreeMap<String, Entry>,
     pub tags: BTreeMap<String, Tag>,
+
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub base_files: BTreeMap<String, FileMeta>,
 }
 
 mod hex_bytes {
@@ -303,6 +320,7 @@ impl Vault {
                     link: PathBuf::new(),
                     base: BTreeMap::new(),
                     tags: BTreeMap::new(),
+                    base_files: BTreeMap::new(),
                 },
             );
         }
@@ -456,6 +474,15 @@ impl Vault {
 
         let active_tag = tag.unwrap_or(BASE_TAG);
         let scope_dek = crypto::derive_scope_dek(&keys.master_dek, &group_name, active_tag);
+
+        if group_entry.base_files.contains_key(name)
+            || group_entry
+                .tags
+                .values()
+                .any(|t| t.files.contains_key(name))
+        {
+            anyhow::bail!("'{name}' is a file secret, Remove it before overwriting");
+        }
 
         let entry_key = crypto::derive_entry_key(&scope_dek, name);
         let (nonce, ciphertext) = crypto::encrypt(&entry_key, value.as_bytes())?;
@@ -718,5 +745,123 @@ impl Vault {
         let mut sorted_keys: Vec<String> = keys.into_iter().collect();
         sorted_keys.sort();
         Ok(sorted_keys)
+    }
+
+    pub fn set_file_entry(
+        &mut self,
+        keys: &VaultKeys,
+        group: Option<&str>,
+        tag: Option<&str>,
+        name: &str,
+        env_name: &str,
+        filename: &str,
+        path: &Path,
+    ) -> Result<()> {
+        if name.is_empty()
+            || name.len() > 128
+            || !name
+                .chars()
+                .all(|c| c.is_ascii_alphanumeric() || matches!(c, '_' | '-' | '.'))
+        {
+            anyhow::bail!("Invalid file identifier: '{name}'");
+        }
+
+        if !super::is_valid_env_key(env_name) {
+            anyhow::bail!("Invalid environment variable name: '{env_name}'");
+        }
+
+        if filename.is_empty()
+            || filename == "."
+            || filename == ".."
+            || filename.contains('/')
+            || filename.contains('\\')
+        {
+            anyhow::bail!("Invalid filename");
+        }
+
+        let mut original = Zeroizing::new(Vec::new());
+
+        File::open(path)?
+            .take(MAX_SECRET_FILE_SIZE + 1)
+            .read_to_end(&mut original)?;
+
+        if original.len() as u64 > MAX_SECRET_FILE_SIZE {
+            anyhow::bail!(
+                "File exceeds the maximum supported size of {} MB",
+                MAX_SECRET_FILE_SIZE / (1024 * 1024)
+            );
+        }
+
+        let group_name = self.resolve_group_name(group)?;
+        let active_tag = tag.unwrap_or(BASE_TAG);
+
+        // A file identifier must not collide with an ordinary text secret
+        if let Some(existing) = self.entries.get(&group_name) {
+            let conflicts_with_text = (existing.base.contains_key(name)
+                && !existing.base_files.contains_key(name))
+                || existing
+                    .tags
+                    .values()
+                    .any(|t| t.entries.contains_key(name) && !t.files.contains_key(name));
+
+            if conflicts_with_text {
+                anyhow::bail!("'{name}' already exists as a normal secret!");
+            }
+        }
+
+        // Compress only when the result is smaller than original
+        let compressed = Zeroizing::new(zstd::stream::encode_all(original.as_slice(), 3)?);
+
+        let stored_bytes = Zeroizing::new(if compressed.len() < original.len() {
+            compressed.to_vec()
+        } else {
+            original.to_vec()
+        });
+
+        let compression = if compressed.len() < original.len() {
+            "zstd"
+        } else {
+            "none"
+        };
+
+        // Same format as enviornment variables
+        let encoded = Zeroizing::new(
+            base64::engine::general_purpose::STANDARD.encode(stored_bytes.as_slice()),
+        );
+
+        let scope_dek = crypto::derive_scope_dek(&keys.master_dek, &group_name, active_tag);
+
+        let entry_key = crypto::derive_entry_key(&scope_dek, name);
+
+        let (nonce, ciphertext) = crypto::encrypt(&entry_key, encoded.as_bytes())?;
+
+        let entry = Entry {
+            nonce: nonce.to_vec(),
+            ciphertext: ciphertext,
+        };
+
+        let metadata = FileMeta {
+            filename: filename.to_string(),
+            env: env_name.to_string(),
+            compression: compression.to_string(),
+            original_size: original.len() as u64,
+            sha256: hex::encode(Sha256::digest(original)),
+        };
+
+        let group_entry = self.entries.entry(group_name).or_default();
+
+        if active_tag == BASE_TAG {
+            group_entry.base.insert(name.to_string(), entry);
+            group_entry.base_files.insert(name.to_string(), metadata);
+        } else {
+            let tag_entry = group_entry.tags.entry(active_tag.to_string()).or_default();
+
+            tag_entry.entries.insert(name.to_string(), entry);
+            tag_entry.files.insert(name.to_string(), metadata);
+        }
+
+        self.seal_integrity(&keys.signing_key)?;
+
+        Ok(())
     }
 }

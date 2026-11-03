@@ -80,10 +80,18 @@ fn main() -> Result<std::process::ExitCode> {
             git,
             recipient,
         } => commands::init::cmd_init(local, global, pref, git, recipient)?,
-        Commands::Set { group, tag, key } => commands::set::cmd_set(
+        Commands::Set {
+            group,
+            tag,
+            key,
+            file,
+            env_var,
+        } => commands::set::cmd_set(
             group.as_deref(),
             tag.as_deref(),
             &key,
+            file.as_deref(),
+            env_var.as_deref(),
             global,
             pref,
             allow_env,

@@ -65,6 +65,7 @@ fn create_fixture_vault(
             link: PathBuf::new(),
             base: base_map,
             tags: BTreeMap::new(),
+            base_files: BTreeMap::new(),
         },
     );
 

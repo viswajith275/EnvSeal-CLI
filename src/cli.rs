@@ -192,6 +192,14 @@ pub enum Commands {
 
         /// Secret key name (e.g., STRIPE_SECRET_KEY)
         key: String,
+
+        /// Path of file to be encrypted
+        #[arg(long)]
+        file: Option<PathBuf>,
+
+        /// Variable name where the path is to be set
+        #[arg(long)]
+        env_var: Option<String>,
     },
 
     /// Retrieve and decrypt a single key
