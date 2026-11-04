@@ -1,10 +1,10 @@
 use crate::cli::OverrideArgs;
 use crate::utils::is_valid_env_key;
+use crate::utils::vault::DecryptedValue;
 use crate::utils::{resolve, vault::Vault};
 use anyhow::Result;
-use std::collections::HashSet;
+use std::collections::{BTreeMap, HashSet};
 
-/// Determines the target shell for proper syntax formatting and string escaping
 #[derive(Debug)]
 enum ShellType {
     Posix,
@@ -23,7 +23,6 @@ impl ShellType {
         } else if lower.ends_with("cmd") || lower.ends_with("cmd.exe") {
             ShellType::Cmd
         } else {
-            // Default to POSIX (Bash, Zsh, Sh)
             ShellType::Posix
         }
     }
@@ -41,9 +40,7 @@ pub fn cmd_load(
 ) -> Result<()> {
     let vault = Vault::load(global, pref)?;
     let group_name = vault.resolve_group_name(group)?;
-
     let location_label = if vault.is_local() { "local" } else { "global" };
-
     let message = if let Some(t) = tag {
         match keys.is_empty() {
             true => format!(
@@ -61,11 +58,9 @@ pub fn cmd_load(
             group_name, location_label
         )
     };
-
     eprintln!("{}", message);
 
     let token_str = resolve::load_token(token)?;
-
     let override_val = resolve::OverrideVals {
         keys: &overrides.r#override,
         with_global: overrides.with_global,
@@ -73,7 +68,7 @@ pub fn cmd_load(
         global_tag: overrides.global_tag.as_deref(),
     };
 
-    let mut sorted_envs = resolve::resolve_environment(
+    let mut resolved_entries = resolve::resolve_environment(
         &vault,
         group,
         tag,
@@ -82,17 +77,32 @@ pub fn cmd_load(
         Some(&override_val),
     )?;
 
-    // filter derived to find specified keys
     if !keys.is_empty() {
         let requested_set: HashSet<&str> = keys.iter().copied().collect();
-        sorted_envs.retain(|k, _| requested_set.contains(k.as_str()));
-
         for key in &keys {
-            if !sorted_envs.contains_key(*key) {
+            if !resolved_entries.contains_key(*key) {
                 eprintln!(
-                        " Warning: '{}' was not found in the vault, or the provided token lacks permission to decrypt it. Skipping...",
-                        key
+                    "Warning: '{}' was not found in the vault, or the provided token lacks permission to decrypt it. Skipping...",
+                    key
+                );
+            }
+        }
+        resolved_entries.retain(|k, _| requested_set.contains(k.as_str()));
+    }
+
+    let mut text_envs = BTreeMap::new();
+    for (key, dec_val) in resolved_entries {
+        match dec_val {
+            DecryptedValue::Text(val) => {
+                text_envs.insert(key, val);
+            }
+            DecryptedValue::File { env_name, .. } => {
+                // Informational warnings on stderr never pollute stdout eval pipelines
+                if !keys.is_empty() {
+                    eprintln!(
+                        "Warning: Skipping file secret '{key}' (${env_name}), 'envseal load' only exports text variables, Use 'envseal run' or 'envseal get' instead for file secrets"
                     );
+                }
             }
         }
     }
@@ -104,10 +114,9 @@ pub fn cmd_load(
             "posix".to_string()
         }
     });
-
     let shell = ShellType::from_name(&shell_name);
 
-    for (key, value) in sorted_envs {
+    for (key, value) in text_envs {
         if !is_valid_env_key(&key) {
             eprintln!("Warning: Skipping invalid key '{key}' during load");
             continue;

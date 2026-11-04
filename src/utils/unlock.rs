@@ -11,13 +11,13 @@ pub fn sudo_unlock(vault: &Vault, label: Option<&str>, allow_env: bool) -> Resul
     let scope = vault.master_scope();
 
     if let Ok(Some(CachedKeys::Master { dek, seed })) = SessionManager::get_active_keys(&scope) {
+        vault.verify_integrity()?;
         return Ok(VaultKeys {
             master_kek: Zeroizing::new([0u8; crypto::KEY_LEN]),
             master_dek: Zeroizing::new(dek),
             signing_key: SigningKey::from_bytes(&seed),
         });
     }
-
     let keys = vault.unlock(allow_env).with_context(|| match label {
         Some(l) => format!("Failed to unlock vault for '{l}' !!"),
         None => "Failed to unlock vault!!".to_string(),

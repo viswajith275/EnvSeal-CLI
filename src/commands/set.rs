@@ -5,6 +5,8 @@ use std::io::{stdin, IsTerminal, Read};
 use std::path::Path;
 use zeroize::Zeroizing;
 
+const MAX_STDIN_BUF_SIZE: u64 = 64 * 1024;
+
 pub fn cmd_set(
     group: Option<&str>,
     tag: Option<&str>,
@@ -15,29 +17,25 @@ pub fn cmd_set(
     pref: Option<&str>,
     allow_env: bool,
 ) -> Result<()> {
-    if !is_valid_env_key(key) {
+    if file.is_none() && !is_valid_env_key(key) {
         anyhow::bail!(
             "Invalid environment variable name '{key}'. Keys must start with a letter or underscore and contain only alphanumeric characters and underscores."
         );
     }
-
     let mut vault = Vault::load(global, pref)?;
     let master_keys = unlock::sudo_unlock(&vault, Some("set"), allow_env)?;
 
     if let Some(file_path) = file {
-        let env_name =
-            env_var.ok_or_else(|| anyhow::anyhow!("--env_var is required when using --file"))?;
+        let env_name = match env_var {
+            Some(e) => e,
+            None => key,
+        };
 
         if !is_valid_env_key(env_name) {
             anyhow::bail!("Invalid environment variable name '{env_name}'");
         }
 
-        let filename = file_path
-            .file_name()
-            .and_then(|name| name.to_str())
-            .ok_or_else(|| anyhow::anyhow!("Could not determine the file name"))?;
-
-        vault.set_file_entry(&master_keys, group, tag, key, env_name, filename, file_path)?;
+        vault.set_file_entry(&master_keys, group, tag, key, env_name, file_path)?;
 
         vault.save()?;
 
@@ -47,7 +45,7 @@ pub fn cmd_set(
             .map(|t| format!("tag '{t}' inside "))
             .unwrap_or_default();
 
-        eprintln!("sealed file '{key}' in {scope_label} group '{group_name}' ({location} seal)");
+        eprintln!("sealed file '{key}' in {scope_label}group '{group_name}' ({location} seal)");
 
         return Ok(());
     }
@@ -56,7 +54,13 @@ pub fn cmd_set(
         rpassword::prompt_password(format!("value for {key}: "))?
     } else {
         let mut buf = String::new();
-        stdin().take(64 * 1024).read_to_string(&mut buf)?;
+        stdin().take(MAX_STDIN_BUF_SIZE + 1).read_to_string(&mut buf)?;
+        if buf.len() as u64 > MAX_STDIN_BUF_SIZE {
+            anyhow::bail!(
+                "Text exceeds the maximum supported size of {} KB",
+                MAX_STDIN_BUF_SIZE / 1024
+            );
+        }
         buf.trim_end_matches(&['\r', '\n'][..]).to_string()
     });
     vault.set_entry(&master_keys, group, tag, key, &secret)?;
@@ -68,6 +72,6 @@ pub fn cmd_set(
         .map(|t| format!("tag '{t}' inside "))
         .unwrap_or_default();
 
-    eprintln!("sealed '{key}' in {scope_label} group '{group_name}' ({location} seal)");
+    eprintln!("sealed '{key}' in {scope_label}group '{group_name}' ({location} seal)");
     Ok(())
 }

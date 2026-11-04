@@ -1,14 +1,26 @@
 use crate::utils::{envelope, vault::Vault};
 use anyhow::Context;
 use anyhow::{anyhow, Result};
+use regex::Regex;
 use std::fs::File;
 use std::io::{self, Read};
 use std::path::Path;
+use std::sync::LazyLock;
+
+static GITHUB_USER_REGEX: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r"^[a-zA-Z0-9]+(-[a-zA-Z0-9]+)*$").unwrap());
+
+fn is_valid_github_username(username: &str) -> bool {
+    (1..=39).contains(&username.len()) && GITHUB_USER_REGEX.is_match(username)
+}
 
 // caps stdin and file inputs at 64KB, update if needed
 fn read_recipient_input(target: &str) -> Result<String> {
     // if start with @ fetch ssh keys from github
     if let Some(username) = target.strip_prefix('@') {
+        if !is_valid_github_username(username) {
+            anyhow::bail!("Invalid GitHub username '@{username}'");
+        }
         // calls curl to fetch GitHub keys
         let out = std::process::Command::new("curl")
             .args(["-sSfL", &format!("https://github.com/{username}.keys")])
@@ -20,12 +32,19 @@ fn read_recipient_input(target: &str) -> Result<String> {
         return Ok(String::from_utf8_lossy(&out.stdout).into_owned());
     }
     let mut buffer = String::new();
+    const MAX_INPUT_SIZE: usize = 64 * 1024;
     if target == "-" {
-        io::stdin().take(64 * 1024).read_to_string(&mut buffer)?;
+        io::stdin().take((MAX_INPUT_SIZE + 1) as u64).read_to_string(&mut buffer)?;
+        if buffer.len() > MAX_INPUT_SIZE {
+            anyhow::bail!("Recipient input exceeds maximum supported size of 64 KB");
+        }
     } else if Path::new(target).exists() {
         File::open(target)?
-            .take(64 * 1024)
+            .take((MAX_INPUT_SIZE + 1) as u64)
             .read_to_string(&mut buffer)?;
+        if buffer.len() > MAX_INPUT_SIZE {
+            anyhow::bail!("Recipient key file exceeds maximum supported size of 64 KB");
+        }
     } else {
         return Ok(target.to_string());
     }

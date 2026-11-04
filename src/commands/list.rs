@@ -1,6 +1,5 @@
 use crate::utils::vault::Vault;
 use anyhow::Result;
-use std::collections::BTreeSet;
 use std::io::{stdout, IsTerminal};
 
 pub fn cmd_list(
@@ -10,22 +9,34 @@ pub fn cmd_list(
     pref: Option<&str>,
 ) -> Result<()> {
     let vault = Vault::load(global, pref)?;
-    let group_name = vault.resolve_group_name(group)?;
-
-    let unique_keys: BTreeSet<String> = vault.list_all_keys(group, tag)?.into_iter().collect();
-
-    // Only show human-readable header when attached to an interactive terminal
+    let secrets = vault.list_secrets(group, tag)?;
     if stdout().is_terminal() {
-        let location = if vault.is_local() { "local" } else { "global" };
-        let header = match tag {
-            Some(t) => format!("# group: {group_name}, tag: {t} [{location}]"),
-            None => format!("# group: {group_name} [{location}]"),
+        let group_name = vault.resolve_group_name(group)?;
+        let header: String;
+        if vault.is_local() {
+            header = match tag {
+                Some(t) => format!("# tag: {t} [local]"),
+                None => format!("# [local]"),
+            };
+        } else {
+            header = match tag {
+                Some(t) => format!("# group: {group_name}, tag: {t} [global]"),
+                None => format!("# group: {group_name} [global]"),
+            };
         };
+
         eprintln!("{header}");
     }
-
-    for key in &unique_keys {
-        println!("{key}");
+    for s in secrets {
+        if stdout().is_terminal() {
+            if s.is_file {
+                println!("{} [file -> ${}]", s.name, s.env_name.unwrap_or_default());
+            } else {
+                println!("{} [text]", s.name);
+            }
+        } else {
+            println!("{}", s.name);
+        }
     }
     Ok(())
 }

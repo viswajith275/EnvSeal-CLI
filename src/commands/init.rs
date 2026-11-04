@@ -13,7 +13,7 @@ pub fn cmd_init(
     if local && global {
         anyhow::bail!("Cannot specify both --local and --global flags!");
     }
-
+    let local = !global; // Prefering local
     let target_path = Vault::resolve_path(local, global, pref)?;
 
     if target_path.exists() {

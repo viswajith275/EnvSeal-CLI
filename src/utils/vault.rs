@@ -1,13 +1,12 @@
 use super::token::{TokenKeyMaterial, TokenManager, TokenPayload};
 use super::{crypto, envelope};
 use anyhow::{anyhow, Context, Result};
-use base64::Engine;
 use directories::ProjectDirs;
 use ed25519_dalek::{Signature, Signer, SigningKey, Verifier, VerifyingKey};
 use fs2::FileExt;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use sha2::{Digest, Sha256};
-use std::collections::{BTreeMap, HashSet};
+use std::collections::BTreeMap;
 use std::env;
 use std::fmt;
 use std::fs::{self, File, OpenOptions};
@@ -18,7 +17,8 @@ use zeroize::{Zeroize, ZeroizeOnDrop, Zeroizing};
 
 pub const BASE_TAG: &str = "base";
 pub const LOCAL_GROUP_NAME: &str = "project";
-pub const MAX_SECRET_FILE_SIZE: u64 = 10 * 1024 * 1024;
+pub const MAX_SECRET_FILE_SIZE: u64 = 10 * 1024 * 1024; // 10 MB
+pub const ZSTD_MAGIC: [u8; 4] = [0x28, 0xB5, 0x2F, 0xFD];
 
 #[derive(Zeroize, ZeroizeOnDrop)]
 pub struct VaultKeys {
@@ -42,47 +42,133 @@ impl fmt::Debug for VaultKeys {
 pub struct Entry {
     pub nonce: Vec<u8>,
     pub ciphertext: Vec<u8>,
+    pub file_env: Option<String>,
+    pub file_name: Option<String>,
+    pub file_mode: Option<u32>,
 }
 
+// Support string format for text secrets and table format for file secrets
 impl Serialize for Entry {
-    fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
-        let val = format!(
-            "{}:{}",
-            hex::encode(&self.nonce),
-            hex::encode(&self.ciphertext)
-        );
-        serializer.serialize_str(&val)
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        if let Some(env) = &self.file_env {
+            use serde::ser::SerializeMap;
+            let mut len = 3;
+            if self.file_name.is_some() {
+                len += 1;
+            }
+            if self.file_mode.is_some() {
+                len += 1;
+            }
+            let mut map = serializer.serialize_map(Some(len))?;
+            map.serialize_entry("nonce", &hex::encode(&self.nonce))?;
+            map.serialize_entry("ciphertext", &hex::encode(&self.ciphertext))?;
+            map.serialize_entry("file_env", env)?;
+            if let Some(name) = &self.file_name {
+                map.serialize_entry("file_name", name)?;
+            }
+            if let Some(mode) = self.file_mode {
+                map.serialize_entry("file_mode", &mode)?;
+            }
+            map.end()
+        } else {
+            let val = format!(
+                "{}:{}",
+                hex::encode(&self.nonce),
+                hex::encode(&self.ciphertext)
+            );
+            serializer.serialize_str(&val)
+        }
     }
 }
 
+// Support both nonce:ciphertext and table format
 impl<'de> Deserialize<'de> for Entry {
-    fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
-        let s = String::deserialize(deserializer)?;
-        let (nonce_hex, cipher_hex) = s
-            .split_once(':')
-            .ok_or_else(|| serde::de::Error::custom("expected format 'nonce:ciphertext'"))?;
-        Ok(Self {
-            nonce: hex::decode(nonce_hex).map_err(serde::de::Error::custom)?,
-            ciphertext: hex::decode(cipher_hex).map_err(serde::de::Error::custom)?,
-        })
-    }
-}
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        use serde::de::{self, Visitor};
 
-#[derive(Serialize, Deserialize, Default, Clone, PartialEq, Eq, Debug)]
-pub struct FileMeta {
-    pub filename: String,
-    pub compression: String,
-    pub original_size: u64,
-    pub sha256: String,
-    pub env: String,
+        struct EntryVisitor;
+
+        impl<'de> Visitor<'de> for EntryVisitor {
+            type Value = Entry;
+
+            fn expecting(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
+                formatter.write_str("a string 'nonce:ciphertext' or a table with nonce, ciphertext, and optional file_env")
+            }
+
+            fn visit_str<E>(self, value: &str) -> Result<Self::Value, E>
+            where
+                E: de::Error,
+            {
+                let (nonce_hex, cipher_hex) = value
+                    .split_once(':')
+                    .ok_or_else(|| de::Error::custom("expected format 'nonce:ciphertext'"))?;
+                Ok(Entry {
+                    nonce: hex::decode(nonce_hex).map_err(de::Error::custom)?,
+                    ciphertext: hex::decode(cipher_hex).map_err(de::Error::custom)?,
+                    file_env: None,
+                    file_name: None,
+                    file_mode: None,
+                })
+            }
+
+            fn visit_map<M>(self, mut map: M) -> Result<Self::Value, M::Error>
+            where
+                M: de::MapAccess<'de>,
+            {
+                let mut nonce = None;
+                let mut ciphertext = None;
+                let mut file_env = None;
+                let mut file_name = None;
+                let mut file_mode = None;
+
+                while let Some(key) = map.next_key::<String>()? {
+                    match key.as_str() {
+                        "nonce" => {
+                            let val: String = map.next_value()?;
+                            nonce = Some(hex::decode(&val).map_err(de::Error::custom)?);
+                        }
+                        "ciphertext" => {
+                            let val: String = map.next_value()?;
+                            ciphertext = Some(hex::decode(&val).map_err(de::Error::custom)?);
+                        }
+                        "file_env" => {
+                            file_env = map.next_value()?;
+                        }
+                        "file_name" => {
+                            file_name = map.next_value()?;
+                        }
+                        "file_mode" => {
+                            file_mode = map.next_value()?;
+                        }
+                        _ => {
+                            let _: serde::de::IgnoredAny = map.next_value()?;
+                        }
+                    }
+                }
+
+                Ok(Entry {
+                    nonce: nonce.ok_or_else(|| de::Error::missing_field("nonce"))?,
+                    ciphertext: ciphertext.ok_or_else(|| de::Error::missing_field("ciphertext"))?,
+                    file_env,
+                    file_name,
+                    file_mode,
+                })
+            }
+        }
+
+        deserializer.deserialize_any(EntryVisitor)
+    }
 }
 
 #[derive(Serialize, Deserialize, Default, Clone, PartialEq, Eq, Debug)]
 pub struct Tag {
     pub entries: BTreeMap<String, Entry>,
-
-    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
-    pub files: BTreeMap<String, FileMeta>,
 }
 
 #[derive(Serialize, Deserialize, Default, Clone, PartialEq, Eq, Debug)]
@@ -90,9 +176,6 @@ pub struct Group {
     pub link: PathBuf,
     pub base: BTreeMap<String, Entry>,
     pub tags: BTreeMap<String, Tag>,
-
-    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
-    pub base_files: BTreeMap<String, FileMeta>,
 }
 
 mod hex_bytes {
@@ -133,6 +216,54 @@ struct SignableVault<'a> {
     pub signature: &'a [u8],
 }
 
+/// Represents the fully decrypted state of a secret
+#[derive(Clone, PartialEq, Eq, Debug)]
+pub enum DecryptedValue {
+    Text(Zeroizing<String>),
+    File {
+        env_name: String,
+        bytes: Zeroizing<Vec<u8>>,
+        file_name: Option<String>,
+        file_mode: Option<u32>,
+    },
+}
+
+/// Metadata for listing secrets
+pub struct SecretInfo {
+    pub name: String,
+    pub is_file: bool,
+    pub env_name: Option<String>,
+}
+
+impl Entry {
+    pub fn decrypt(&self, entry_key: &[u8; crypto::KEY_LEN]) -> Result<DecryptedValue> {
+        let pt_bytes = Zeroizing::new(crypto::decrypt(
+            entry_key,
+            &self.nonce,
+            &self.ciphertext,
+        )?);
+
+        if let Some(env_name) = &self.file_env {
+            let is_zstd = pt_bytes.len() >= 4 && pt_bytes[0..4] == ZSTD_MAGIC;
+            let final_bytes = if is_zstd {
+                Zeroizing::new(zstd::stream::decode_all(pt_bytes.as_slice())?)
+            } else {
+                pt_bytes
+            };
+            Ok(DecryptedValue::File {
+                env_name: env_name.clone(),
+                bytes: final_bytes,
+                file_name: self.file_name.clone(),
+                file_mode: self.file_mode,
+            })
+        } else {
+            let text = String::from_utf8(pt_bytes.to_vec())
+                .context("Decrypted value is not valid UTF-8")?;
+            Ok(DecryptedValue::Text(Zeroizing::new(text)))
+        }
+    }
+}
+
 impl Vault {
     fn signable_bytes(&self) -> Result<Vec<u8>> {
         let sign = SignableVault {
@@ -163,12 +294,63 @@ impl Vault {
         Ok(())
     }
 
+    pub fn decrypt_all(
+        &self,
+        master_dek: &[u8; crypto::KEY_LEN],
+        group: Option<&str>,
+        tag: Option<&str>,
+    ) -> Result<BTreeMap<String, DecryptedValue>> {
+        let group_name = self.resolve_group_name(group)?;
+        let active_tag = tag.unwrap_or(BASE_TAG);
+        let group_entry = self
+            .entries
+            .get(&group_name)
+            .ok_or_else(|| anyhow!("Group '{group_name}' not found"))?;
+
+        let base_scope_dek = crypto::derive_scope_dek(master_dek, &group_name, BASE_TAG);
+        let tag_scope_dek = if active_tag != BASE_TAG {
+            Some(crypto::derive_scope_dek(
+                master_dek,
+                &group_name,
+                active_tag,
+            ))
+        } else {
+            None
+        };
+
+        let mut target_entries = BTreeMap::new();
+        for (k, v) in &group_entry.base {
+            target_entries.insert(k.clone(), (v, BASE_TAG));
+        }
+        if active_tag != BASE_TAG {
+            if let Some(tag_entry) = group_entry.tags.get(active_tag) {
+                for (k, v) in &tag_entry.entries {
+                    target_entries.insert(k.clone(), (v, active_tag));
+                }
+            }
+        }
+
+        let mut results = BTreeMap::new();
+
+        for (name, (entry, entry_tag)) in target_entries {
+            let scope_dek = if entry_tag == BASE_TAG {
+                &base_scope_dek
+            } else {
+                tag_scope_dek.as_ref().unwrap()
+            };
+            let entry_key = crypto::derive_entry_key(scope_dek, &name);
+            results.insert(name, entry.decrypt(&entry_key)?);
+        }
+
+        Ok(results)
+    }
+
     pub fn decrypt_from_token(
         &self,
         group: Option<&str>,
         tag: Option<&str>,
         token_payload: &TokenPayload,
-    ) -> Result<BTreeMap<String, Zeroizing<String>>> {
+    ) -> Result<BTreeMap<String, DecryptedValue>> {
         let mut decrypted_map = BTreeMap::new();
         let group_name = self.resolve_group_name(group)?;
         let active_tag = tag.unwrap_or(BASE_TAG);
@@ -194,11 +376,9 @@ impl Vault {
             if let Some(derived_key_bytes) = keys_map.get(var_name) {
                 let mut entry_key = [0u8; crypto::KEY_LEN];
                 entry_key.copy_from_slice(derived_key_bytes.as_slice());
-                match crypto::decrypt(&entry_key, &entry.nonce, &entry.ciphertext) {
-                    Ok(pt_bytes) => {
-                        let plaintext = String::from_utf8(pt_bytes)
-                            .context("Decrypted value is not valid UTF-8")?;
-                        decrypted_map.insert(var_name.clone(), Zeroizing::new(plaintext));
+                match entry.decrypt(&entry_key) {
+                    Ok(dec_val) => {
+                        decrypted_map.insert(var_name.clone(), dec_val);
                     }
                     Err(_) => {
                         anyhow::bail!(
@@ -320,7 +500,6 @@ impl Vault {
                     link: PathBuf::new(),
                     base: BTreeMap::new(),
                     tags: BTreeMap::new(),
-                    base_files: BTreeMap::new(),
                 },
             );
         }
@@ -348,6 +527,7 @@ impl Vault {
             .read(true)
             .write(true)
             .create(true)
+            .truncate(true)
             .open(&lock_path)?;
         lock_file
             .lock_shared()
@@ -380,11 +560,12 @@ impl Vault {
 
     pub fn save(&self) -> Result<()> {
         let path = self.file_path.as_ref().context("Vault path not defined")?;
-        let lock_path = Self::lock_path(&path);
+        let lock_path = Self::lock_path(path);
         let lock_file = OpenOptions::new()
             .read(true)
             .write(true)
             .create(true)
+            .truncate(true)
             .open(&lock_path)?;
         lock_file.lock_exclusive()?;
 
@@ -461,6 +642,52 @@ impl Vault {
         Ok(())
     }
 
+    // Only used when merging file secrets
+    pub fn set_file_entry_raw(
+        &mut self,
+        keys: &VaultKeys,
+        group: Option<&str>,
+        tag: Option<&str>,
+        name: &str,
+        env_name: &str,
+        data: &[u8],
+        file_name: Option<String>,
+        file_mode: Option<u32>,
+    ) -> Result<()> {
+        let group_name = self.resolve_group_name(group)?;
+        let active_tag = tag.unwrap_or(BASE_TAG);
+        let group_entry = self.entries.entry(group_name.clone()).or_default();
+
+        let compressed = Zeroizing::new(zstd::stream::encode_all(data, 3)?);
+        let stored_bytes = if compressed.len() < data.len() {
+            compressed
+        } else {
+            Zeroizing::new(data.to_vec())
+        };
+
+        let scope_dek = crypto::derive_scope_dek(&keys.master_dek, &group_name, active_tag);
+        let entry_key = crypto::derive_entry_key(&scope_dek, name);
+        let (nonce, ciphertext) = crypto::encrypt(&entry_key, stored_bytes.as_slice())?;
+
+        let entry = Entry {
+            nonce: nonce.to_vec(),
+            ciphertext,
+            file_env: Some(env_name.to_string()),
+            file_name,
+            file_mode,
+        };
+
+        if active_tag == BASE_TAG {
+            group_entry.base.insert(name.to_string(), entry);
+        } else {
+            let tag_entry = group_entry.tags.entry(active_tag.to_string()).or_default();
+            tag_entry.entries.insert(name.to_string(), entry);
+        }
+
+        self.seal_integrity(&keys.signing_key)?;
+        Ok(())
+    }
+
     pub fn set_entry(
         &mut self,
         keys: &VaultKeys,
@@ -470,26 +697,189 @@ impl Vault {
         value: &str,
     ) -> Result<()> {
         let group_name = self.resolve_group_name(group)?;
+        let active_tag = tag.unwrap_or(BASE_TAG);
         let group_entry = self.entries.entry(group_name.clone()).or_default();
 
-        let active_tag = tag.unwrap_or(BASE_TAG);
-        let scope_dek = crypto::derive_scope_dek(&keys.master_dek, &group_name, active_tag);
-
-        if group_entry.base_files.contains_key(name)
-            || group_entry
+        // Check for Type Mismatch in the current scope
+        let existing_in_scope = if active_tag == BASE_TAG {
+            group_entry.base.get(name)
+        } else {
+            group_entry
                 .tags
-                .values()
-                .any(|t| t.files.contains_key(name))
-        {
-            anyhow::bail!("'{name}' is a file secret, Remove it before overwriting");
+                .get(active_tag)
+                .and_then(|t| t.entries.get(name))
+                .or_else(|| group_entry.base.get(name))
+        };
+
+        if let Some(existing) = existing_in_scope {
+            if existing.file_env.is_some() {
+                anyhow::bail!(
+                    "'{name}' is currently a file secret, Use 'envseal remove' to delete it before setting it as a text secret"
+                );
+            }
         }
 
+        let mut existing_bindings: BTreeMap<&String, Option<&String>> = BTreeMap::new();
+        for (k, v) in &group_entry.base {
+            existing_bindings.insert(k, v.file_env.as_ref());
+        }
+        if active_tag != BASE_TAG {
+            if let Some(t) = group_entry.tags.get(active_tag) {
+                for (k, v) in &t.entries {
+                    existing_bindings.insert(k, v.file_env.as_ref());
+                }
+            }
+        }
+
+        for (k, target_env) in existing_bindings {
+            if let Some(t_env) = target_env {
+                if t_env == name {
+                    anyhow::bail!(
+                        "Collision: '{name}' is already the target env variable for file secret '{k}'"
+                    );
+                }
+            }
+        }
+
+        let scope_dek = crypto::derive_scope_dek(&keys.master_dek, &group_name, active_tag);
         let entry_key = crypto::derive_entry_key(&scope_dek, name);
         let (nonce, ciphertext) = crypto::encrypt(&entry_key, value.as_bytes())?;
 
         let entry = Entry {
             nonce: nonce.to_vec(),
             ciphertext,
+            file_env: None,
+            file_name: None,
+            file_mode: None,
+        };
+
+        if active_tag == BASE_TAG {
+            group_entry.base.insert(name.to_string(), entry);
+        } else {
+            let tag_entry = group_entry.tags.entry(active_tag.to_string()).or_default();
+            tag_entry.entries.insert(name.to_string(), entry);
+        }
+
+        self.seal_integrity(&keys.signing_key)?;
+        Ok(())
+    }
+
+    pub fn set_file_entry(
+        &mut self,
+        keys: &VaultKeys,
+        group: Option<&str>,
+        tag: Option<&str>,
+        name: &str,
+        env_name: &str,
+        path: &Path,
+    ) -> Result<()> {
+        if name.is_empty()
+            || name.len() > 128
+            || !name
+                .chars()
+                .all(|c| c.is_ascii_alphanumeric() || matches!(c, '_' | '-' | '.'))
+        {
+            anyhow::bail!("Invalid file identifier: '{name}'");
+        }
+
+        if !super::is_valid_env_key(env_name) {
+            anyhow::bail!("Invalid environment variable name: '{env_name}'");
+        }
+
+        let group_name = self.resolve_group_name(group)?;
+        let group_entry = self.entries.entry(group_name.clone()).or_default();
+        let active_tag = tag.unwrap_or(BASE_TAG);
+
+        // Strict collision check for both key name and target env var
+        let existing_in_scope = if active_tag == BASE_TAG {
+            group_entry.base.get(name)
+        } else {
+            group_entry
+                .tags
+                .get(active_tag)
+                .and_then(|t| t.entries.get(name))
+                .or_else(|| group_entry.base.get(name))
+        };
+
+        if let Some(existing) = existing_in_scope {
+            if existing.file_env.is_none() {
+                anyhow::bail!(
+                    "'{name}' is currently a text secret, Use 'envseal remove' to delete it before setting it as a file secret."
+                );
+            }
+        }
+
+        let mut existing_bindings: BTreeMap<&String, Option<&String>> = BTreeMap::new();
+        for (k, v) in &group_entry.base {
+            existing_bindings.insert(k, v.file_env.as_ref());
+        }
+        if active_tag != BASE_TAG {
+            if let Some(t) = group_entry.tags.get(active_tag) {
+                for (k, v) in &t.entries {
+                    existing_bindings.insert(k, v.file_env.as_ref());
+                }
+            }
+        }
+
+        for (k, target_env) in existing_bindings {
+            if k != name {
+                if k == env_name {
+                    anyhow::bail!(
+                        "Collision: target env var '{env_name}' matches existing secret '{k}'"
+                    );
+                }
+                if let Some(t_env) = target_env {
+                    if t_env == env_name {
+                        anyhow::bail!("Collision: target env var '{env_name}' is already used by file secret '{k}'");
+                    }
+                }
+            }
+        }
+
+        let mut original = Zeroizing::new(Vec::new());
+        File::open(path)?
+            .take(MAX_SECRET_FILE_SIZE + 1)
+            .read_to_end(&mut original)?;
+
+        if original.len() as u64 > MAX_SECRET_FILE_SIZE {
+            anyhow::bail!(
+                "File exceeds the maximum supported size of {} MB",
+                MAX_SECRET_FILE_SIZE / (1024 * 1024)
+            );
+        }
+
+        // Compress only when the result is smaller than original
+        let compressed = Zeroizing::new(zstd::stream::encode_all(original.as_slice(), 3)?);
+        let stored_bytes = if compressed.len() < original.len() {
+            compressed
+        } else {
+            original
+        };
+
+        let scope_dek = crypto::derive_scope_dek(&keys.master_dek, &group_name, active_tag);
+        let entry_key = crypto::derive_entry_key(&scope_dek, name);
+        let (nonce, ciphertext) = crypto::encrypt(&entry_key, stored_bytes.as_slice())?;
+
+        let file_name = path
+            .file_name()
+            .map(|n| n.to_string_lossy().to_string());
+
+        #[cfg(unix)]
+        let file_mode = {
+            use std::os::unix::fs::PermissionsExt;
+            fs::metadata(path)
+                .ok()
+                .map(|m| if m.permissions().mode() & 0o111 != 0 { 0o700 } else { 0o600 })
+        };
+        #[cfg(not(unix))]
+        let file_mode = None;
+
+        let entry = Entry {
+            nonce: nonce.to_vec(),
+            ciphertext,
+            file_env: Some(env_name.to_string()),
+            file_name,
+            file_mode,
         };
 
         if active_tag == BASE_TAG {
@@ -517,29 +907,37 @@ impl Vault {
             .ok_or_else(|| anyhow!("No group named '{group_name}'"))?;
         let active_tag = tag.unwrap_or(BASE_TAG);
 
-        if active_tag != BASE_TAG {
-            if let Some(tag_entry) = group_entry.tags.get(active_tag) {
-                if let Some(entry) = tag_entry.entries.get(name) {
-                    let scope_dek = crypto::derive_scope_dek(master_dek, &group_name, active_tag);
-                    let entry_key = crypto::derive_entry_key(&scope_dek, name);
-                    let pt_bytes = crypto::decrypt(&entry_key, &entry.nonce, &entry.ciphertext)?;
-                    let pt = String::from_utf8(pt_bytes).map_err(|_| anyhow!("Invalid UTF-8"))?;
-                    return Ok(Zeroizing::new(pt));
-                }
+        let (entry, entry_tag) = if active_tag != BASE_TAG {
+            if let Some(t_entry) = group_entry
+                .tags
+                .get(active_tag)
+                .and_then(|t| t.entries.get(name))
+            {
+                (t_entry, active_tag)
+            } else if let Some(b_entry) = group_entry.base.get(name) {
+                (b_entry, BASE_TAG)
+            } else {
+                anyhow::bail!("No entry '{name}' found in tag '{active_tag}' or base");
             }
+        } else {
+            (
+                group_entry.base.get(name).ok_or_else(|| {
+                    anyhow!("No entry '{name}' found in tag '{active_tag}' or base")
+                })?,
+                BASE_TAG,
+            )
+        };
+
+        if entry.file_env.is_some() {
+            anyhow::bail!("'{name}' is a file secret");
         }
 
-        if let Some(entry) = group_entry.base.get(name) {
-            let base_scope_dek = crypto::derive_scope_dek(master_dek, &group_name, BASE_TAG);
-            let entry_key = crypto::derive_entry_key(&base_scope_dek, name);
-            let pt_bytes = crypto::decrypt(&entry_key, &entry.nonce, &entry.ciphertext)?;
-            let pt = String::from_utf8(pt_bytes).map_err(|_| anyhow!("Invalid UTF-8"))?;
-            return Ok(Zeroizing::new(pt));
-        }
+        let scope_dek = crypto::derive_scope_dek(master_dek, &group_name, entry_tag);
+        let entry_key = crypto::derive_entry_key(&scope_dek, name);
+        let pt_bytes = crypto::decrypt(&entry_key, &entry.nonce, &entry.ciphertext)?;
+        let pt = String::from_utf8(pt_bytes).map_err(|_| anyhow!("Invalid UTF-8"))?;
 
-        Err(anyhow!(
-            "No entry '{name}' found in tag '{active_tag}' or base"
-        ))
+        Ok(Zeroizing::new(pt))
     }
 
     pub fn remove_entry(
@@ -555,7 +953,7 @@ impl Vault {
 
         if tag.is_none() && name_str.is_empty() {
             if self.is_local() {
-                anyhow::bail!("Cannot remove root group in local vault. Specify a key to delete!!");
+                anyhow::bail!("Cannot remove root group in local vault, Specify a key to delete!!");
             }
             let removed_group = self
                 .entries
@@ -596,8 +994,6 @@ impl Vault {
         Ok(())
     }
 
-    /// Generates granular entry keys for a token.
-    /// Base variables are always included and overridden by values in the specified tag.
     pub fn generate_token_keys(
         &self,
         master_dek: &[u8; crypto::KEY_LEN],
@@ -656,69 +1052,38 @@ impl Vault {
 
     pub fn rotate_dek(&mut self, keys: &VaultKeys) -> Result<()> {
         let new_master_dek = crypto::generate_dek();
-        let mut base_pts = BTreeMap::new();
-        let mut tag_pts = BTreeMap::new();
-
-        for (g_name, g_entry) in &self.entries {
-            let mut g_base = BTreeMap::new();
-            for k in g_entry.base.keys() {
-                g_base.insert(
-                    k.clone(),
-                    self.get_entry(&keys.master_dek, Some(g_name), None, k)?,
-                );
-            }
-            base_pts.insert(g_name.clone(), g_base);
-
-            let mut g_tags = BTreeMap::new();
-            for (t_name, t_entry) in &g_entry.tags {
-                let mut t_map = BTreeMap::new();
-                for k in t_entry.entries.keys() {
-                    t_map.insert(
-                        k.clone(),
-                        self.get_entry(&keys.master_dek, Some(g_name), Some(t_name), k)?,
-                    );
-                }
-                g_tags.insert(t_name.clone(), t_map);
-            }
-            tag_pts.insert(g_name.clone(), g_tags);
-        }
-
         let mut payload = [0u8; 64];
         payload[..32].copy_from_slice(&*new_master_dek);
         payload[32..].copy_from_slice(keys.signing_key.to_bytes().as_slice());
         self.envelope = envelope::wrap_envelope(&payload, &self.recipients)?;
 
         for (g_name, g_entry) in self.entries.iter_mut() {
-            if let Some(b_map) = base_pts.remove(g_name) {
-                let scope_dek = crypto::derive_scope_dek(&new_master_dek, g_name, BASE_TAG);
-                for (k, v) in b_map {
-                    let entry_key = crypto::derive_entry_key(&scope_dek, &k);
-                    let (n, c) = crypto::encrypt(&entry_key, v.as_bytes())?;
-                    g_entry.base.insert(
-                        k,
-                        Entry {
-                            nonce: n.to_vec(),
-                            ciphertext: c,
-                        },
-                    );
-                }
+            // Rotate base
+            let base_scope_dek = crypto::derive_scope_dek(&new_master_dek, g_name, BASE_TAG);
+            for (k, entry) in g_entry.base.iter_mut() {
+                let old_scope_dek = crypto::derive_scope_dek(&keys.master_dek, g_name, BASE_TAG);
+                let old_entry_key = crypto::derive_entry_key(&old_scope_dek, k);
+                let pt_bytes = crypto::decrypt(&old_entry_key, &entry.nonce, &entry.ciphertext)?;
+
+                let new_entry_key = crypto::derive_entry_key(&base_scope_dek, k);
+                let (n, c) = crypto::encrypt(&new_entry_key, &pt_bytes)?;
+                entry.nonce = n.to_vec();
+                entry.ciphertext = c;
             }
-            if let Some(mut t_map) = tag_pts.remove(g_name) {
-                for (t_name, t_entry) in g_entry.tags.iter_mut() {
-                    if let Some(k_map) = t_map.remove(t_name) {
-                        let scope_dek = crypto::derive_scope_dek(&new_master_dek, g_name, t_name);
-                        for (k, v) in k_map {
-                            let entry_key = crypto::derive_entry_key(&scope_dek, &k);
-                            let (n, c) = crypto::encrypt(&entry_key, v.as_bytes())?;
-                            t_entry.entries.insert(
-                                k,
-                                Entry {
-                                    nonce: n.to_vec(),
-                                    ciphertext: c,
-                                },
-                            );
-                        }
-                    }
+
+            // Rotate tags
+            for (t_name, t_entry) in g_entry.tags.iter_mut() {
+                let tag_scope_dek = crypto::derive_scope_dek(&new_master_dek, g_name, t_name);
+                for (k, entry) in t_entry.entries.iter_mut() {
+                    let old_scope_dek = crypto::derive_scope_dek(&keys.master_dek, g_name, t_name);
+                    let old_entry_key = crypto::derive_entry_key(&old_scope_dek, k);
+                    let pt_bytes =
+                        crypto::decrypt(&old_entry_key, &entry.nonce, &entry.ciphertext)?;
+
+                    let new_entry_key = crypto::derive_entry_key(&tag_scope_dek, k);
+                    let (n, c) = crypto::encrypt(&new_entry_key, &pt_bytes)?;
+                    entry.nonce = n.to_vec();
+                    entry.ciphertext = c;
                 }
             }
         }
@@ -726,142 +1091,45 @@ impl Vault {
         Ok(())
     }
 
-    pub fn list_all_keys(&self, group: Option<&str>, tag: Option<&str>) -> Result<Vec<String>> {
+    /// Lists secrets with rich metadata (is_file, env_name)
+    pub fn list_secrets(&self, group: Option<&str>, tag: Option<&str>) -> Result<Vec<SecretInfo>> {
         let group_name = self.resolve_group_name(group)?;
         let group_entry = self
             .entries
             .get(&group_name)
             .ok_or_else(|| anyhow!("No group named '{group_name}'"))?;
         let active_tag = tag.unwrap_or(BASE_TAG);
-        let mut keys: HashSet<String> = group_entry.base.keys().cloned().collect();
 
-        if active_tag != BASE_TAG {
-            if let Some(tag_entry) = group_entry.tags.get(active_tag) {
-                for k in tag_entry.entries.keys() {
-                    keys.insert(k.clone());
-                }
-            }
-        }
-        let mut sorted_keys: Vec<String> = keys.into_iter().collect();
-        sorted_keys.sort();
-        Ok(sorted_keys)
-    }
+        let mut secrets = BTreeMap::new();
 
-    pub fn set_file_entry(
-        &mut self,
-        keys: &VaultKeys,
-        group: Option<&str>,
-        tag: Option<&str>,
-        name: &str,
-        env_name: &str,
-        filename: &str,
-        path: &Path,
-    ) -> Result<()> {
-        if name.is_empty()
-            || name.len() > 128
-            || !name
-                .chars()
-                .all(|c| c.is_ascii_alphanumeric() || matches!(c, '_' | '-' | '.'))
-        {
-            anyhow::bail!("Invalid file identifier: '{name}'");
-        }
-
-        if !super::is_valid_env_key(env_name) {
-            anyhow::bail!("Invalid environment variable name: '{env_name}'");
-        }
-
-        if filename.is_empty()
-            || filename == "."
-            || filename == ".."
-            || filename.contains('/')
-            || filename.contains('\\')
-        {
-            anyhow::bail!("Invalid filename");
-        }
-
-        let mut original = Zeroizing::new(Vec::new());
-
-        File::open(path)?
-            .take(MAX_SECRET_FILE_SIZE + 1)
-            .read_to_end(&mut original)?;
-
-        if original.len() as u64 > MAX_SECRET_FILE_SIZE {
-            anyhow::bail!(
-                "File exceeds the maximum supported size of {} MB",
-                MAX_SECRET_FILE_SIZE / (1024 * 1024)
+        // Base
+        for (k, v) in &group_entry.base {
+            secrets.insert(
+                k.clone(),
+                SecretInfo {
+                    name: k.clone(),
+                    is_file: v.file_env.is_some(),
+                    env_name: v.file_env.clone(),
+                },
             );
         }
 
-        let group_name = self.resolve_group_name(group)?;
-        let active_tag = tag.unwrap_or(BASE_TAG);
-
-        // A file identifier must not collide with an ordinary text secret
-        if let Some(existing) = self.entries.get(&group_name) {
-            let conflicts_with_text = (existing.base.contains_key(name)
-                && !existing.base_files.contains_key(name))
-                || existing
-                    .tags
-                    .values()
-                    .any(|t| t.entries.contains_key(name) && !t.files.contains_key(name));
-
-            if conflicts_with_text {
-                anyhow::bail!("'{name}' already exists as a normal secret!");
+        // Tag (overrides base)
+        if active_tag != BASE_TAG {
+            if let Some(tag_entry) = group_entry.tags.get(active_tag) {
+                for (k, v) in &tag_entry.entries {
+                    secrets.insert(
+                        k.clone(),
+                        SecretInfo {
+                            name: k.clone(),
+                            is_file: v.file_env.is_some(),
+                            env_name: v.file_env.clone(),
+                        },
+                    );
+                }
             }
         }
 
-        // Compress only when the result is smaller than original
-        let compressed = Zeroizing::new(zstd::stream::encode_all(original.as_slice(), 3)?);
-
-        let stored_bytes = Zeroizing::new(if compressed.len() < original.len() {
-            compressed.to_vec()
-        } else {
-            original.to_vec()
-        });
-
-        let compression = if compressed.len() < original.len() {
-            "zstd"
-        } else {
-            "none"
-        };
-
-        // Same format as enviornment variables
-        let encoded = Zeroizing::new(
-            base64::engine::general_purpose::STANDARD.encode(stored_bytes.as_slice()),
-        );
-
-        let scope_dek = crypto::derive_scope_dek(&keys.master_dek, &group_name, active_tag);
-
-        let entry_key = crypto::derive_entry_key(&scope_dek, name);
-
-        let (nonce, ciphertext) = crypto::encrypt(&entry_key, encoded.as_bytes())?;
-
-        let entry = Entry {
-            nonce: nonce.to_vec(),
-            ciphertext: ciphertext,
-        };
-
-        let metadata = FileMeta {
-            filename: filename.to_string(),
-            env: env_name.to_string(),
-            compression: compression.to_string(),
-            original_size: original.len() as u64,
-            sha256: hex::encode(Sha256::digest(original)),
-        };
-
-        let group_entry = self.entries.entry(group_name).or_default();
-
-        if active_tag == BASE_TAG {
-            group_entry.base.insert(name.to_string(), entry);
-            group_entry.base_files.insert(name.to_string(), metadata);
-        } else {
-            let tag_entry = group_entry.tags.entry(active_tag.to_string()).or_default();
-
-            tag_entry.entries.insert(name.to_string(), entry);
-            tag_entry.files.insert(name.to_string(), metadata);
-        }
-
-        self.seal_integrity(&keys.signing_key)?;
-
-        Ok(())
+        Ok(secrets.into_values().collect())
     }
 }

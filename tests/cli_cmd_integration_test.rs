@@ -55,6 +55,9 @@ fn create_fixture_vault(
             Entry {
                 nonce: n.to_vec(),
                 ciphertext: c,
+                file_env: None,
+                file_name: None,
+                file_mode: None,
             },
         );
     }
@@ -65,7 +68,6 @@ fn create_fixture_vault(
             link: PathBuf::new(),
             base: base_map,
             tags: BTreeMap::new(),
-            base_files: BTreeMap::new(),
         },
     );
 
@@ -149,7 +151,7 @@ fn test_cli_zero_trust_token_read_and_export_flow() {
         .arg(&token_file)
         .assert()
         .failure()
-        .stderr(predicate::str::contains("lacks permission to decrypt it"));
+        .stderr(predicate::str::contains("No entry named 'INTERNAL_TOKEN' found"));
 
     let export_dest = temp_path.join("exported.env");
     let mut export_cmd = envseal_cmd(temp_path);
@@ -1107,4 +1109,98 @@ fn test_cli_offline_token_with_global_overrides() {
         .stdout(predicate::str::contains("PROJ=EnvSealApp"))
         // Overridden by personal global credentials
         .stdout(predicate::str::contains("AWS=AKIA_MY_PERSONAL_SANDBOX_KEY"));
+}
+
+#[test]
+fn test_cli_init_without_flags_defaults_to_local_vault() {
+    let temp = tempdir().expect("Failed to create tempdir");
+    let temp_path = temp.path();
+
+    let mut id_cmd = envseal_cmd(temp_path);
+    let output = id_cmd.arg("recipient").arg("id").output().unwrap();
+    let recipient_pub = String::from_utf8(output.stdout).unwrap().trim().to_string();
+
+    // Run `envseal init` with neither --local nor --global
+    let mut init_cmd = envseal_cmd(temp_path);
+    init_cmd
+        .arg("init")
+        .arg("-r")
+        .arg(&recipient_pub)
+        .assert()
+        .success();
+
+    // Verify .envseal was created in the local directory
+    assert!(temp_path.join(".envseal").exists());
+
+    // Verify we can set and get secrets in this local vault
+    let mut set_cmd = envseal_cmd(temp_path);
+    set_cmd
+        .arg("set")
+        .arg("LOCAL_KEY")
+        .write_stdin("local_val")
+        .assert()
+        .success();
+
+    let mut get_cmd = envseal_cmd(temp_path);
+    get_cmd
+        .arg("get")
+        .arg("LOCAL_KEY")
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("LOCAL_KEY: local_val"));
+}
+
+#[test]
+fn test_cli_recipient_github_username_sanitization() {
+    let temp = tempdir().expect("Failed to create tempdir");
+    let temp_path = temp.path();
+
+    let mut id_cmd = envseal_cmd(temp_path);
+    let output = id_cmd.arg("recipient").arg("id").output().unwrap();
+    let recipient_pub = String::from_utf8(output.stdout).unwrap().trim().to_string();
+
+    let mut init_cmd = envseal_cmd(temp_path);
+    init_cmd
+        .args(["init", "-l", "-r", &recipient_pub])
+        .assert()
+        .success();
+
+    // Invalid GitHub usernames with path traversal or illegal chars must be rejected
+    for invalid in &["@../evil-path", "@invalid?user", "@-starts-with-dash", "@toolong-username-over-39-chars-should-be-rejected-immediately"] {
+        let mut add_cmd = envseal_cmd(temp_path);
+        add_cmd
+            .args(["recipient", "add", invalid])
+            .assert()
+            .failure()
+            .stderr(predicate::str::contains("Invalid GitHub username"));
+    }
+}
+
+#[test]
+fn test_cli_stdin_oversized_secret_rejected() {
+    let temp = tempdir().expect("Failed to create tempdir");
+    let temp_path = temp.path();
+
+    let mut id_cmd = envseal_cmd(temp_path);
+    let output = id_cmd.arg("recipient").arg("id").output().unwrap();
+    let recipient_pub = String::from_utf8(output.stdout).unwrap().trim().to_string();
+
+    let mut init_cmd = envseal_cmd(temp_path);
+    init_cmd
+        .args(["init", "-l", "-r", &recipient_pub])
+        .assert()
+        .success();
+
+    // 65 KB stdin (exceeding 64 KB limit)
+    let oversized = "A".repeat(65 * 1024);
+    let mut set_cmd = envseal_cmd(temp_path);
+    set_cmd
+        .arg("set")
+        .arg("OVERSIZED_SECRET")
+        .write_stdin(oversized)
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains(
+            "Text exceeds the maximum supported size of 64 KB",
+        ));
 }

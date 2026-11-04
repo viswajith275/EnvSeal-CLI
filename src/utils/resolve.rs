@@ -1,12 +1,13 @@
+use crate::utils::vault::DecryptedValue;
+
 use super::token::TokenManager;
 use super::unlock;
 use super::vault::{Vault, BASE_TAG};
-use anyhow::{anyhow, Context, Result};
+use anyhow::{anyhow, Result};
 use std::collections::BTreeMap;
 use std::fs;
 use std::io::{self, Read};
 use std::path::Path;
-use zeroize::Zeroizing;
 
 #[derive(Debug, Clone, Default)]
 pub struct OverrideVals<'a> {
@@ -52,7 +53,7 @@ pub fn load_token(cli_token: Option<&str>) -> Result<Option<String>> {
     Ok(None)
 }
 
-/// Universally resolves variables, seamlessly switching between Token and Password modes.
+/// Universally resolves variables, seamlessly switching between Token and Age
 pub fn resolve_environment(
     vault: &Vault,
     group: Option<&str>,
@@ -60,7 +61,7 @@ pub fn resolve_environment(
     token: Option<&str>,
     allow_env: bool,
     overrides: Option<&OverrideVals>,
-) -> Result<BTreeMap<String, Zeroizing<String>>> {
+) -> Result<BTreeMap<String, DecryptedValue>> {
     let is_override_active = overrides.is_some_and(|o| o.is_active());
 
     if is_override_active && !vault.is_local() {
@@ -84,15 +85,7 @@ pub fn resolve_environment(
     } else {
         let active_tag = tag.unwrap_or(BASE_TAG);
         let master_keys = unlock::sudo_unlock(vault, None, allow_env)?;
-        let keys = vault.list_all_keys(group, Some(active_tag))?;
-        let mut decrypted = BTreeMap::new();
-        for key in keys {
-            let value = vault
-                .get_entry(&master_keys.master_dek, group, Some(active_tag), &key)
-                .with_context(|| format!("Failed to decrypt secret '{key}'!!"))?;
-            decrypted.insert(key, value);
-        }
-        decrypted
+        vault.decrypt_all(&master_keys.master_dek, group, Some(active_tag))?
     };
 
     if let Some(vals) = overrides {
@@ -105,7 +98,7 @@ pub fn resolve_environment(
 }
 
 fn apply_global_overrides(
-    decrypted_envs: &mut BTreeMap<String, Zeroizing<String>>,
+    decrypted_envs: &mut BTreeMap<String, DecryptedValue>,
     vals: &OverrideVals,
     allow_env: bool,
 ) -> Result<()> {
@@ -120,20 +113,17 @@ fn apply_global_overrides(
 
     let target_tag = vals.global_tag.unwrap_or(BASE_TAG);
     let master_keys = unlock::sudo_unlock(&global_vault, Some("global overrides"), allow_env)?;
+
+    let mut available_globals = global_vault.decrypt_all(
+        &master_keys.master_dek,
+        Some(&target_group),
+        Some(target_tag),
+    )?;
     let mut override_count = 0;
 
     if vals.with_global {
         // fetch all keys and override local keys
-        let available_keys = global_vault.list_all_keys(Some(&target_group), Some(target_tag))?;
-        for key in available_keys {
-            let val = global_vault
-                .get_entry(
-                    &master_keys.master_dek,
-                    Some(&target_group),
-                    Some(target_tag),
-                    &key,
-                )
-                .with_context(|| format!("Failed to decrypt global secret '{key}'"))?;
+        for (key, val) in available_globals {
             decrypted_envs.insert(key, val);
             override_count += 1;
         }
@@ -144,21 +134,14 @@ fn apply_global_overrides(
             if key.is_empty() {
                 continue;
             }
-            match global_vault.get_entry(
-                &master_keys.master_dek,
-                Some(&target_group),
-                Some(target_tag),
-                key,
-            ) {
-                Ok(val) => {
-                    decrypted_envs.insert(key.to_string(), val);
-                    override_count += 1;
-                }
-                Err(_) => {
-                    eprintln!(
+
+            if let Some(val) = available_globals.remove(key) {
+                decrypted_envs.insert(key.to_string(), val);
+                override_count += 1;
+            } else {
+                eprintln!(
                             "Warning: Override key '{key}' was not found in global vault (group: '{target_group}', tag: '{target_tag}'). Skipping...!!!"
                         );
-                }
             }
         }
     }

@@ -5,7 +5,7 @@ use std::path::PathBuf;
 #[command(
     name = "envseal",
     about = "Encrypted vault for secrets and API keys stop committing plaintext .env files.",
-    version = "v6.2.1",
+    version = "v6.3.0",
     propagate_version = true
 )]
 pub struct Cli {
@@ -215,6 +215,10 @@ pub enum Commands {
         /// Offline token string, path to token file, or '-' for stdin
         #[arg(long)]
         token: Option<String>,
+
+        /// Output path for decrypting files
+        #[arg(short, long, value_hint = ValueHint::FilePath)]
+        out: Option<PathBuf>,
 
         /// Key name to retrieve
         key: String,

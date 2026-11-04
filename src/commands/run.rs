@@ -1,6 +1,8 @@
 use crate::cli::OverrideArgs;
-use crate::utils::{git, resolve, vault::Vault};
+use crate::utils::vault::DecryptedValue;
+use crate::utils::{git, resolve, vault::Vault, ShredOnDrop};
 use anyhow::{Context, Result};
+use std::io::Write;
 use std::process::Command;
 
 pub fn cmd_run(
@@ -62,13 +64,74 @@ pub fn cmd_run(
 
     child.args(&command[1..]);
 
-    for (k, v) in env_vars {
-        child.env(k, v.as_str());
+    let mut active_temp_files = Vec::new();
+
+    for (key, dec_val) in env_vars {
+        match dec_val {
+            DecryptedValue::Text(val) => {
+                child.env(key, val.as_str()); // Normal insertion
+            }
+            DecryptedValue::File {
+                env_name,
+                bytes,
+                file_name,
+                file_mode,
+            } => {
+                let suffix = file_name
+                    .as_deref()
+                    .and_then(|name| std::path::Path::new(name).extension())
+                    .map(|ext| format!(".{}", ext.to_string_lossy()))
+                    .unwrap_or_default();
+
+                let mut builder = tempfile::Builder::new();
+                builder.prefix(".envseal_");
+                if !suffix.is_empty() {
+                    builder.suffix(&suffix);
+                }
+
+                let mut temp = builder
+                    .tempfile()
+                    .context("Failed to allocate secure temporary file for secret")?;
+
+                #[cfg(unix)]
+                {
+                    use std::os::unix::fs::PermissionsExt;
+                    let mode = file_mode.unwrap_or(0o600);
+                    let _ = std::fs::set_permissions(
+                        temp.path(),
+                        std::fs::Permissions::from_mode(mode),
+                    );
+                }
+
+                temp.write_all(&bytes)
+                    .context("Failed to write decrypted file content to temporary secret file")?;
+                temp.flush()?;
+
+                child.env(env_name, temp.path()); // Path insertion
+                active_temp_files.push(ShredOnDrop(temp));
+            }
+        }
     }
 
     let status = child
         .status()
-        .with_context(|| format!("Failed to execute command '{}'", &command[0]))?;
+        .with_context(|| format!("Failed to execute command '{}'", command[0]))?;
 
-    Ok(status.code().unwrap_or(1) as u8)
+    drop(active_temp_files);
+
+    #[cfg(unix)]
+    let exit_code = {
+        use std::os::unix::process::ExitStatusExt;
+        if let Some(code) = status.code() {
+            code as u8
+        } else if let Some(sig) = status.signal() {
+            (128 + sig) as u8
+        } else {
+            1
+        }
+    };
+    #[cfg(not(unix))]
+    let exit_code = status.code().unwrap_or(1) as u8;
+
+    Ok(exit_code)
 }

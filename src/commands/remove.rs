@@ -24,7 +24,7 @@ pub fn cmd_remove(
         stdin().read_line(&mut input)?;
 
         if !matches!(input.trim().to_ascii_lowercase().as_str(), "y" | "yes") {
-            println!("Aborted by user!!");
+            eprintln!("Aborted by user.");
             return Ok(());
         }
     }

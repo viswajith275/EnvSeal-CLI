@@ -1,6 +1,6 @@
 [package]
 name = "envseal"
-version = "6.2.1"
+version = "6.3.0"
 edition = "2021"
 
 [dependencies]
@@ -27,6 +27,7 @@ tempfile = "3"
 hex = "0.4.3"
 toml = "1.1.5"
 age = { version = "0.12.1", features = ["armor", "cli-common", "ssh"] }
+regex = "1.13.1"
 
 [dev-dependencies]
 serial_test = "3"

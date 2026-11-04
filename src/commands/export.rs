@@ -1,5 +1,6 @@
 use crate::cli::OverrideArgs;
 use crate::utils::format_env_value;
+use crate::utils::vault::DecryptedValue;
 use crate::utils::{resolve, vault::Vault};
 use anyhow::{Context, Result};
 use std::collections::HashSet;
@@ -69,11 +70,19 @@ pub fn cmd_export(
     }
 
     let mut buffer = String::new();
+    let mut exported_count = 0;
     for (key, value) in &decrypted_envs {
-        buffer.push_str(key);
-        buffer.push('=');
-        buffer.push_str(&format_env_value(value));
-        buffer.push('\n');
+        match value {
+            DecryptedValue::Text(val) => {
+                buffer.push_str(&format!("{}={}\n", key, format_env_value(val)));
+                exported_count += 1;
+            }
+            DecryptedValue::File { env_name, .. } => {
+                eprintln!(
+                    "Warning: Skipping file secret '{key}' (${env_name}), Plaintext .env export only supports text variables"
+                );
+            }
+        }
     }
 
     if is_stdout {
@@ -105,7 +114,7 @@ pub fn cmd_export(
 
     eprintln!(
         "Successfully exported {} variable(s) to '{}'",
-        decrypted_envs.len(),
+        exported_count,
         output_path.display()
     );
 

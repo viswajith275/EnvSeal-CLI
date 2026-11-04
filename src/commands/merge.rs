@@ -1,11 +1,11 @@
 use crate::cli::MergeStrategy;
-use crate::utils::{crypto, unlock, vault::Group, vault::Vault, vault::BASE_TAG};
+use crate::utils::vault::{DecryptedValue, Entry, Group, Vault, BASE_TAG};
+use crate::utils::{crypto, unlock};
 use anyhow::{anyhow, Context, Result};
 use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
 use std::path::PathBuf;
 use std::process::Command;
-use zeroize::Zeroizing;
 
 fn parse_strategy_string(val: &str) -> Option<MergeStrategy> {
     match val.trim().to_lowercase().as_str() {
@@ -41,11 +41,11 @@ fn resolve_strategy(cli_strategy: &MergeStrategy) -> MergeStrategy {
 }
 
 fn resolve_entry<'a>(
-    b: Option<&'a str>,
-    o: Option<&'a str>,
-    t: Option<&'a str>,
+    b: Option<&'a DecryptedValue>,
+    o: Option<&'a DecryptedValue>,
+    t: Option<&'a DecryptedValue>,
     strategy: MergeStrategy,
-) -> Option<Option<&'a str>> {
+) -> Option<Option<&'a DecryptedValue>> {
     match (b, o, t) {
         (_, Some(ours), Some(theirs)) if ours == theirs => Some(Some(ours)),
         (b, o, Some(theirs)) if b == o => Some(Some(theirs)),
@@ -61,7 +61,6 @@ fn resolve_entry<'a>(
     }
 }
 
-// decrypts all entries across base, ours, and theirs into memory simultaneously for 3-way diffing.
 pub fn cmd_merge(
     base_path: &PathBuf,
     ours_path: &PathBuf,
@@ -136,10 +135,9 @@ pub fn cmd_merge(
         return Ok(());
     }
 
-    // Unlock master keys across all 3 commits using standard identities
-    let ours_keys = unlock::sudo_unlock(&ours_vault, Some("current branch 'ours'"), false)?;
-    let base_keys = unlock::sudo_unlock(&base_vault, Some("ancestor 'base'"), false)?;
-    let theirs_keys = unlock::sudo_unlock(&theirs_vault, Some("incoming branch 'theirs'"), false)?;
+    let ours_keys = unlock::sudo_unlock(&ours_vault, Some("current branch 'ours'"), true)?;
+    let base_keys = unlock::sudo_unlock(&base_vault, Some("ancestor 'base'"), true)?;
+    let theirs_keys = unlock::sudo_unlock(&theirs_vault, Some("incoming branch 'theirs'"), true)?;
 
     let all_groups: BTreeSet<String> = base_vault
         .entries
@@ -157,7 +155,6 @@ pub fn cmd_merge(
         let in_theirs = theirs_vault.entries.contains_key(&group_name);
 
         match (in_base, in_ours, in_theirs) {
-            // Deleted on theirs
             (true, true, false) => {
                 let ours_grp = ours_vault.entries.get(&group_name);
                 let base_grp = base_vault.entries.get(&group_name);
@@ -180,7 +177,6 @@ pub fn cmd_merge(
                     }
                 }
             }
-            // Deleted on ours
             (true, false, true) => {
                 let theirs_grp = theirs_vault.entries.get(&group_name);
                 let base_grp = base_vault.entries.get(&group_name);
@@ -246,13 +242,60 @@ pub fn cmd_merge(
                 .collect();
 
             for key in all_keys {
-                let v_base = base_entries.get(&key).map(|s| s.as_str());
-                let v_ours = ours_entries.get(&key).map(|s| s.as_str());
-                let v_theirs = theirs_entries.get(&key).map(|s| s.as_str());
+                let v_base = base_entries.get(&key);
+                let v_ours = ours_entries.get(&key);
+                let v_theirs = theirs_entries.get(&key);
 
                 match resolve_entry(v_base, v_ours, v_theirs, *strategy) {
-                    Some(Some(val)) => {
-                        ours_vault.set_entry(&ours_keys, Some(&group_name), tag_opt, &key, val)?;
+                    Some(Some(resolved_val)) => {
+                        if v_ours == Some(resolved_val) {
+                            continue;
+                        }
+
+                        match resolved_val {
+                            DecryptedValue::Text(val) => {
+                                if matches!(v_ours, Some(DecryptedValue::File { .. })) {
+                                    ours_vault.remove_entry(
+                                        &ours_keys.signing_key,
+                                        Some(&group_name),
+                                        tag_opt,
+                                        Some(&key),
+                                    )?;
+                                }
+                                ours_vault.set_entry(
+                                    &ours_keys,
+                                    Some(&group_name),
+                                    tag_opt,
+                                    &key,
+                                    val.as_str(),
+                                )?;
+                            }
+                            DecryptedValue::File {
+                                env_name,
+                                bytes,
+                                file_name,
+                                file_mode,
+                            } => {
+                                if matches!(v_ours, Some(DecryptedValue::Text(_))) {
+                                    ours_vault.remove_entry(
+                                        &ours_keys.signing_key,
+                                        Some(&group_name),
+                                        tag_opt,
+                                        Some(&key),
+                                    )?;
+                                }
+                                ours_vault.set_file_entry_raw(
+                                    &ours_keys,
+                                    Some(&group_name),
+                                    tag_opt,
+                                    &key,
+                                    env_name,
+                                    bytes.as_slice(),
+                                    file_name.clone(),
+                                    *file_mode,
+                                )?;
+                            }
+                        }
                     }
                     Some(None) => {
                         if v_ours.is_some() {
@@ -304,22 +347,27 @@ fn fetch_scope_map(
     group_name: &str,
     tag: Option<&str>,
     master_dek: &[u8; crypto::KEY_LEN],
-) -> Result<BTreeMap<String, Zeroizing<String>>> {
+) -> Result<BTreeMap<String, DecryptedValue>> {
     let mut map = BTreeMap::new();
     let Some(group) = vault.entries.get(group_name) else {
         return Ok(map);
     };
-    let keys: Vec<String> = match tag {
-        None => group.base.keys().cloned().collect(),
-        Some(t) => group
-            .tags
-            .get(t)
-            .map(|tag_struct| tag_struct.entries.keys().cloned().collect())
-            .unwrap_or_default(),
+
+    let entries: &BTreeMap<String, Entry> = match tag {
+        None => &group.base,
+        Some(t) => match group.tags.get(t) {
+            Some(tag_struct) => &tag_struct.entries,
+            None => return Ok(map),
+        },
     };
-    for key in keys {
-        let val = vault.get_entry(master_dek, Some(group_name), tag, &key)?;
-        map.insert(key, val);
+
+    let scope_tag = tag.unwrap_or(BASE_TAG);
+    let scope_dek = crypto::derive_scope_dek(master_dek, group_name, scope_tag);
+
+    for (k, entry) in entries {
+        let entry_key = crypto::derive_entry_key(&scope_dek, k);
+        map.insert(k.clone(), entry.decrypt(&entry_key)?);
     }
+
     Ok(map)
 }

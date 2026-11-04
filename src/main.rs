@@ -101,6 +101,7 @@ fn main() -> Result<std::process::ExitCode> {
             tag,
             key,
             token,
+            out,
         } => commands::get::cmd_get(
             group.as_deref(),
             tag.as_deref(),
@@ -108,6 +109,7 @@ fn main() -> Result<std::process::ExitCode> {
             token.as_deref(),
             global,
             pref,
+            out.as_deref(),
             allow_env,
         )?,
         Commands::Load {
@@ -200,7 +202,7 @@ fn main() -> Result<std::process::ExitCode> {
         } => commands::merge::cmd_merge(&base, &ours, &theirs, &strategy)?,
         Commands::GitSetup { init } => {
             git::sync_repo_git_conf(init)?;
-            println!("git configuration successfull!!");
+            eprintln!("git configuration successful.");
         }
         Commands::Recipient { action } => match action {
             cli::RecipientCommands::Identity => {

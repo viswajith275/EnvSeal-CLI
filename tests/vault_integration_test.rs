@@ -7,7 +7,9 @@ mod vault_integration_tests {
     use envseal::utils::resolve;
     use envseal::utils::session::{CachedKeys, SessionManager};
     use envseal::utils::token::TokenManager;
-    use envseal::utils::vault::{Entry, Group, Vault, BASE_TAG, LOCAL_GROUP_NAME};
+    use envseal::utils::vault::{
+        DecryptedValue, Entry, Group, Vault, BASE_TAG, LOCAL_GROUP_NAME,
+    };
     use std::collections::HashMap;
     use std::env;
     use std::fs;
@@ -88,6 +90,9 @@ mod vault_integration_tests {
             Entry {
                 nonce: vec![0u8; 12],
                 ciphertext: vec![0u8; 16],
+                file_env: None,
+                file_name: None,
+                file_mode: None,
             },
         );
         vault.save().unwrap();
@@ -295,11 +300,21 @@ mod vault_integration_tests {
             .set_entry(&keys, None, Some("dev"), "DEV_KEY_1", "v3")
             .unwrap();
 
-        let base_keys = vault.list_all_keys(None, None).unwrap();
+        let base_keys: Vec<String> = vault
+            .list_secrets(None, None)
+            .unwrap()
+            .into_iter()
+            .map(|s| s.name)
+            .collect();
         assert_eq!(base_keys.len(), 2);
         assert!(base_keys.contains(&"BASE_KEY_1".to_string()));
 
-        let dev_keys = vault.list_all_keys(None, Some("dev")).unwrap();
+        let dev_keys: Vec<String> = vault
+            .list_secrets(None, Some("dev"))
+            .unwrap()
+            .into_iter()
+            .map(|s| s.name)
+            .collect();
         assert_eq!(dev_keys.len(), 3);
         assert!(dev_keys.contains(&"DEV_KEY_1".to_string()));
         assert!(dev_keys.contains(&"BASE_KEY_1".to_string()));
@@ -355,12 +370,24 @@ mod vault_integration_tests {
         )
         .unwrap();
         assert_eq!(
-            resolved.get("SHARED_HOST").map(|s| s.as_str()),
+            resolved.get("SHARED_HOST").and_then(|v| match v {
+                DecryptedValue::Text(s) => Some(s.as_str()),
+                _ => None,
+            }),
             Some("base.internal")
         );
-        assert_eq!(resolved.get("PORT").map(|s| s.as_str()), Some("8080"));
         assert_eq!(
-            resolved.get("PROD_SECRET").map(|s| s.as_str()),
+            resolved.get("PORT").and_then(|v| match v {
+                DecryptedValue::Text(s) => Some(s.as_str()),
+                _ => None,
+            }),
+            Some("8080")
+        );
+        assert_eq!(
+            resolved.get("PROD_SECRET").and_then(|v| match v {
+                DecryptedValue::Text(s) => Some(s.as_str()),
+                _ => None,
+            }),
             Some("super-secure-token")
         );
         assert_eq!(resolved.len(), 3);
@@ -395,10 +422,10 @@ mod vault_integration_tests {
         let payload = TokenManager::verify_and_extract(&token_string, &vault.public_key).unwrap();
         let decrypted = vault.decrypt_from_token(None, None, &payload).unwrap();
         assert_eq!(decrypted.len(), 1);
-        assert_eq!(
-            decrypted.get("GRANTED_KEY").unwrap().as_str(),
-            "access-granted"
-        );
+        match decrypted.get("GRANTED_KEY").unwrap() {
+            DecryptedValue::Text(s) => assert_eq!(s.as_str(), "access-granted"),
+            _ => panic!("Expected text value"),
+        }
         assert!(!decrypted.contains_key("DENIED_KEY"));
     }
 
@@ -692,6 +719,238 @@ mod vault_integration_tests {
         assert!(
             err_msg.contains("Cannot apply global overrides when already targeting a global vault"),
             "Expected global vault conflict error, got: {err_msg}"
+        );
+    }
+
+    #[test]
+    fn test_session_cache_preserves_signature_integrity_verification() {
+        let env = TestEnv::new(".envseal");
+        Vault::init(vec![env.recipient.clone()], true, false, None).unwrap();
+        let mut vault = Vault::load(false, None).unwrap();
+        let keys = vault.unlock(true).unwrap();
+        vault
+            .set_entry(&keys, None, None, "SECRET_VAR", "super_secret")
+            .unwrap();
+        vault.save().unwrap();
+
+        // 1. Warm the session cache via sudo_unlock
+        let initial_unlock = envseal::utils::unlock::sudo_unlock(&vault, None, true);
+        assert!(initial_unlock.is_ok());
+
+        // 2. Verify cached keys are active
+        let scope = vault.master_scope();
+        assert!(SessionManager::get_active_keys(&scope).unwrap().is_some());
+
+        // 3. Tamper with the vault on disk by modifying ciphertext without updating signature
+        vault.entries.get_mut("project").unwrap().base.insert(
+            "MALICIOUS_KEY".to_string(),
+            Entry {
+                nonce: vec![0u8; 12],
+                ciphertext: vec![0u8; 16],
+                file_env: None,
+                file_name: None,
+                file_mode: None,
+            },
+        );
+        vault.save().unwrap();
+
+        // 4. Reload the tampered vault
+        let tampered_vault = Vault::load(false, None).unwrap();
+
+        // 5. sudo_unlock must reject the tampered vault even with warm cache!
+        let result = envseal::utils::unlock::sudo_unlock(&tampered_vault, None, true);
+        assert!(result.is_err());
+        let err_msg = result.unwrap_err().to_string();
+        assert!(
+            err_msg.contains("signature verification failed") || err_msg.contains("SEAL TAMPERED"),
+            "Expected tamper error, got: {err_msg}"
+        );
+
+        let _ = SessionManager::clear_session(&scope);
+    }
+
+    #[test]
+    fn test_parse_env_lines_multiline_and_escaping() {
+        use envseal::utils::parse_env_lines;
+
+        let raw = r#"
+# Comments should be skipped
+NORMAL_KEY=simple_value
+QUOTED_KEY='single quoted'
+BASH_ESCAPED_KEY='can'\''t stop'
+DOUBLE_QUOTED="hello \"world\" \n test"
+MULTILINE_SINGLE='first line
+second line
+third line'
+MULTILINE_DOUBLE="line a
+line b"
+export EXPORTED_VAR='exported value'
+"#;
+
+        let parsed: HashMap<String, String> = parse_env_lines(raw).into_iter().collect();
+        assert_eq!(parsed.get("NORMAL_KEY").unwrap(), "simple_value");
+        assert_eq!(parsed.get("QUOTED_KEY").unwrap(), "single quoted");
+        assert_eq!(parsed.get("BASH_ESCAPED_KEY").unwrap(), "can't stop");
+        assert_eq!(parsed.get("DOUBLE_QUOTED").unwrap(), "hello \"world\" \n test");
+        assert_eq!(
+            parsed.get("MULTILINE_SINGLE").unwrap(),
+            "first line\nsecond line\nthird line"
+        );
+        assert_eq!(parsed.get("MULTILINE_DOUBLE").unwrap(), "line a\nline b");
+        assert_eq!(parsed.get("EXPORTED_VAR").unwrap(), "exported value");
+    }
+
+    #[test]
+    fn test_backward_compatibility_v6_0_0_local_vault() {
+        let env = TestEnv::new(".envseal");
+        Vault::init(vec![env.recipient.clone()], true, false, None).unwrap();
+        let mut vault = Vault::load(false, None).unwrap();
+        let keys = vault.unlock(true).unwrap();
+        vault
+            .set_entry(&keys, None, None, "V6_BASE_KEY", "v6.0.0-value")
+            .unwrap();
+        vault.save().unwrap();
+
+        let raw = fs::read_to_string(&env.vault_path).unwrap();
+        assert!(raw.contains("V6_BASE_KEY = \""));
+        assert!(!raw.contains("[entries.project.base.V6_BASE_KEY]"));
+
+        let loaded = Vault::load(false, None).unwrap();
+        assert!(loaded.verify_integrity().is_ok());
+        let unlocked = loaded.unlock(true).unwrap();
+        let val = loaded
+            .get_entry(&unlocked.master_dek, None, None, "V6_BASE_KEY")
+            .unwrap();
+        assert_eq!(val.as_str(), "v6.0.0-value");
+    }
+
+    #[test]
+    fn test_backward_compatibility_v6_1_0_tag_overlays() {
+        let env = TestEnv::new(".envseal");
+        Vault::init(vec![env.recipient.clone()], true, false, None).unwrap();
+        let mut vault = Vault::load(false, None).unwrap();
+        let keys = vault.unlock(true).unwrap();
+        vault
+            .set_entry(&keys, None, None, "API_HOST", "default.host")
+            .unwrap();
+        vault
+            .set_entry(&keys, None, Some("staging"), "API_HOST", "staging.host")
+            .unwrap();
+        vault
+            .set_entry(&keys, None, Some("staging"), "EXTRA_TAG_KEY", "tag-only")
+            .unwrap();
+        vault.save().unwrap();
+
+        let raw = fs::read_to_string(&env.vault_path).unwrap();
+        assert!(raw.contains("API_HOST = \""));
+        assert!(raw.contains("[entries.project.tags.staging.entries]"));
+        assert!(raw.contains("EXTRA_TAG_KEY = \""));
+
+        let loaded = Vault::load(false, None).unwrap();
+        assert!(loaded.verify_integrity().is_ok());
+        let unlocked = loaded.unlock(true).unwrap();
+        assert_eq!(
+            loaded
+                .get_entry(&unlocked.master_dek, None, Some("staging"), "API_HOST")
+                .unwrap()
+                .as_str(),
+            "staging.host"
+        );
+        assert_eq!(
+            loaded
+                .get_entry(&unlocked.master_dek, None, None, "API_HOST")
+                .unwrap()
+                .as_str(),
+            "default.host"
+        );
+        assert_eq!(
+            loaded
+                .get_entry(&unlocked.master_dek, None, Some("staging"), "EXTRA_TAG_KEY")
+                .unwrap()
+                .as_str(),
+            "tag-only"
+        );
+    }
+
+    #[test]
+    fn test_backward_compatibility_v6_2_0_global_vault_and_links() {
+        let env = TestEnv::new(".envseal_global");
+        Vault::init(vec![env.recipient.clone()], false, false, None).unwrap();
+        let mut vault = Vault::load(true, None).unwrap();
+        let keys = vault.unlock(true).unwrap();
+
+        let target_dir = env._temp_dir.path().join("linked_service");
+        fs::create_dir_all(&target_dir).unwrap();
+        vault.link_group(&keys.signing_key, "service_a").unwrap();
+        vault
+            .link_index
+            .insert(target_dir.clone(), "service_a".to_string());
+        vault.seal_integrity(&keys.signing_key).unwrap();
+        vault
+            .set_entry(&keys, Some("service_a"), None, "DB_PASS", "global_secret")
+            .unwrap();
+        vault.save().unwrap();
+
+        let raw = fs::read_to_string(&env.vault_path).unwrap();
+        assert!(raw.contains("[entries.service_a.base]"));
+        assert!(raw.contains("DB_PASS = \""));
+        assert!(raw.contains(&target_dir.to_string_lossy().to_string()));
+
+        let loaded = Vault::load(true, None).unwrap();
+        assert!(loaded.verify_integrity().is_ok());
+        let unlocked = loaded.unlock(true).unwrap();
+        assert_eq!(
+            loaded
+                .get_entry(&unlocked.master_dek, Some("service_a"), None, "DB_PASS")
+                .unwrap()
+                .as_str(),
+            "global_secret"
+        );
+    }
+
+    #[test]
+    fn test_backward_compatibility_v6_2_1_multi_recipient() {
+        let env = TestEnv::new(".envseal");
+        let id2 = age::x25519::Identity::generate();
+        let recip2 = id2.to_public().to_string();
+        let id2_sec = id2.to_string().expose_secret().to_string();
+
+        Vault::init(
+            vec![env.recipient.clone(), recip2.clone()],
+            true,
+            false,
+            None,
+        )
+        .unwrap();
+        let mut vault = Vault::load(false, None).unwrap();
+        let keys = vault.unlock(true).unwrap();
+        vault
+            .set_entry(
+                &keys,
+                None,
+                None,
+                "MULTI_RECIP_SECRET",
+                "accessible_by_both",
+            )
+            .unwrap();
+        vault.save().unwrap();
+
+        let raw = fs::read_to_string(&env.vault_path).unwrap();
+        assert!(raw.contains(&env.recipient));
+        assert!(raw.contains(&recip2));
+        assert!(raw.contains("MULTI_RECIP_SECRET = \""));
+
+        // Verify decrypting with the second recipient identity
+        env::set_var("ENVSEAL_IDENTITY", &id2_sec);
+        let loaded = Vault::load(false, None).unwrap();
+        assert!(loaded.verify_integrity().is_ok());
+        let unlocked = loaded.unlock(true).unwrap();
+        assert_eq!(
+            loaded
+                .get_entry(&unlocked.master_dek, None, None, "MULTI_RECIP_SECRET")
+                .unwrap()
+                .as_str(),
+            "accessible_by_both"
         );
     }
 }
