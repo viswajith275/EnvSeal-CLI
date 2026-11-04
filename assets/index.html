@@ -4,12 +4,12 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>EnvSeal — Git for secrets</title>
-<meta name="description" content="A single encrypted file that travels with your repo. Switches with your branch. Merges like code. No cloud. No accounts.">
+<meta name="description" content="One encrypted file for every secret your app refuses to start without — env vars, TLS certs, service-account JSON, and kubeconfigs. Follows your branch. Merges like code. No cloud. No accounts.">
 <meta name="theme-color" content="#0a0a0b">
 
 <!-- Open Graph / Social Sharing -->
 <meta property="og:title" content="EnvSeal — Git for secrets">
-<meta property="og:description" content="A single encrypted file that travels with your repo. Switches with your branch. Merges like code. No cloud. No accounts.">
+<meta property="og:description" content="One encrypted file for every secret your app refuses to start without — env vars, TLS certs, service-account JSON, and kubeconfigs. Follows your branch. Merges like code. No cloud. No accounts.">
 <meta property="og:type" content="website">
 <meta property="og:url" content="https://github.com/viswajith275/EnvSeal-CLI">
 
@@ -487,6 +487,10 @@ a.underline:hover { border-color: var(--accent); }
   color: var(--t3);
 }
 .feature-desc code { font-size: 0.85em; }
+@media (min-width: 901px) {
+  .feature:last-child:nth-child(3n + 1) { grid-column: 1 / -1; }
+  .feature:last-child:nth-child(3n + 1) .feature-desc { max-width: 90ch; }
+}
 @media (max-width: 900px) {
   .features { grid-template-columns: 1fr; }
   .feature { padding: 32px 24px 36px; }
@@ -873,6 +877,802 @@ footer {
   .install-chip { font-size: 12px; padding: 9px 12px 9px 14px; }
   .term-body { padding: 16px; }
 }
+
+
+/* ============================================================
+   Layout and responsive refinements
+   Keeps the original content and visual identity intact.
+   ============================================================ */
+:root {
+  --pad-x: clamp(20px, 5.5vw, 88px);
+}
+
+html {
+  scroll-padding-top: 88px;
+}
+
+body {
+  min-width: 320px;
+}
+
+header.top {
+  min-height: 72px;
+  padding-inline: max(var(--pad-x), calc((100vw - var(--max-w)) / 2 + var(--pad-x)));
+  background: rgba(10, 10, 11, 0.88);
+  border-bottom: 1px solid var(--line-1);
+  box-shadow: 0 8px 28px rgba(0, 0, 0, 0.12);
+}
+
+.wrap {
+  min-width: 0;
+}
+
+section {
+  padding-block: clamp(64px, 8vw, 112px);
+}
+
+.hero {
+  padding-top: clamp(124px, 17vh, 168px);
+  padding-bottom: clamp(68px, 8vw, 112px);
+}
+
+.sec-head {
+  display: block;
+  margin-bottom: clamp(30px, 3.6vw, 44px);
+  padding-bottom: 14px;
+  border-bottom: 1px solid var(--line-1);
+}
+
+.sec-num {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding-top: 0;
+}
+
+.sec-num::after {
+  content: "";
+  display: block;
+  width: min(180px, 18vw);
+  height: 1px;
+  background: linear-gradient(90deg, var(--line-3), transparent);
+}
+
+h1, h2, h3, h4 {
+  overflow-wrap: break-word;
+}
+
+.lede,
+.editorial,
+.feature-desc,
+.cmd-item-desc,
+.caveat-body-inner {
+  overflow-wrap: break-word;
+}
+
+.hero-install {
+  gap: 14px;
+  margin-bottom: 48px;
+}
+
+.install-chip,
+.btn,
+.top-cta {
+  -webkit-tap-highlight-color: transparent;
+}
+
+.install-chip:focus-visible,
+.btn:focus-visible,
+.top-cta:focus-visible,
+a:focus-visible,
+[role="button"]:focus-visible {
+  outline: 2px solid var(--accent-2);
+  outline-offset: 4px;
+}
+
+.term {
+  min-width: 0;
+  border-color: var(--line-2);
+  box-shadow:
+    0 1px 0 rgba(255,255,255,0.04) inset,
+    0 20px 44px -26px rgba(0,0,0,0.72),
+    0 0 0 1px rgba(0,0,0,0.32);
+}
+
+.term-body {
+  min-width: 0;
+  overscroll-behavior-x: contain;
+}
+
+.term-line {
+  min-width: max-content;
+}
+
+.features {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  border-radius: 14px;
+  overflow: hidden;
+}
+
+.feature {
+  min-width: 0;
+  padding: 34px 28px 38px;
+}
+
+.feature-num {
+  margin-bottom: 26px;
+}
+
+.split {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  align-items: start;
+  gap: clamp(20px, 3vw, 32px);
+}
+
+.split > div,
+.split .term,
+.cmds-col {
+  min-width: 0;
+}
+
+.table-scroll {
+  border: 1px solid var(--line-1);
+  border-radius: 14px;
+  background: rgba(255,255,255,0.008);
+  scrollbar-color: var(--t5) var(--bg-1);
+}
+
+table.compare {
+  min-width: 1040px;
+  table-layout: fixed;
+}
+
+table.compare th:first-child,
+table.compare td:first-child {
+  width: 176px;
+}
+
+table.compare th,
+table.compare td {
+  padding: 18px 16px;
+  overflow-wrap: break-word;
+}
+
+table.compare thead th:first-child,
+table.compare tbody td:first-child {
+  position: sticky;
+  left: 0;
+  z-index: 2;
+  background: var(--bg-1);
+  box-shadow: 1px 0 0 var(--line-1);
+}
+
+table.compare thead th:first-child {
+  z-index: 3;
+}
+
+table.compare tbody tr:hover td:first-child {
+  background: var(--bg-2);
+}
+
+.caveats {
+  max-width: 880px;
+}
+
+.caveat {
+  padding: 26px 0;
+}
+
+.caveat-head {
+  grid-template-columns: 44px minmax(0, 1fr) 24px;
+  gap: 18px;
+  align-items: center;
+}
+
+.caveat-body.open,
+.caveat.open .caveat-body {
+  max-height: 3000px;
+}
+
+.caveat-body-inner {
+  max-width: 72ch;
+  padding-left: 62px;
+}
+
+.fit {
+  border-radius: 14px;
+  overflow: hidden;
+}
+
+.fit-col {
+  min-width: 0;
+  padding: 36px clamp(24px, 3vw, 40px) 40px;
+}
+
+.cmds {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: clamp(32px, 5vw, 64px);
+}
+
+.cmd-item {
+  transition: border-color 0.25s var(--ease-io);
+}
+
+.cmd-item:hover {
+  padding-left: 0;
+  border-bottom-color: var(--line-2);
+}
+
+.cmd-item-cmd {
+  overflow-wrap: anywhere;
+  word-break: normal;
+}
+
+.faq-wrap {
+  margin-top: clamp(56px, 7vw, 80px);
+}
+
+.faq-wrap .caveats {
+  margin-top: 0 !important;
+}
+
+footer {
+  padding: 48px max(var(--pad-x), calc((100vw - var(--max-w)) / 2 + var(--pad-x))) 56px;
+}
+
+.footer-grid {
+  align-items: center;
+}
+
+.footer-links {
+  flex-wrap: wrap;
+  row-gap: 10px;
+}
+
+@media (min-width: 901px) {
+  .feature:last-child:nth-child(3n + 1) {
+    grid-column: 1 / -1;
+  }
+}
+
+@media (max-width: 900px) and (min-width: 561px) {
+  .features {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .feature:last-child:nth-child(odd) {
+    grid-column: 1 / -1;
+  }
+
+  .split,
+  .cmds {
+    gap: 28px;
+  }
+
+  .cmds {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .fit {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 760px) {
+  .fit {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 720px) {
+  header.top {
+    min-height: 64px;
+    padding-block: 12px;
+  }
+
+  .top-links {
+    display: flex;
+    gap: 0;
+  }
+
+  .top-link {
+    display: none;
+  }
+
+  .top-cta {
+    padding: 7px 12px;
+    font-size: 12.5px;
+  }
+
+  .brand-ver {
+    display: none;
+  }
+}
+
+@media (max-width: 640px) {
+  section {
+    padding-block: 64px;
+  }
+
+  .hero {
+    padding-top: 116px;
+    padding-bottom: 64px;
+  }
+
+  .hero h1 {
+    margin-bottom: 24px;
+  }
+
+  .hero .lede {
+    margin-bottom: 32px;
+  }
+
+  .term {
+    border-radius: 12px;
+  }
+
+  .term-body {
+    padding: 18px 16px;
+  }
+
+  .term-line {
+    white-space: pre;
+  }
+
+  .features {
+    grid-template-columns: 1fr;
+  }
+
+  .feature:last-child:nth-child(odd) {
+    grid-column: auto;
+  }
+
+  .feature {
+    padding: 28px 24px 32px;
+  }
+
+  .split,
+  .cmds {
+    grid-template-columns: 1fr;
+    gap: 36px;
+  }
+
+  .caveat-head {
+    grid-template-columns: 32px minmax(0, 1fr) 20px;
+    gap: 12px;
+    align-items: start;
+  }
+
+  .caveat-title {
+    font-size: 18px;
+  }
+
+  .caveat-indicator {
+    padding-top: 2px;
+  }
+
+  .caveat-body-inner {
+    padding-left: 44px;
+    font-size: 15px;
+  }
+
+  .fit-col {
+    padding: 30px 24px 32px;
+  }
+
+  .finale {
+    padding-block: 88px;
+  }
+
+  footer {
+    padding: 36px var(--pad-x) 40px;
+  }
+
+  .footer-grid {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 20px;
+  }
+
+  .footer-left {
+    align-items: flex-start;
+  }
+}
+
+@media (max-width: 480px) {
+  .install-chip {
+    max-width: 100%;
+    gap: 8px;
+    font-size: 11.5px;
+  }
+
+  .install-chip > span:nth-child(2) {
+    overflow-wrap: anywhere;
+    text-align: left;
+  }
+
+  .install-chip .chip-copy {
+    padding-left: 9px;
+    margin-left: 1px;
+    font-size: 9.5px;
+  }
+
+  .dl-counter {
+    display: grid !important;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 16px !important;
+    padding: 16px !important;
+  }
+
+  .dl-counter > div {
+    min-width: 0;
+  }
+
+  .footer-left {
+    flex-direction: column;
+    gap: 8px;
+  }
+
+  .footer-meta .dot {
+    padding-inline: 4px;
+  }
+}
+
+
+
+/* ============================================================
+   Motion layer — subtle, purposeful movement throughout the page
+   ============================================================ */
+.bg::before {
+  animation: ambient-drift 28s ease-in-out infinite alternate;
+  transform-origin: 50% 20%;
+}
+
+.bg::after {
+  animation: grid-drift 70s linear infinite;
+}
+
+@keyframes ambient-drift {
+  0%   { transform: translate3d(-1.5%, 0, 0) scale(1); opacity: .82; }
+  50%  { transform: translate3d(1.5%, 1.2%, 0) scale(1.035); opacity: 1; }
+  100% { transform: translate3d(.2%, -1%, 0) scale(1.015); opacity: .9; }
+}
+
+@keyframes grid-drift {
+  from { background-position: 0 0, 0 0; }
+  to   { background-position: 80px 80px, 80px 80px; }
+}
+
+.progress-bar {
+  background-size: 200% 100%;
+  animation: progress-glint 5s ease-in-out infinite;
+}
+
+@keyframes progress-glint {
+  0%, 100% { background-position: 0% 50%; }
+  50%      { background-position: 100% 50%; }
+}
+
+header.top {
+  transition: background .35s var(--ease-io), box-shadow .35s var(--ease-io),
+              border-color .35s var(--ease-io), min-height .35s var(--ease-io);
+}
+
+header.top.scrolled {
+  background: rgba(10, 10, 11, .96);
+  border-bottom-color: var(--line-2);
+  box-shadow: 0 10px 36px rgba(0, 0, 0, .28);
+}
+
+.brand-mark svg {
+  transition: transform .45s var(--ease), filter .35s var(--ease-io);
+}
+
+.brand:hover .brand-mark svg,
+.footer-brand:hover .brand-mark svg {
+  transform: rotate(-9deg) scale(1.08);
+  filter: drop-shadow(0 0 8px var(--accent-glow));
+}
+
+.top-link {
+  position: relative;
+}
+
+.top-link::after {
+  content: "";
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: -7px;
+  height: 1px;
+  background: var(--accent-2);
+  transform: scaleX(0);
+  transform-origin: right;
+  transition: transform .3s var(--ease);
+}
+
+.top-link:hover::after {
+  transform: scaleX(1);
+  transform-origin: left;
+}
+
+.top-cta,
+.install-chip,
+.btn,
+.hero-secondary,
+.footer-links a {
+  will-change: transform;
+}
+
+.top-cta:hover,
+.install-chip:hover {
+  transform: translateY(-2px);
+}
+
+.install-chip {
+  transition: transform .3s var(--ease), border-color .25s var(--ease-io),
+              background .25s var(--ease-io), box-shadow .3s var(--ease-io);
+}
+
+.install-chip:hover {
+  box-shadow: 0 10px 28px -16px var(--accent-glow);
+}
+
+.install-chip:active,
+.btn:active,
+.top-cta:active {
+  transform: translateY(0) scale(.975);
+}
+
+.term {
+  transition: transform .45s var(--ease), border-color .35s var(--ease-io),
+              box-shadow .45s var(--ease-io);
+}
+
+.term:hover {
+  transform: translateY(-3px);
+  border-color: var(--line-3);
+  box-shadow: 0 1px 0 rgba(255,255,255,.05) inset,
+              0 28px 56px -28px rgba(0,0,0,.82),
+              0 0 28px -22px var(--accent-glow);
+}
+
+.term-bar {
+  transition: background .3s var(--ease-io);
+}
+
+.term:hover .term-bar {
+  background: rgba(255,255,255,.03);
+}
+
+.term-dot {
+  transition: background .3s var(--ease-io), box-shadow .3s var(--ease-io);
+}
+
+.term:hover .term-dot:nth-child(1) { background: #f87171; box-shadow: 0 0 8px rgba(248,113,113,.35); }
+.term:hover .term-dot:nth-child(2) { background: #fbbf24; box-shadow: 0 0 8px rgba(251,191,36,.3); }
+.term:hover .term-dot:nth-child(3) { background: #4ade80; box-shadow: 0 0 8px rgba(74,222,128,.3); }
+
+.feature {
+  isolation: isolate;
+  transition: background .35s var(--ease-io), transform .4s var(--ease),
+              box-shadow .4s var(--ease-io);
+}
+
+.feature::before {
+  content: "";
+  position: absolute;
+  z-index: 1;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 1px;
+  background: linear-gradient(90deg, transparent, var(--accent), transparent);
+  opacity: 0;
+  transform: scaleX(.35);
+  transition: opacity .35s var(--ease-io), transform .45s var(--ease);
+}
+
+.feature:hover {
+  transform: translateY(-4px);
+  box-shadow: 0 16px 32px -28px rgba(139,139,240,.65);
+}
+
+.feature:hover::before {
+  opacity: 1;
+  transform: scaleX(1);
+}
+
+.feature-num {
+  transition: color .3s var(--ease-io), transform .35s var(--ease);
+}
+
+.feature:hover .feature-num {
+  color: var(--accent-2);
+  transform: translateX(4px);
+}
+
+.feature-title {
+  transition: color .3s var(--ease-io);
+}
+
+.feature:hover .feature-title {
+  color: var(--accent-2);
+}
+
+.split-head-label {
+  transition: transform .3s var(--ease), box-shadow .3s var(--ease-io);
+}
+
+.split > div:hover .split-head-label {
+  transform: translateY(-2px);
+  box-shadow: 0 6px 18px -12px currentColor;
+}
+
+.table-scroll {
+  transition: border-color .35s var(--ease-io), box-shadow .35s var(--ease-io);
+}
+
+.table-scroll:hover {
+  border-color: var(--line-2);
+  box-shadow: 0 18px 38px -34px rgba(139,139,240,.55);
+}
+
+table.compare tbody tr td {
+  transition: background .25s var(--ease-io), color .25s var(--ease-io);
+}
+
+.fit-col {
+  transition: background .35s var(--ease-io), transform .4s var(--ease);
+}
+
+.fit-col:hover {
+  transform: translateY(-3px);
+  background: linear-gradient(180deg, var(--bg-1), var(--bg-2));
+}
+
+.cmd-item {
+  transition: padding-left .3s var(--ease), border-color .3s var(--ease-io),
+              transform .3s var(--ease);
+}
+
+.cmd-item:hover {
+  transform: translateX(4px);
+}
+
+.cmd-item-cmd {
+  transition: color .25s var(--ease-io), letter-spacing .25s var(--ease-io);
+}
+
+.cmd-item:hover .cmd-item-cmd {
+  letter-spacing: .005em;
+}
+
+.caveat {
+  transition: background .3s var(--ease-io), padding .35s var(--ease);
+}
+
+.caveat:hover {
+  background: linear-gradient(90deg, rgba(139,139,240,.035), transparent 72%);
+}
+
+.caveat-indicator {
+  transition: color .25s var(--ease-io), transform .45s var(--ease),
+              text-shadow .3s var(--ease-io);
+}
+
+.caveat:hover .caveat-indicator {
+  color: var(--accent-2);
+  text-shadow: 0 0 14px var(--accent-glow);
+}
+
+.btn {
+  position: relative;
+  overflow: hidden;
+  isolation: isolate;
+  transition: transform .3s var(--ease), border-color .3s var(--ease-io),
+              background .3s var(--ease-io), box-shadow .3s var(--ease-io);
+}
+
+.btn::before {
+  content: "";
+  position: absolute;
+  z-index: -1;
+  inset: 0;
+  background: linear-gradient(110deg, transparent 20%, rgba(255,255,255,.16) 48%, transparent 76%);
+  transform: translateX(-120%);
+  transition: transform .7s var(--ease);
+}
+
+.btn:hover::before {
+  transform: translateX(120%);
+}
+
+.btn:hover {
+  transform: translateY(-3px);
+}
+
+.btn.primary:hover {
+  box-shadow: 0 14px 34px -10px var(--accent-glow),
+              0 1px 0 rgba(255,255,255,.2) inset;
+}
+
+.footer-links a {
+  transition: color .25s var(--ease-io), transform .25s var(--ease);
+}
+
+.footer-links a:hover {
+  transform: translateY(-2px);
+}
+
+.dl-counter {
+  transition: border-color .35s var(--ease-io), transform .35s var(--ease),
+              box-shadow .35s var(--ease-io);
+}
+
+.dl-counter:hover {
+  border-color: var(--line-2) !important;
+  transform: translateY(-2px);
+  box-shadow: 0 16px 32px -28px var(--accent-glow);
+}
+
+/* Scroll-triggered stagger on repeated content. */
+.motion-item {
+  transition: opacity .7s var(--ease), transform .7s var(--ease);
+  transition-delay: var(--motion-delay, 0ms);
+}
+
+.motion-ready .motion-item:not(.motion-in) {
+  opacity: 0;
+  transform: translateY(18px) scale(.99);
+}
+
+.motion-ready .motion-item.motion-in {
+  opacity: 1;
+  transform: translateY(0) scale(1);
+}
+
+@keyframes soft-float {
+  0%, 100% { transform: translateY(0); }
+  50%      { transform: translateY(-5px); }
+}
+
+.hero .install-chip:focus-visible {
+  animation: focus-breathe 1.8s ease-in-out infinite;
+}
+
+@keyframes focus-breathe {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(165,165,247,0); }
+  50%      { box-shadow: 0 0 0 5px rgba(165,165,247,.12); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .bg::before,
+  .bg::after,
+  .progress-bar,
+  .hero .install-chip:focus-visible {
+    animation: none !important;
+  }
+
+  .term:hover,
+  .feature:hover,
+  .fit-col:hover,
+  .cmd-item:hover,
+  .btn:hover,
+  .dl-counter:hover,
+  .footer-links a:hover,
+  .top-cta:hover,
+  .install-chip:hover {
+    transform: none !important;
+  }
+
+  .motion-ready .motion-item,
+  .motion-ready .motion-item:not(.motion-in) {
+    opacity: 1 !important;
+    transform: none !important;
+  }
+}
+
 </style>
 </head>
 <body>
@@ -890,7 +1690,7 @@ footer {
       </svg>
     </span>
     EnvSeal
-    <span class="brand-ver">v6.2.1</span>
+    <span class="brand-ver">v6.3.0</span>
   </a>
   <nav class="top-links">
     <a class="top-link" href="#workflow">Workflow</a>
@@ -912,8 +1712,9 @@ footer {
   </h1>
 
   <p class="lede reveal d2">
-    A single encrypted file that travels with your repo.
-    Switches with your branch. Merges like code.
+    One encrypted file for every secret your app refuses to start without —
+    env vars, TLS certificates, service-account JSON, kubeconfigs.
+    Follows your branch. Merges like code.
     <strong style="color:var(--t1); font-weight:500;">No cloud. No accounts. No shared master password.</strong>
   </p>
 
@@ -959,18 +1760,19 @@ footer {
     </div>
     <div class="term-body">
       <div class="term-line"><span class="pr">$</span><span class="cmd">envseal init --local &amp;&amp; envseal git-setup</span></div>
-      <div class="term-line"><span class="ok">✓</span><span class="out">vault created at .envseal</span></div>
-      <div class="term-line"><span class="ok">✓</span><span class="out">pre-commit shield installed</span></div>
-      <div class="term-line"><span class="ok">✓</span><span class="out">merge driver registered</span></div>
+      <div class="term-line"><span class="ok">✓</span><span class="out">Vault initialized at '.envseal' with recipient: age1…</span></div>
+      <div class="term-line"><span class="ok">✓</span><span class="out">[git] registered merge attributes for '*.envseal'</span></div>
+      <div class="term-line"><span class="ok">✓</span><span class="out">[git] installed pre-commit secret shield</span></div>
       <div class="term-line gap"><span class="pr">$</span><span class="cmd">envseal set DATABASE_URL</span></div>
-      <div class="term-line"><span class="out">value: </span><span class="dim">••••••••••••••••••••••••</span></div>
-      <div class="term-line"><span class="ok">✓</span><span class="out">encrypted and stored</span></div>
+      <div class="term-line"><span class="out">value for DATABASE_URL: </span><span class="dim">••••••••••••••••••••••••</span></div>
+      <div class="term-line"><span class="ok">✓</span><span class="out">sealed 'DATABASE_URL' in group 'project' (local seal)</span></div>
+      <div class="term-line gap"><span class="pr">$</span><span class="cmd">envseal set TLS_CERT --file ./certs/server.pem --env-var TLS_CERT_PATH</span></div>
+      <div class="term-line"><span class="ok">✓</span><span class="out">sealed file 'TLS_CERT' in group 'project' (local seal)</span></div>
+      <div class="term-line gap"><span class="pr">$</span><span class="cmd">envseal list</span></div>
+      <div class="term-line"><span class="dim"># [local]</span></div>
+      <div class="term-line"><span class="out">DATABASE_URL </span><span class="dim">[text]</span></div>
+      <div class="term-line"><span class="out">TLS_CERT </span><span class="dim">[file -&gt; $TLS_CERT_PATH]</span></div>
       <div class="term-line gap"><span class="pr">$</span><span class="cmd">envseal run -- npm start</span></div>
-      <div class="term-line"><span class="dim">▸</span><span class="out">loading 4 secrets from </span><span class="key">.envseal</span></div>
-      <div class="term-line"><span class="dim">▸</span><span class="out">injecting </span><span class="key">DATABASE_URL</span><span class="out"> → child</span></div>
-      <div class="term-line"><span class="dim">▸</span><span class="out">injecting </span><span class="key">STRIPE_SECRET</span><span class="out"> → child</span></div>
-      <div class="term-line"><span class="dim">▸</span><span class="out">injecting </span><span class="key">JWT_SIGNING_KEY</span><span class="out"> → child</span></div>
-      <div class="term-line"><span class="dim">▸</span><span class="out">injecting </span><span class="key">AWS_ACCESS_KEY_ID</span><span class="out"> → child</span></div>
       <div class="term-line gap"><span class="out">&gt; app@1.0.0 start</span></div>
       <div class="term-line"><span class="out">&gt; node server.js</span></div>
       <div class="term-line"><span class="ok">listening on :3000</span></div>
@@ -992,6 +1794,14 @@ footer {
       a teammate adds a key to their local <code>.env</code> and forgets to send it. Someone pastes a
       database URL into a Discord DM. You check out a branch and accidentally run it against production.
       A sleepy <code>git add .</code> scoops up a raw key and it sits in Git history forever.
+    </p>
+
+    <p class="reveal">
+      And the one nobody warns you about: <strong>half your secrets aren't strings.</strong> The TLS
+      certificate in <code>certs/</code>. The service-account JSON someone sent you at 11pm. The
+      kubeconfig with production cluster access. They don't fit in <code>.env</code>, so they end up on
+      a shared drive, in a wiki attachment, or in a "temporary" commit that quietly became permanent.
+      EnvSeal seals the files too — and injects them at runtime as a private temp path.
     </p>
 
     <p class="pullquote reveal">
@@ -1021,8 +1831,8 @@ footer {
   </h2>
 
   <p class="lede reveal">
-    You set up the vault, commit it, and push. Your teammate pulls, runs their app,
-    and it works. Same keys, correct branch, zero DMs.
+    You set up the vault, add your teammate as a recipient, commit, and push. They pull,
+    run their app, and it works. Same keys, same certificates, correct branch, zero DMs.
   </p>
 
   <div class="split">
@@ -1040,11 +1850,13 @@ footer {
           <div class="term-line"><span class="pr">$</span><span class="cmd">envseal init --local</span></div>
           <div class="term-line"><span class="pr">$</span><span class="cmd">envseal git-setup</span></div>
           <div class="term-line"><span class="pr">$</span><span class="cmd">envseal set DATABASE_URL</span></div>
-          <div class="term-line"><span class="pr-git">$</span><span class="cmd git">git add .envseal .gitattributes</span></div>
+          <div class="term-line"><span class="pr">$</span><span class="cmd">envseal set TLS_CERT --file ./certs/server.pem</span></div>
+          <div class="term-line"><span class="pr-git">$</span><span class="cmd git">git add .envseal .gitattributes .gitignore</span></div>
           <div class="term-line"><span class="pr-git">$</span><span class="cmd git">git commit -m "seal secrets"</span></div>
           <div class="term-line"><span class="out">[main 3f9c2a1] seal secrets</span></div>
           <div class="term-line"><span class="pr-git">$</span><span class="cmd git">git push</span></div>
-          <div class="term-line"><span class="out">→ main  →  main</span></div>
+          <div class="term-line"><span class="out">To github.com:you/api.git</span></div>
+          <div class="term-line"><span class="out">   a1b2c3d..3f9c2a1  main -&gt; main</span></div>
           <div class="term-line gap"><span class="dim"># vault travels with the repo.</span></div>
           <div class="term-line"><span class="dim"># no DM. no screenshot. no password.</span></div>
         </div>
@@ -1068,8 +1880,10 @@ footer {
           <div class="term-line"><span class="key">age1ql3z7hjy54pw3hyww5ayyf…</span></div>
           <div class="term-line gap"><span class="dim"># you run, once:</span></div>
           <div class="term-line"><span class="pr">$</span><span class="cmd">envseal recipient add @them</span></div>
-          <div class="term-line gap"><span class="pr">$</span><span class="cmd">envseal run -- npm start</span></div>
-          <div class="term-line"><span class="dim">▸</span><span class="out">secrets injected</span></div>
+          <div class="term-line gap"><span class="pr-git">$</span><span class="cmd git">git pull</span></div>
+          <div class="term-line"><span class="pr">$</span><span class="cmd">envseal run -- npm start</span></div>
+          <div class="term-line"><span class="out">&gt; app@1.0.0 start</span></div>
+          <div class="term-line"><span class="out">&gt; node server.js</span></div>
           <div class="term-line"><span class="ok">listening on :3000</span></div>
         </div>
       </div>
@@ -1086,7 +1900,7 @@ footer {
   </div>
 
   <h2 class="reveal">
-    Nine decisions <span class="serif">that shape everything else.</span>
+    Ten decisions <span class="serif">that shape everything else.</span>
   </h2>
 
   <div class="features reveal">
@@ -1098,22 +1912,22 @@ footer {
     <div class="feature">
       <span class="feature-num">02</span>
       <div class="feature-title">Branch-aware</div>
-      <div class="feature-desc"><code>envseal run</code> reads <code>git rev-parse --abbrev-ref HEAD</code> and applies the matching tag automatically. No manual swapping.</div>
+      <div class="feature-desc"><code>envseal run</code> reads <code>git rev-parse --abbrev-ref HEAD</code> and applies the tag with the same name, if one exists. No manual swapping.</div>
     </div>
     <div class="feature">
       <span class="feature-num">03</span>
       <div class="feature-title">Per-recipient access</div>
-      <div class="feature-desc">The vault is sealed to individual public keys. Adding or removing a teammate is a Git commit, not a shared-key redistribution.</div>
+      <div class="feature-desc">The vault is sealed to individual public keys. Adding a teammate is a Git commit, not a shared-key redistribution. Removing one needs a follow-up <code>rotate</code>.</div>
     </div>
     <div class="feature">
       <span class="feature-num">04</span>
       <div class="feature-title">Ephemeral runtime</div>
-      <div class="feature-desc">Secrets decrypt into the child process and evaporate on exit. Zero plaintext on disk, zero leakage into your interactive shell.</div>
+      <div class="feature-desc">Text secrets are injected into the child process environment and disappear on exit. Sealed files decrypt to a private temp path that is overwritten and deleted when the process ends. No plaintext file is left behind.</div>
     </div>
     <div class="feature">
       <span class="feature-num">05</span>
       <div class="feature-title">Pre-commit shield</div>
-      <div class="feature-desc">A hook blocks staged <code>.env</code>, <code>.env.local</code>, and <code>.env.staging</code> files before they reach Git history. The encrypted vault passes through.</div>
+      <div class="feature-desc">A hook blocks staged <code>.env</code> files and their variants before they reach Git history. Examples like <code>.env.example</code> and the encrypted vault pass through.</div>
     </div>
     <div class="feature">
       <span class="feature-num">06</span>
@@ -1135,6 +1949,16 @@ footer {
       <div class="feature-title">Multiple profiles</div>
       <div class="feature-desc">Need more than branch tags? Target per-environment vaults with <code>-e staging</code> or <code>-e prod</code> — no extra repos, no extra setup.</div>
     </div>
+    <div class="feature">
+      <span class="feature-num">10</span>
+      <div class="feature-title">Files, not just strings</div>
+      <div class="feature-desc">
+        TLS certificates, service-account JSON, <code>.p12</code> keystores, SSH keys, and kubeconfigs are sealed in the same vault.
+        <code>envseal run</code> decrypts each one to a private temp file, points an env var at it, and overwrites and deletes it when the process exits.
+        <code>envseal get KEY -o PATH</code> writes it back out — new files get <code>0600</code> (or <code>0700</code> if executable) — when a tool insists on a fixed path.
+        No shared drive. No wiki attachment. No stale copy with production access.
+      </div>
+    </div>
   </div>
 </section>
 
@@ -1151,11 +1975,11 @@ footer {
   </h2>
 
   <p class="lede reveal">
-    Each tool below solves the same problems — accidental commits, environment switching, team access —
-    just through a different mechanism. This table shows <em>how</em> each one addresses the same concern,
-    so you can judge which trade-offs fit your team. If you need a dashboard or audit log, use Doppler
-    or Infisical. If you're deep in Kubernetes and cloud KMS, SOPS fits better. EnvSeal is for the team
-    in between.
+    Each tool below solves the same problems — accidental commits, environment switching, team access,
+    and the certificate that never fit in a <code>.env</code> — just through a different mechanism.
+    This table shows <em>how</em> each one addresses the same concern, so you can judge which trade-offs
+    fit your team. If you need a dashboard or audit log, use Doppler or Infisical. If you're deep in
+    Kubernetes and cloud KMS, SOPS fits better. EnvSeal is for the team in between.
   </p>
 
   <div class="table-scroll reveal">
@@ -1174,10 +1998,10 @@ footer {
         <tr>
           <td>Cost</td>
           <td>Free</td>
-          <td>Free; Pro $36/yr, Team $20/mo, Business $90/mo</td>
+          <td>Free; Member $5/mo, Business $90/mo</td>
           <td>Free</td>
           <td class="us"><strong>Free, no account needed</strong></td>
-          <td>Doppler: free for 3 users, $8/mo per additional user. Infisical: free up to 5 identities, Pro $18/identity/mo</td>
+          <td>Doppler: free for 3 users, $8/mo per additional user. Infisical: free up to 5 identities, Pro $23/identity/mo ($20 annual)</td>
         </tr>
         <tr>
           <td>Works offline</td>
@@ -1185,14 +2009,14 @@ footer {
           <td>Yes — local CLI</td>
           <td>Yes with age. Cloud KMS modes need connectivity</td>
           <td class="us"><strong>Yes, fully</strong></td>
-          <td>Cached fallback after first fetch. Self-hosted available at Enterprise tier</td>
+          <td>Cloud-first; offline use needs a prior cache. Infisical's MIT core is free to self-host; supported air-gapped is Enterprise</td>
         </tr>
         <tr>
           <td>Environment / branch switching</td>
           <td>Manual file swap (<code>.env</code>, <code>.env.staging</code>)</td>
           <td>Manual <code>-f .env.production</code> at invocation</td>
           <td>Per-file, driven by CI env vars or shell aliases</td>
-          <td class="us"><strong>Auto-binds to the current Git branch (tag match)</strong></td>
+          <td class="us"><strong><code>envseal run</code> reads the current Git branch and applies a matching tag</strong></td>
           <td><code>--config</code> flag at runtime, or a project setting in the dashboard</td>
         </tr>
         <tr>
@@ -1200,7 +2024,7 @@ footer {
           <td>Relies on <code>.gitignore</code> discipline</td>
           <td>Optional <code>dotenvx precommit</code> hook</td>
           <td><code>.gitignore</code> + decrypt only in CI; nothing plaintext is committed</td>
-          <td class="us"><strong>Built-in pre-commit shield blocks <code>.env*</code></strong></td>
+          <td class="us"><strong>Built-in pre-commit shield blocks staged <code>.env</code> files (examples pass)</strong></td>
           <td>Nothing to commit — secrets never touch the repo</td>
         </tr>
         <tr>
@@ -1214,8 +2038,8 @@ footer {
         <tr>
           <td>Merge behavior</td>
           <td>Git text merge</td>
-          <td>Git text merge on the encrypted file; re-key on conflict</td>
-          <td>Git text merge on YAML/JSON, optional <code>sops merge</code></td>
+          <td>Git text merge on the encrypted file</td>
+          <td>Git text merge on YAML/JSON; conflicts need decrypt → merge → re-encrypt</td>
           <td class="us"><strong>Native merge driver with <code>ours</code> / <code>theirs</code></strong></td>
           <td>N/A — cloud-managed, no file to merge</td>
         </tr>
@@ -1228,11 +2052,19 @@ footer {
           <td>Personal configs in dashboard, or <code>--personal</code> flag</td>
         </tr>
         <tr>
+          <td>Files / certificates</td>
+          <td>Strings only</td>
+          <td>Strings only</td>
+          <td>Encrypts any file, but you wire injection yourself</td>
+          <td class="us"><strong>Seals files and injects a private temp path at runtime</strong></td>
+          <td>File/mount support varies by plan and platform</td>
+        </tr>
+        <tr>
           <td>Best suited for</td>
           <td>Solo hackathon, no real secrets</td>
           <td>Solo/small teams wanting encrypted <code>.env</code></td>
           <td>K8s / GitOps teams on cloud KMS</td>
-          <td class="us"><strong>Small-to-mid teams who want secrets to live in Git</strong></td>
+          <td class="us"><strong>Small-to-mid teams who want env vars and file secrets in Git</strong></td>
           <td>Orgs wanting GUI, audit logs, and a budget</td>
         </tr>
       </tbody>
@@ -1240,9 +2072,10 @@ footer {
   </div>
 
   <p class="reveal" style="margin-top:24px; font-size:13px; color:var(--t4); max-width:80ch; line-height:1.7;">
-    Verified September 2026. dotenvx does more than a table row can capture — it has real encryption,
+    Verified November 2026. dotenvx does more than a table row can capture — it has real encryption,
     rotation, and git-diff audit. The architectural difference: dotenvx uses a single shared private
-    key per environment, while EnvSeal seals to individual recipients.
+    key per environment, while EnvSeal seals to individual recipients. SOPS encrypts files well; the
+    gap is that recipient management, merge behavior, and runtime injection are left for you to wire up.
   </p>
 </section>
 
@@ -1267,16 +2100,18 @@ footer {
     <div class="caveat reveal" role="button" tabindex="0" aria-expanded="false" aria-controls="caveat-1-body">
       <div class="caveat-head">
         <div class="caveat-num">01</div>
-        <div class="caveat-title">Removing someone doesn't erase what they already saw.</div>
+        <div class="caveat-title">Removing someone is not the same as rotating the key.</div>
         <div class="caveat-indicator">+</div>
       </div>
       <div id="caveat-1-body" class="caveat-body">
         <div class="caveat-body-inner">
-          <code>envseal recipient rm</code> stops a person from decrypting <strong>future</strong> commits.
-          But Git history is permanent — anyone who cloned earlier still has old encrypted commits and
-          could decrypt them with a key they already hold. If someone leaves under bad terms, rotate the
-          <strong>actual credentials</strong> too, not just the vault. Removing their access is taking
-          away the house key after they've already made a copy.
+          <code>envseal recipient rm</code> re-wraps the vault key for everyone else, but it keeps the
+          same data key. Anyone who unlocked the vault before still holds that key and could decrypt
+          <strong>future</strong> commits. Run <code>envseal rotate</code> immediately after removing
+          someone — that generates a new data key. And Git history is permanent: anyone who cloned
+          earlier can still decrypt old commits with the old key. If someone leaves under bad terms,
+          rotate the <strong>actual credentials</strong> too. Removing their access is taking away the
+          house key after they've already made a copy.
         </div>
       </div>
     </div>
@@ -1341,8 +2176,9 @@ footer {
       <ul class="fit-list">
         <li><strong>Git-native by design.</strong> The vault is a file in your repo, not a parallel system you have to remember to sync.</li>
         <li><strong>Free and offline.</strong> No accounts, no cloud, no telemetry. Works on a plane or behind a corporate firewall.</li>
-        <li><strong>Branch-aware.</strong> The only option in its class that switches secrets automatically on <code>git checkout</code>.</li>
-        <li><strong>Per-recipient access.</strong> Adding or removing a teammate is a Git commit, not a shared-key redistribution.</li>
+        <li><strong>Branch-aware.</strong> Run <code>envseal run</code> on <code>staging</code> and it applies the <code>staging</code> tag automatically — no flag, no copy-paste.</li>
+        <li><strong>Per-recipient access.</strong> Adding a teammate is a Git commit, not a shared-key redistribution. Removing one needs a follow-up <code>rotate</code>.</li>
+        <li><strong>Files, not just strings.</strong> Certificates, service-account JSON, and kubeconfigs are sealed and injected as private temp paths — not shared as attachments.</li>
         <li><strong>Global + local vault mixing.</strong> Personal tokens stay in a system vault; projects only pull what they need.</li>
       </ul>
     </div>
@@ -1374,8 +2210,8 @@ footer {
   </h2>
 
   <p class="lede reveal">
-    Every command, every flag. If you've used Git, this will feel familiar — every command is a
-    single verb, and most have a natural Git analogue you already know.
+    The commands and flags you'll actually use. If you've used Git, this will feel familiar — every
+    command is a single verb, and most have a natural Git analogue you already know.
   </p>
 
   <div class="cmds">
@@ -1394,13 +2230,13 @@ footer {
       </div>
 
       <div class="cmd-item">
-        <div class="cmd-item-cmd"><span class="bin">envseal</span> set <span class="opt">[-g GROUP] [-t TAG]</span> KEY</div>
-        <div class="cmd-item-desc">Store a secret. Prompts for the value without echoing it.</div>
+        <div class="cmd-item-cmd"><span class="bin">envseal</span> set <span class="opt">[-g GROUP] [-t TAG] [--file PATH] [--env-var VAR]</span> KEY</div>
+        <div class="cmd-item-desc">Store a secret without echoing it, or seal an entire file with <code>--file</code>.</div>
       </div>
 
       <div class="cmd-item">
-        <div class="cmd-item-cmd"><span class="bin">envseal</span> get <span class="opt">[-g GROUP] [-t TAG] [--token TOK]</span> KEY</div>
-        <div class="cmd-item-desc">Print one decrypted value. Use sparingly.</div>
+        <div class="cmd-item-cmd"><span class="bin">envseal</span> get <span class="opt">[-g GROUP] [-t TAG] [--token TOK] [-o PATH]</span> KEY</div>
+        <div class="cmd-item-desc">Print one decrypted value, or write a sealed file back to disk with <code>-o</code>.</div>
       </div>
 
       <div class="cmd-item">
@@ -1436,6 +2272,18 @@ footer {
       <div class="cmd-item">
         <div class="cmd-item-cmd"><span class="bin">envseal</span> clear</div>
         <div class="cmd-item-desc">Wipe cached master keys from the OS keyring session.</div>
+      </div>
+
+      <h3 style="margin-top: 48px;">Sealed files</h3>
+
+      <div class="cmd-item">
+        <div class="cmd-item-cmd"><span class="bin">envseal</span> set KEY <span class="opt">--file PATH [--env-var VAR]</span></div>
+        <div class="cmd-item-desc">Seal any file up to 10 MB. <code>run</code> injects <code>$VAR</code> as a private temp path; the variable defaults to KEY.</div>
+      </div>
+
+      <div class="cmd-item">
+        <div class="cmd-item-cmd"><span class="bin">envseal</span> get KEY <span class="opt">-o PATH</span></div>
+        <div class="cmd-item-desc">Write a sealed file back to disk. New files get <code>0600</code> (or <code>0700</code> if executable); overwriting keeps the existing file's mode. Pipe stdout for raw bytes.</div>
       </div>
 
       <h3 style="margin-top: 48px;">Global vault override</h3>
@@ -1482,7 +2330,7 @@ footer {
 
       <div class="cmd-item">
         <div class="cmd-item-cmd"><span class="bin">envseal</span> recipient rm <span class="opt">&lt;NAME | INDEX | KEY&gt;</span></div>
-        <div class="cmd-item-desc">Revoke access and re-encrypt the vault for the remaining recipients.</div>
+        <div class="cmd-item-desc">Remove a recipient and re-wrap the vault key. Run <code>rotate</code> to change the data key.</div>
       </div>
 
       <div class="cmd-item">
@@ -1519,7 +2367,7 @@ footer {
 
       <div class="cmd-item">
         <div class="cmd-item-cmd"><span class="flag">--no-env</span></div>
-        <div class="cmd-item-desc">Disable reading fallback identity keys from <code>ENVSEAL_IDENTITY</code>.</div>
+        <div class="cmd-item-desc">Disable reading fallback identity keys from <code>ENVSEAL_IDENTITY</code> and <code>ENVSEAL_IDENTITY_FILE</code>.</div>
       </div>
     </div>
   </div>
@@ -1535,7 +2383,7 @@ footer {
   </h2>
 
   <p class="lede reveal" style="margin: 0 auto; text-align:center; max-width: 50ch;">
-    One file. One command. No more "does anyone have the new key?"
+    One vault. One command. No more "does anyone have the new key — or the certificate?"
   </p>
 
   <div class="finale-actions reveal">
@@ -1571,8 +2419,9 @@ footer {
         </div>
         <div id="faq-2-body" class="caveat-body">
           <div class="caveat-body-inner">
-            Yes. Keep one <code>.envseal</code> at the root, or use the <code>-e</code> profile
-            mechanism for per-package vaults within the same repository.
+            Yes. Keep one <code>.envseal</code> at the root, or put a separate <code>.envseal</code> in
+            each package — EnvSeal uses the nearest one. Use the <code>-e</code> profile mechanism when
+            you want multiple vaults side by side.
           </div>
         </div>
       </div>
@@ -1595,14 +2444,18 @@ footer {
       <div class="caveat reveal" role="button" tabindex="0" aria-expanded="false" aria-controls="faq-4-body">
         <div class="caveat-head">
           <div class="caveat-num">Q</div>
-          <div class="caveat-title">What happens when two people edit secrets at the same time?</div>
+          <div class="caveat-title">Can I store a TLS certificate, SSH key, or kubeconfig?</div>
           <div class="caveat-indicator">+</div>
         </div>
         <div id="faq-4-body" class="caveat-body">
           <div class="caveat-body-inner">
-            The Git merge driver resolves most edits silently. If two contributors change the
-            <em>same</em> key to different values, it stops and asks you to pick a side via
-            <code>--ours</code> or <code>--theirs</code>.
+            Yes — that's what file secrets are for:
+            <code>envseal set TLS_CERT --file ./certs/server.pem --env-var TLS_CERT_PATH</code>.
+            During <code>envseal run</code>, the file is decrypted to a private temp path, the env var points
+            at it, and it's overwritten and deleted when the process exits. Need a fixed path? Use
+            <code>envseal get TLS_CERT -o ./server.pem</code>. <code>export</code> and <code>load</code>
+            only handle text variables: <code>export</code> warns for every skipped file secret,
+            <code>load</code> warns when you explicitly name one.
           </div>
         </div>
       </div>
@@ -1610,15 +2463,14 @@ footer {
       <div class="caveat reveal" role="button" tabindex="0" aria-expanded="false" aria-controls="faq-5-body">
         <div class="caveat-head">
           <div class="caveat-num">Q</div>
-          <div class="caveat-title">What if my teammate doesn't have SSH keys on GitHub?</div>
+          <div class="caveat-title">What happens when two people edit secrets at the same time?</div>
           <div class="caveat-indicator">+</div>
         </div>
         <div id="faq-5-body" class="caveat-body">
           <div class="caveat-body-inner">
-            <code>envseal recipient add @handle</code> will fail. Ask them to run
-            <code>envseal recipient id</code>, which generates an age key for them. They send you
-            the output, and you add it with <code>envseal recipient add "age1..."</code>. Same
-            result, one extra paste.
+            The Git merge driver resolves most edits silently. If two contributors change the
+            <em>same</em> key to different values, it stops. Pick a side by re-running the merge with
+            <code>git -c envseal.merge.strategy=ours merge …</code> or <code>theirs</code>.
           </div>
         </div>
       </div>
@@ -1626,10 +2478,26 @@ footer {
       <div class="caveat reveal" role="button" tabindex="0" aria-expanded="false" aria-controls="faq-6-body">
         <div class="caveat-head">
           <div class="caveat-num">Q</div>
-          <div class="caveat-title">I forgot my private key and I'm the only recipient.</div>
+          <div class="caveat-title">What if my teammate doesn't have SSH keys on GitHub?</div>
           <div class="caveat-indicator">+</div>
         </div>
         <div id="faq-6-body" class="caveat-body">
+          <div class="caveat-body-inner">
+            <code>envseal recipient add @handle</code> will fail. Ask them to run
+            <code>envseal recipient id</code>, which creates or reuses their local identity. They send you
+            the output, and you add it with <code>envseal recipient add "age1..."</code>. Same
+            result, one extra paste.
+          </div>
+        </div>
+      </div>
+
+      <div class="caveat reveal" role="button" tabindex="0" aria-expanded="false" aria-controls="faq-7-body">
+        <div class="caveat-head">
+          <div class="caveat-num">Q</div>
+          <div class="caveat-title">I forgot my private key and I'm the only recipient.</div>
+          <div class="caveat-indicator">+</div>
+        </div>
+        <div id="faq-7-body" class="caveat-body">
           <div class="caveat-body-inner">
             This is not a bug EnvSeal can fix — it's a backup problem. If you still have the identity
             file somewhere (another machine, a password manager, a printed seed), restore it and
@@ -1657,7 +2525,7 @@ footer {
         EnvSeal CLI
       </a>
       <span class="footer-meta">
-        v6.2.1 <span class="dot">·</span> MIT <span class="dot">·</span> Rust <span class="dot">·</span> Offline by design
+        v6.3.0 <span class="dot">·</span> MIT <span class="dot">·</span> Rust <span class="dot">·</span> Offline by design
       </span>
     </div>
     <div class="footer-links">
@@ -1683,6 +2551,8 @@ footer {
     const max = h.scrollHeight - h.clientHeight;
     const pct = max > 0 ? (scrolled / max) * 100 : 0;
     progressBar.style.width = pct.toFixed(2) + '%';
+    const topHeader = document.querySelector('header.top');
+    if (topHeader) topHeader.classList.toggle('scrolled', scrolled > 24);
     ticking = false;
   }
   window.addEventListener('scroll', function(){
@@ -1704,6 +2574,35 @@ footer {
     revealEls.forEach(function(el){ io.observe(el); });
   } else {
     revealEls.forEach(function(el){ el.classList.add('in'); });
+  }
+
+  /* ---------- Staggered card and list reveals ---------- */
+  const motionGroups = [
+    document.querySelectorAll('.features .feature'),
+    document.querySelectorAll('.cmds-col .cmd-item'),
+    document.querySelectorAll('.fit .fit-col'),
+    document.querySelectorAll('.caveats .caveat'),
+    document.querySelectorAll('.split > div')
+  ];
+  if (!reduceMotion && 'IntersectionObserver' in window) {
+    document.body.classList.add('motion-ready');
+    motionGroups.forEach(function(group){
+      group.forEach(function(el, index){
+        el.classList.add('motion-item');
+        el.style.setProperty('--motion-delay', (Math.min(index, 6) * 65) + 'ms');
+      });
+    });
+    const motionIO = new IntersectionObserver(function(entries){
+      entries.forEach(function(entry){
+        if (entry.isIntersecting) {
+          entry.target.classList.add('motion-in');
+          motionIO.unobserve(entry.target);
+        }
+      });
+    }, { rootMargin: '0px 0px -5% 0px', threshold: 0.08 });
+    motionGroups.forEach(function(group){
+      group.forEach(function(el){ motionIO.observe(el); });
+    });
   }
 
   /* ---------- Terminal line reveal ---------- */
@@ -1749,36 +2648,49 @@ footer {
   }
 
   /* ---------- Copy buttons ---------- */
+  function fallbackCopy(text){
+    const ta = document.createElement('textarea');
+    ta.value = text;
+    ta.setAttribute('readonly', '');
+    ta.style.position = 'fixed';
+    ta.style.opacity = '0';
+    ta.style.pointerEvents = 'none';
+    document.body.appendChild(ta);
+    ta.select();
+    ta.setSelectionRange(0, ta.value.length);
+    let copied = false;
+    try { copied = document.execCommand('copy'); } catch(e) { copied = false; }
+    document.body.removeChild(ta);
+    return copied;
+  }
+
+  function copyText(text){
+    if (navigator.clipboard && navigator.clipboard.writeText){
+      return navigator.clipboard.writeText(text)
+        .then(function(){ return true; })
+        .catch(function(){ return fallbackCopy(text); });
+    }
+    return Promise.resolve(fallbackCopy(text));
+  }
+
   document.querySelectorAll('[data-copy]').forEach(function(el){
     el.addEventListener('click', function(){
       const text = el.getAttribute('data-copy');
-      const finish = function(){
-        el.classList.add('copied');
-        const chipCopy = el.querySelector('.chip-copy');
-        if (chipCopy) chipCopy.textContent = 'copied';
+      const chipCopy = el.querySelector('.chip-copy');
+      const originalText = el.textContent;
+
+      copyText(text).then(function(copied){
+        el.classList.toggle('copied', copied);
+        if (chipCopy) chipCopy.textContent = copied ? 'copied' : 'failed';
         if (el.classList.contains('btn')){
-          const orig = el.textContent;
-          el.textContent = 'Copied ✓';
-          setTimeout(function(){ el.textContent = orig; }, 1500);
+          el.textContent = copied ? 'Copied ✓' : 'Copy failed';
         }
         setTimeout(function(){
           el.classList.remove('copied');
           if (chipCopy) chipCopy.textContent = 'copy';
-        }, 1500);
-      };
-      if (navigator.clipboard && navigator.clipboard.writeText){
-        navigator.clipboard.writeText(text).then(finish).catch(finish);
-      } else {
-        const ta = document.createElement('textarea');
-        ta.value = text;
-        ta.style.position = 'fixed';
-        ta.style.opacity = '0';
-        document.body.appendChild(ta);
-        ta.select();
-        try { document.execCommand('copy'); } catch(e){}
-        document.body.removeChild(ta);
-        finish();
-      }
+          if (el.classList.contains('btn')) el.textContent = originalText;
+        }, 1600);
+      });
     });
   });
 

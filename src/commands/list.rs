@@ -12,17 +12,16 @@ pub fn cmd_list(
     let secrets = vault.list_secrets(group, tag)?;
     if stdout().is_terminal() {
         let group_name = vault.resolve_group_name(group)?;
-        let header: String;
-        if vault.is_local() {
-            header = match tag {
+        let header: String = if vault.is_local() {
+            match tag {
                 Some(t) => format!("# tag: {t} [local]"),
-                None => format!("# [local]"),
-            };
+                None => "# [local]".to_string(),
+            }
         } else {
-            header = match tag {
+            match tag {
                 Some(t) => format!("# group: {group_name}, tag: {t} [global]"),
                 None => format!("# group: {group_name} [global]"),
-            };
+            }
         };
 
         eprintln!("{header}");

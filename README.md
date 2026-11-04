@@ -18,11 +18,13 @@
 [![Featured on VibeLeaderboard](https://img.shields.io/endpoint?url=https%3A%2F%2Fwww.vibeleaderboard.ai%2Fapi%2Fv1%2Fapps%2F809f8383-8172-424b-aa45-1afca134a053%2Fbadge)](https://www.vibeleaderboard.ai/app/809f8383-8172-424b-aa45-1afca134a053)
 [![PRs Welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg)](http://makeapullrequest.com)
 
-> **Git for secrets.** An offline, Git-native secrets manager built on SSH and Age. Your vault is a file in your repo — encrypted for the people who need it, switched by branch, and mergeable like code.
+> **Git for secrets.** An offline, Git-native secrets manager for environment variables and the files that go with them — TLS certificates, service-account JSON, keystores, kubeconfigs. Built on SSH and Age. Your vault is a file in your repo — encrypted for the people who need it, switched by branch, and mergeable like code.
 
-EnvSeal isn't a secrets manager. It isn't an encrypted `.env` file. It's a file in your repository that travels with `git pull`, switches with `git checkout`, resolves with `git merge`, and is reviewed in pull requests like everything else you commit.
+EnvSeal isn't a cloud secrets manager. It isn't just an encrypted `.env` file. It's a file in your repository that holds every secret your app needs to start — environment variables and the certificates, service-account JSON, and kubeconfigs that never fit in `.env`. It travels with `git pull`, follows your branch, resolves with `git merge`, and is reviewed in pull requests like everything else you commit.
 
 No cloud. No accounts. No shared master password. Just Git, public keys, and a CLI that stays out of your way.
+
+Secrets aren't always strings. TLS certificates, service-account JSON, `.p12` keystores, SSH keys, and kubeconfigs can live in the same vault. At runtime, EnvSeal decrypts each one to a private temporary file and hands your process the path — not a shared drive, not a wiki attachment, not a "temporary" commit from three years ago.
 
 ---
 
@@ -69,7 +71,7 @@ envseal run -- npm start
 git add .envseal && git commit -m "seal secrets" && git push
 ```
 
-That's the entire setup. Your teammate pulls, runs `envseal run -- npm start`, and it works — same keys, correct branch, zero DMs.
+That's the entire setup. Once you've added them as a recipient (below), your teammate pulls, runs `envseal run -- npm start`, and it works — same keys, correct branch, zero DMs.
 
 **Already have a `.env`?** Import it in one step:
 
@@ -77,6 +79,16 @@ That's the entire setup. Your teammate pulls, runs `envseal run -- npm start`, a
 envseal import .env
 # the original plaintext file is left for you to delete
 ```
+
+**Already have a secret that's a file?** Seal it the same way:
+
+```bash
+envseal set TLS_CERT --file ./certs/server.pem --env-var TLS_CERT_PATH
+envseal run -- node server.js
+# $TLS_CERT_PATH → a private temp file that disappears when the process exits
+```
+
+`--env-var` defaults to the key name, so `envseal set GCP_SA --file ./gcp.json` gives your process `$GCP_SA`.
 
 **Add a teammate — two paths, depending on their setup:**
 
@@ -86,9 +98,9 @@ envseal import .env
 envseal recipient add @their-github-handle
 
 # Path B — they don't have SSH keys set up:
-# They run `envseal recipient id`, which generates an age key.
+# They run `envseal recipient id`, which creates or reuses their local identity key.
 # They send you the output. You add it manually.
-envseal recipient add "age1ql3z7hjy54pw3hy... # priya"
+envseal recipient add "age1ql3z7hjy54pw3hy..."
 ```
 
 Both work. Path A is one command with zero manual key exchange. Path B is still a single command — you just paste a key instead of a handle.
@@ -98,32 +110,34 @@ Both work. Path A is one command with zero manual key exchange. Path B is still 
 ## Real examples
 
 **Switching branches:**
-```
+```bash
 $ git checkout staging
 $ envseal run -- npm start
-▸ loading tag 'staging' (matched current branch)
-▸ DATABASE_URL → staging-db.internal
-▸ STRIPE_PUBLIC_KEY → pk_test_…
+> app@1.0.0 start
+> node server.js
+listening on :3000
 ```
+No `--tag` needed: `envseal run` reads your current Git branch and applies the matching tag (here, `staging`) before starting the child process.
 
 **Accidentally staging a `.env`:**
 ```
 $ git add .
 $ git commit -m "wip"
-[envseal] COMMIT REJECTED: staged plaintext .env file detected
-  → .env
-
-Unstage them, or run `envseal init --local`
-to create an encrypted .envseal vault.
+[envseal] COMMIT REJECTED: Staged plaintext .env file(s) detected:
+  - .env
+[envseal] Use 'envseal run' or encrypt secrets into '.envseal' instead.
 ```
 
 **Someone leaves the team:**
 ```
-$ envseal recipient rm @teammate
-✔ access revoked for @teammate
-✔ vault re-encrypted for 3 remaining recipients
-⚠ rotate the actual credentials — revocation is not a memory wipe
+$ envseal recipient rm 1
+Removed recipient 'age1...'. Vault re-encrypted.
+
+$ envseal rotate
+re-encrypting vault and rotating DEK...
+successfully rotated DEK. All previous tokens are now invalid.
 ```
+Removing the recipient re-wraps the vault key for everyone else. `rotate` is the step that changes the data key, so do it immediately — and rotate the real credentials too, because old commits and copied keys are still out there.
 
 **App exits:**
 ```
@@ -132,8 +146,8 @@ $ envseal run -- npm start
 > node server.js
 listening on :3000
 ^C
-Process exited. Secrets gone. 0 plaintext bytes on disk.
 ```
+Text secrets were injected into the child process's environment; file secrets were temp paths that EnvSeal overwrote and deleted on exit.
 
 **Mixing global and local vaults:**
 ```bash
@@ -158,19 +172,29 @@ envseal edit --tag staging
 # Edit a specific group in the global vault
 envseal edit --group myapp
 ```
-The `edit` command decrypts the selected secrets into a temporary file, opens it in your default editor, and writes only the net changes back into the encrypted vault. The temporary file is securely zeroed on exit. This is ideal for bulk updates or when you prefer a native editor over repeated `set`/`rm` commands.
+The `edit` command decrypts the selected secrets into a temporary file, opens it in your default editor, and writes only the net changes back into the encrypted vault. The temporary file is overwritten with zeros and deleted on exit. This is ideal for bulk updates or when you prefer a native editor over repeated `set`/`rm` commands.
+
+**A certificate that never touches a shared folder:**
+```
+$ envseal set KUBECONFIG --file ~/.kube/prod.yaml --env-var KUBECONFIG
+sealed file 'KUBECONFIG' in group 'project' (local seal)
+
+$ envseal run -- kubectl get pods
+# KUBECONFIG points at a private temp copy, overwritten and deleted when kubectl exits
+```
+No USB stick. No "download this from the wiki." No plaintext kubeconfig sitting in a synced folder with production cluster access.
 
 ---
 
 ## Why not SOPS? Why not dotenvx? Why not Doppler?
 
-**SOPS** encrypts files. It's a great tool for a different job: encrypting config at rest. What it doesn't do is manage recipients, track which branch you're on, or provide a merge driver. Every new teammate means a manual age key exchange and a `sops updatekeys` run.
+**SOPS** encrypts files. It's a great tool for a different job: encrypting config at rest. What it doesn't give you is a branch-aware, Git-native workflow or a merge driver. It can inject secrets with `sops exec-env` / `exec-file`, but you wire that workflow yourself. Every new teammate means a manual age key exchange and a `sops updatekeys` run.
 
-**dotenvx** encrypts your `.env` file and lets you commit it safely. It's a solid tool with real encryption, rotation, and git-diff audit. The difference is architectural: dotenvx uses a **single shared private key per environment**, so "who has access" is the same question as "who has the key." EnvSeal seals the vault to **individual recipients**, so adding or removing a teammate is a Git commit, not a key redistribution.
+**dotenvx** encrypts your `.env` file and lets you commit it safely. It's a solid tool with real encryption, rotation, and git-diff audit. The difference is architectural: dotenvx uses a **single shared private key per environment**, so "who has access" is the same question as "who has the key." It also stops at environment strings — a certificate or kubeconfig still has to live somewhere else. EnvSeal seals the vault to **individual recipients** and handles both, so adding a teammate is a Git commit and removing one is a commit plus `envseal rotate` — not a key redistribution.
 
-**Doppler / Infisical** are excellent products. They're also cloud services with dashboards, audit logs, and per-seat pricing. If your team needs those things, use them. Infisical can be self-hosted air-gapped, but only at the Enterprise tier.
+**Doppler / Infisical** are excellent products. They're primarily cloud services with dashboards, audit logs, and per-seat pricing (both offer self-hosting, with supported/air-gapped deployments on paid tiers). If your team needs those things, use them. Infisical's MIT-licensed core is free to self-host; supported air-gapped deployments are an Enterprise offering.
 
-EnvSeal is for the team in between: small, already on Git, and tired of being the unofficial IT department.
+EnvSeal is for the team in between: small, already on Git, tired of being the unofficial IT department, and still passing certificates around because they don't fit in a `.env`.
 
 ---
 
@@ -190,6 +214,9 @@ If you've built anything with more than one contributor, one of these has happen
 - **The 2 AM `git add .`.**
   It's late, the deadline is tomorrow, and `git add .` scoops up a `.env` file along with everything else. Now there's a real API key sitting in your Git history — and if the repo is public, bots are already scanning for it.
 
+- **The secret that isn't a string.**
+  Your TLS certificate, service-account JSON, SSH key, and kubeconfig don't fit in `.env`, so they live in a shared drive, a wiki attachment, or a synced folder with production access. Someone rotates one and the next person spends an afternoon discovering the app was reading a stale copy. `.env` was never designed for files — so the files quietly became everyone's problem.
+
 None of these are exotic. They're what happens when secrets live outside version control and the code that needs them doesn't. The fix isn't a better `.env` file. It's putting the vault somewhere Git already knows how to move.
 
 ---
@@ -199,10 +226,11 @@ None of these are exotic. They're what happens when secrets live outside version
 EnvSeal keeps secrets *inside* your repository, but encrypted — so Git can do what Git is good at (syncing state across a team) without ever exposing plaintext.
 
 - **One teammate adds a key, everyone gets it.** Push your changes, and the encrypted vault updates for the whole team. No more "can someone send me the `.env`" messages.
-- **Secrets follow your branch automatically.** Check out `staging`, and EnvSeal loads the `staging`-tagged secrets. Check out `main`, and it switches back.
-- **Nothing plaintext ever touches disk or chat.** Secrets decrypt directly into the memory of the process you're running, and disappear when it exits.
+- **Secrets follow your branch automatically.** Check out `staging` and run `envseal run`; EnvSeal applies the `staging` tag automatically. Check out `main`, and it switches back.
+- **Nothing plaintext touches chat, and nothing lingers on disk.** Text secrets are decrypted in memory and injected into the child process's environment. File secrets decrypt to a private temp file that is overwritten and deleted when the process exits.
 - **A pre-commit hook stops the panic push.** If you (or a sleepy teammate) accidentally try to commit a raw `.env` file, EnvSeal blocks it before it reaches Git history.
 - **Migration is one command.** Already have a `.env`? `envseal import .env` brings it into the vault. Need a temporary plaintext file for a legacy tool? `envseal export` writes it with strict `0600` permissions.
+- **Files are secrets too.** Certificates, service-account JSON, keystores, and kubeconfigs get sealed alongside your environment variables. At runtime they're decrypted to private temp files and referenced by path — so your app gets what it needs without a shared drive or another copy in chat.
 - **Interactive shell when you want it.** `envseal load` prints export statements so you can `eval "$(envseal load)"` — useful for debugging, while `envseal run` remains the safe default for everyday work.
 - **Global and local vaults can be mixed.** Use `--override` to pull specific keys from your global vault, or `--with-global` to overlay everything from it.
 
@@ -249,9 +277,11 @@ envseal token --tag prod -o ./ci.token --exp 3600 STRIPE_SECRET DATABASE_URL
 envseal run --token ./ci.token -- npm run migrate
 ```
 
-### Instant revocation
+Tokens scope file secrets the same way: list `TLS_CERT` in the token and the runner can read that file key, nothing else. You can also pass the token string (or a path to it) through the `ENVSEAL_TOKEN` environment variable.
 
-Group member leaves the project, or a laptop gets compromised? Rotate the encryption key and every previously issued token becomes unreadable ciphertext instantly:
+### Rotating keys and revoking tokens
+
+Group member leaves the project, or a laptop gets compromised? Rotate the encryption key and every previously issued token can no longer decrypt the current vault:
 
 ```bash
 envseal rotate
@@ -259,7 +289,7 @@ envseal rotate
 
 ### Pre-commit shield
 
-`envseal git-setup` installs a hook that blocks staged `.env`, `.env.local`, and `.env.staging` files from ever being committed, while letting the encrypted `.envseal` file through.
+`envseal git-setup` installs a hook that blocks staged `.env` files — `.env` itself and variants like `.env.local` and `.env.staging` — while letting `.env.example` / `.sample` / `.template` / `.dist` and the encrypted `.envseal` file through.
 
 ### Multiple local profiles
 
@@ -290,7 +320,7 @@ envseal run --with-global --global-group shared-aws --global-tag prod -- ./deplo
 
 ### Interactive editor
 
-Bulk-edit secrets using your familiar `$EDITOR` instead of repeated `set`/`rm` commands. EnvSeal decrypts the selected secrets into a temporary file, opens it in your preferred editor (`$EDITOR` / `$VISUAL`, falling back to `nano` on Unix or `notepad` on Windows), and writes only the net changes back into the vault. The temp file is securely zeroed on exit.
+Bulk-edit secrets using your familiar `$EDITOR` instead of repeated `set`/`rm` commands. EnvSeal decrypts the selected secrets into a temporary file, opens it in your preferred editor (`$EDITOR` / `$VISUAL`, falling back to `nano` on Unix or `notepad` on Windows), and writes only the net changes back into the vault. The temp file is overwritten with zeros and deleted on exit.
 
 ```bash
 # Edit base secrets for the current/linked group
@@ -303,14 +333,19 @@ envseal edit --tag staging
 envseal edit --group myapp
 ```
 
+File secrets appear read-only in that buffer, so a casual text edit can't corrupt them. Update them with `envseal set KEY --file PATH`, or remove them with `envseal remove KEY`.
+
 ### Also included
 
-- **In-memory only decryption** — plaintext secrets exist only inside the child process you launch with `envseal run`. When that process exits, the secrets are gone.
+- **In-memory decryption for text, overwritten temp files for files** — text secrets are decrypted in memory and injected into the child process you launch with `envseal run`. File secrets are written to a private temp file, then overwritten and deleted when that process exits. When the process ends, no plaintext file is left behind.
+- **Sealed files, not just strings** — `envseal set TLS_CERT --file ./certs/server.pem --env-var TLS_CERT_PATH` seals any file up to 10 MB: certificates, service-account JSON, `.p12` keystores, SSH keys, kubeconfigs. At runtime, `run` decrypts it to a private `0600` temp path (`0700` if the source was executable), preserves the extension, and overwrites/deletes it on exit. `get KEY -o PATH` writes it back out — new files get the same mode, while overwriting an existing path keeps that file's current permissions. Piped stdout gets the raw bytes.
+- **Compression that earns its keep** — file contents are zstd-compressed only when that makes them smaller, so text-like configs shrink and incompressible binaries are stored as-is.
+- **File-aware tooling** — in an interactive terminal, `list` marks file entries as `[file -> $ENV_VAR]`; `edit` shows them read-only; `export` and `load` are text-only and skip them. Use `run` or `get -o` for files.
 - **Shell loading** — `envseal load` prints export statements so you can `eval "$(envseal load)"` when you intentionally want secrets in your interactive shell.
 - **Easy migration** — `envseal import` brings an existing `.env` into the vault; `envseal export` writes selected keys back out with strict `0600` permissions.
-- **Zero cloud dependency** — works on a plane, behind a corporate firewall, or on a completely air-gapped machine.
-- **Cross-platform** — same binary behavior on Linux, macOS, and Windows.
-- **Merge-driver aware** — concurrent edits to different secrets usually resolve automatically; conflicting edits on the *same* key surface a clean choice instead of a binary conflict.
+- **Zero cloud dependency** — the core workflow works on a plane, behind a corporate firewall, or on a completely air-gapped machine. The only network call is `recipient add @user`, which fetches that user's public GitHub keys.
+- **Cross-platform** — same commands on Linux, macOS, and Windows; Unix file modes like `0600`/`0700` apply on Unix only.
+- **Merge-driver aware** — concurrent edits to different secrets usually resolve automatically; conflicting edits on the *same* key stop with a named conflict you resolve with `ours` or `theirs` instead of a binary mess.
 
 ---
 
@@ -334,7 +369,7 @@ envseal --global set AWS_ACCESS_KEY
 envseal --global run -- ./deploy.sh
 ```
 
-Once a directory is linked to a group with `envseal link`, plain `envseal` commands run from inside that directory resolve against the linked global group automatically.
+Once a directory is linked to a group with `envseal link`, plain `envseal` commands run from inside that directory resolve against the linked global group automatically — as long as there's no local `.envseal` in that directory or its parents.
 
 **When to reach for a global vault instead of a local one:**
 
@@ -364,8 +399,8 @@ If none of those apply, keep reading.
 
 Most encryption tools hide their limits in the fine print. We put them on the README. Read them. If any of them is a dealbreaker, EnvSeal is not for you — and that's fine.
 
-- **Removing someone doesn't erase what they already saw.**
-  `envseal recipient rm <name>` stops a person from decrypting *future* commits, but Git history is permanent — anyone who cloned the repo earlier still has old encrypted commits and could decrypt them with a key they already hold. If someone leaves the team under bad terms, rotate the actual credentials (database password, API keys) too, not just the vault. Removing their access is not a memory wipe; it's taking away their house key after they've already made a copy.
+- **Removing someone from the recipient list is not the same as rotating the data key.**
+  `envseal recipient rm <name|index|key>` removes them from future vault envelopes, but it keeps the same data key. If they unlocked the vault before, they still hold that key and can decrypt *future* commits as well as old ones. Run `envseal rotate` immediately after removing someone: that generates a new data key and re-encrypts the current vault, so their old copy is useless for anything new. Even then, Git history is permanent — anyone who cloned earlier still has old encrypted commits and could decrypt those with the old key. If someone leaves the team under bad terms, rotate the actual credentials (database password, API keys) too. Removing access is taking away their house key after they've already made a copy.
 
 - **`envseal rotate` protects the future, not the past.**
   Rotating generates a fresh encryption key and re-encrypts the *current* state of the vault. But it doesn't retroactively re-encrypt old Git commits. Those historical `.envseal` snapshots stay in your Git history, encrypted under the *old* key. If a leaked token ever let someone extract the underlying derived key material, they could, in theory, still use it to decrypt those old commits. The only thing that actually neutralizes a leaked secret is changing the secret itself. **If a token or key leaks, rotate the vault *and* go rotate the actual API keys or database passwords at the source.** `envseal rotate` is a good first move, not an undo button.
@@ -385,32 +420,33 @@ Most encryption tools hide their limits in the fine print. We put them on the RE
 
 - Prefer short-lived tokens (`--exp 3600` or less) for CI.
 - After any security incident, rotate *both* the vault *and* the real secrets the vault was protecting.
-- Never commit the raw token files or private keys — the pre-commit shield helps, but your own habits matter more.
+- Never commit raw token files or private keys. The pre-commit shield only guards `.env` files, so this one is on your habits.
 
 ---
 
 ## How it compares
 
-Pricing and capabilities verified as of early 2026.
+Pricing and capabilities verified as of November 2026.
 
-Every tool below solves the same underlying problems — accidental commits, environment switching, team access — just through a different mechanism. The table shows *how* each one addresses the same concern, so you can judge which trade-off fits your team. If your team needs a dashboard or audit log, use Doppler or Infisical. If you're deep in Kubernetes and cloud KMS, SOPS fits your pipeline better. EnvSeal is for the team in between.
+Every tool below solves the same underlying problems — accidental commits, environment switching, team access, and the certificate that never fit in a `.env` — just through a different mechanism. The table shows *how* each one addresses the same concern, so you can judge which trade-off fits your team. If your team needs a dashboard or audit log, use Doppler or Infisical. If you're deep in Kubernetes and cloud KMS, SOPS fits your pipeline better. EnvSeal is for the team in between.
 
 |                              | Plain `.env`                    | dotenvx                                                  | Mozilla SOPS                                                | **EnvSeal**                                             | Doppler / Infisical                                          |
 | ---------------------------- | ------------------------------- | -------------------------------------------------------- | ----------------------------------------------------------- | ------------------------------------------------------- | ------------------------------------------------------------ |
-| Cost                         | Free                            | Free; Pro $36/yr, Team $20/mo, Business $90/mo           | Free                                                        | Free, no account needed                                 | Doppler: free for 3 users, $8/mo per additional user. Infisical: free up to 5 identities, Pro $18/identity/mo |
-| Works offline                | Yes                             | Yes — local CLI                                          | Yes with age. Cloud KMS modes need connectivity to encrypt/decrypt | Yes, fully                                       | Cached fallback only after first fetch. Infisical self-hosted available at Enterprise tier |
-| Environment / branch switching | Manual file swap (`.env`, `.env.staging`) | Manual `-f .env.production` at invocation           | Per-file, driven by CI env vars or shell aliases            | Auto-binds to the current Git branch (tag match)        | `--config` flag at runtime, or a project setting in the dashboard |
-| Preventing accidental commits | Relies on `.gitignore` discipline | Optional `dotenvx precommit` hook                     | `.gitignore` + decrypt only in CI; nothing plaintext is committed | Built-in pre-commit shield blocks `.env*`          | Nothing to commit — secrets never touch the repo             |
+| Cost                         | Free                            | Free; Member $5/mo, Business $90/mo                       | Free                                                        | Free, no account needed                                 | Doppler: free for 3 users, $8/mo per additional user. Infisical: free up to 5 identities, Pro $23/identity/mo ($20 annual) |
+| Works offline                | Yes                             | Yes — local CLI                                          | Yes with age. Cloud KMS modes need connectivity to encrypt/decrypt | Yes, fully                                       | Cloud-first; offline use needs a prior cache. Infisical's MIT core is free to self-host; supported air-gapped is Enterprise |
+| Environment / branch switching | Manual file swap (`.env`, `.env.staging`) | Manual `-f .env.production` at invocation           | Per-file, driven by CI env vars or shell aliases            | `envseal run` reads the current branch and applies a matching tag | `--config` flag at runtime, or a project setting in the dashboard |
+| Preventing accidental commits | Relies on `.gitignore` discipline | Optional `dotenvx precommit` hook                     | `.gitignore` + decrypt only in CI; nothing plaintext is committed | Built-in pre-commit shield blocks staged `.env` files (examples pass) | Nothing to commit — secrets never touch the repo             |
 | Team onboarding              | Manual file sharing             | Share `.env.keys` (one key per environment)              | Add each age key to `.sops.yaml`, run `sops updatekeys`     | Add a GitHub handle, or paste an age key                | Invite via dashboard; SSO available on paid tiers            |
-| Merge behavior               | Git text merge                  | Git text merge on the encrypted file; re-key on conflict | Git text merge on YAML/JSON, optional `sops merge`          | Native merge driver with `ours` / `theirs`              | N/A — cloud-managed, no file to merge                        |
+| Merge behavior               | Git text merge                  | Git text merge on the encrypted file                     | Git text merge on YAML/JSON; conflicts need decrypt → merge → re-encrypt | Native merge driver with `ours` / `theirs`              | N/A — cloud-managed, no file to merge                        |
 | Personal / local overrides   | `.env.local` (gitignored)       | `.env.local` overrides `.env`                            | Separate `.sops.yaml` per developer, or shell env vars      | Global vault + `--override` / `--with-global`           | Personal configs in dashboard, or `--personal` flag          |
-| Best suited for              | Solo hackathon, no real secrets | Solo devs and small teams wanting encrypted `.env` syntax | K8s / GitOps teams already on cloud KMS                    | Small-to-mid teams who want secrets to live in Git      | Orgs that want a GUI, audit logs, and a budget               |
+| Files / certificates         | Strings only                    | Strings only                                             | Encrypts any file, but you wire injection yourself          | Seals files and injects a private temp path at runtime  | File/mount support varies by plan and platform               |
+| Best suited for              | Solo hackathon, no real secrets | Solo devs and small teams wanting encrypted `.env` syntax | K8s / GitOps teams already on cloud KMS                    | Small-to-mid teams who want env vars and file secrets to live in Git | Orgs that want a GUI, audit logs, and a budget               |
 
-**Where EnvSeal genuinely wins:** it's the only option here that's both free *and* branch-aware *and* lives inside Git without asking you to trust a third-party server. For a small team, that combination is hard to beat.
+**Where EnvSeal genuinely wins:** it's free, branch-aware, lives inside Git, and injects both environment variables and sealed files at runtime without asking you to trust a third-party server. For a small team, that combination is hard to beat.
 
 **Where EnvSeal is honestly not the best fit:** no web dashboard, no built-in audit trail, no non-technical UI. If your team includes people who won't touch a terminal, or you need compliance-grade access logs, use Doppler or Infisical. If you're already deep in Kubernetes and cloud KMS, SOPS is the more natural fit.
 
-**A note on dotenvx and SOPS in this table:** dotenvx does more than a row can capture — it has real encryption, rotation, and git-diff audit. The architectural difference is that dotenvx uses a single shared private key per environment, while EnvSeal seals to individual recipients. SOPS is a mature, widely-used tool with strong KMS integrations; its trade-off is that recipient management and merge behavior are manual, which is a deliberate design choice for GitOps pipelines, not a shortcoming.
+**A note on dotenvx and SOPS in this table:** dotenvx does more than a row can capture — it has real encryption, rotation, and git-diff audit. The architectural difference is that dotenvx uses a single shared private key per environment, while EnvSeal seals to individual recipients. SOPS is a mature, widely-used tool with strong KMS integrations and solid file encryption; the gap is that recipient management, merge behavior, and runtime injection are left for you to wire up, which is a deliberate design choice for GitOps pipelines, not a shortcoming.
 
 For a typical student or small-team codebase, the trade-off is easy: you're giving up a GUI you probably wouldn't use anyway, in exchange for something free, offline, and native to the Git workflow you're already using.
 
@@ -425,8 +461,8 @@ For a typical student or small-team codebase, the trade-off is easy: you're givi
 | ----------- | ------------------------------------------------------------------ | ------------------------------------------------------ |
 | `init`      | `envseal init [--local] [--git] [-r RECIPIENT]`                    | Initialize a project or global vault.                  |
 | `git-setup` | `envseal git-setup [--init]`                                       | Register the Git merge driver and pre-commit shield.   |
-| `set`       | `envseal set [-g GROUP] [-t TAG] KEY`                              | Store a secret (prompts without echoing input).        |
-| `get`       | `envseal get [-g GROUP] [-t TAG] [--token TOK] KEY`                | Print one decrypted value.                             |
+| `set`       | `envseal set [-g GROUP] [-t TAG] KEY [--file PATH] [--env-var VAR]` | Store a secret (prompts without echoing input), or seal a file. |
+| `get`       | `envseal get [-g GROUP] [-t TAG] [--token TOK] [-o PATH] KEY`      | Print one decrypted value, or write a sealed file back to disk. |
 | `run`       | `envseal run [-g GROUP] [-t TAG] [--token TOK] [--clear] [--override K1,K2 \| --with-global] -- CMD` | Run a command with secrets injected (alias: `exec`). |
 | `load`      | `envseal load [-g GROUP] [-t TAG] [--token TOK] [--override K1,K2 \| --with-global] [KEYS...]` | Print shell export statements for `eval`.              |
 | `list`      | `envseal list [-g GROUP] [-t TAG]`                                 | List key names without revealing values (alias: `ls`). |
@@ -445,7 +481,7 @@ For a typical student or small-team codebase, the trade-off is easy: you're givi
 | `recipient id`  | `envseal recipient id`                                 | Print your local public identity key.                        |
 | `recipient add` | `envseal recipient add <@user \| KEY \| FILE>`         | Authorize a collaborator.                                    |
 | `recipient ls`  | `envseal recipient ls`                                 | List authorized keys.                                        |
-| `recipient rm`  | `envseal recipient rm <NAME \| INDEX \| KEY>`          | Revoke access and re-encrypt the vault.                      |
+| `recipient rm`  | `envseal recipient rm <NAME \| INDEX \| KEY>`          | Remove a recipient and re-wrap the vault key. Run `rotate` to change the data key. |
 | `token`         | `envseal token [-t TAG] [-o PATH] [--exp S] [KEYS...]` | Mint a scoped, offline CI token.                             |
 | `rotate`        | `envseal rotate`                                       | Rotate the encryption key, invalidating all existing tokens. |
 | `import`        | `envseal import [-t TAG] PATH`                         | Import variables from an existing `.env` file.               |
@@ -458,7 +494,7 @@ For a typical student or small-team codebase, the trade-off is easy: you're givi
 
 - `-e, --env <PROFILE>` — target a specific profile file (e.g. `-e staging` loads `.staging.envseal`)
 - `-G, --global` — target the system-wide vault
-- `--no-env` — disable reading fallback identity keys from `ENVSEAL_IDENTITY`
+- `--no-env` — disable reading fallback identity keys from `ENVSEAL_IDENTITY` and `ENVSEAL_IDENTITY_FILE`
 </details>
 
 <details>
@@ -491,11 +527,27 @@ envseal export -o /tmp/temp.env DATABASE_URL STRIPE_SECRET
 eval "$(envseal load)"
 ```
 
+**File secrets in one place:**
+
+```bash
+# Seal a certificate, key, or config file
+envseal set TLS_CERT --file ./certs/server.pem --env-var TLS_CERT_PATH
+
+# See the binding without revealing contents
+envseal list                       # TLS_CERT [file -> $TLS_CERT_PATH]
+
+# Write the decrypted file back out (new files get 0600/0700) when a tool needs a real path
+envseal get TLS_CERT -o ./server.pem
+
+# Normal runtime: a private temp path, overwritten and deleted on exit
+envseal run -- node server.js
+```
+
 ---
 
 ## Handling merge conflicts
 
-EnvSeal registers as a native Git merge driver, so most merges resolve silently in the background. If two branches change the *same* variable to *different* values, it stops and asks you to choose:
+EnvSeal registers as a native Git merge driver, so most merges resolve silently in the background. If two branches change the *same* variable to *different* values, the merge stops with a named conflict; resolve it by re-running with a strategy:
 
 ```bash
 # Keep the current branch's values
@@ -619,7 +671,7 @@ function envseal {
 
 - **"I forgot my private key and I'm the only recipient"** — see "The deal" section above. This is not a bug EnvSeal can fix; it's a backup problem.
 
-- **`@teammate` recipient add fails** — the teammate doesn't have SSH keys on GitHub. Ask them to run `envseal recipient id` and send you the age key, then add it with `envseal recipient add "age1..."`.
+- **`@teammate` recipient add fails** — the teammate doesn't have SSH keys on GitHub. Ask them to run `envseal recipient id` and send you the public identity key, then add it with `envseal recipient add "age1..."` (or the SSH key they sent).
 
 - **`--override` and `--with-global` used together** — they are mutually exclusive. Pick one: `--override` to pull specific keys, or `--with-global` to overlay everything.
 
@@ -629,6 +681,8 @@ function envseal {
 - **Permission denied on `/usr/local/bin`** — the install script falls back to `~/.local/bin`; make sure that directory is on your `PATH`.
 - **Pre-commit hook not firing** — confirm you ran `envseal git-setup` inside the actual Git repository, not just in a parent folder.
 - **Secrets not appearing after branch switch** — double-check that the tag name exactly matches the branch name (including any `/` characters).
+- **`envseal load` or `envseal export` skipped a file key** — file secrets are only injected by `run`, or extracted with `get -o PATH`. Plaintext `.env` output is text-only.
+- **`envseal get FILE_KEY` printed a size summary instead of the file** — that's the terminal safety check. Add `-o PATH` to write it to disk, or pipe stdout to receive the raw bytes.
 
 ---
 
@@ -702,11 +756,11 @@ Or inject only the keys you need into the container environment.
 
 **Q: Does it work with monorepos?**
 
-A: Yes. You can keep one `.envseal` at the root or use the `-e` / profile mechanism for per-package vaults.
+A: Yes. Keep one `.envseal` at the root, or put a separate `.envseal` in each package — EnvSeal uses the nearest one. Use the `-e` / profile mechanism when you want multiple vaults side by side.
 
 **Q: What happens if two people add different secrets at the same time?**
 
-A: The Git merge driver usually resolves it automatically. If they both changed the *same* key, you'll be prompted to pick one side.
+A: The Git merge driver usually resolves it automatically. If they both changed the *same* key, the merge stops with a conflict; resolve it with `git -c envseal.merge.strategy=ours merge …` or `theirs`.
 
 **Q: Can I still keep a local `.env` for personal overrides?**
 
@@ -714,7 +768,17 @@ A: Yes, but EnvSeal's pre-commit hook will block you from committing it. Treat p
 
 **Q: What if my teammate doesn't have SSH keys on GitHub?**
 
-A: `envseal recipient add @handle` will fail. Ask them to run `envseal recipient id`, which generates an age key for them. They send you the output, you add it with `envseal recipient add "age1..."`. Same result, one extra paste.
+A: `envseal recipient add @handle` will fail. Ask them to run `envseal recipient id`, which creates (or reuses) their local identity. They send you the output, you add it with `envseal recipient add "age1..."`. Same result, one extra paste.
+
+**Q: Can I store TLS certificates, SSH keys, service-account JSON, or kubeconfigs?**
+A: Yes. Those are file secrets:
+
+```bash
+envseal set TLS_CERT --file ./certs/server.pem --env-var TLS_CERT_PATH
+envseal run -- node server.js
+```
+
+`run` decrypts the file to a private temp path, sets `$TLS_CERT_PATH` to it, and overwrites/deletes it when the process exits. Use `envseal get TLS_CERT -o ./server.pem` if a tool needs the file at a fixed path. `export` and `load` are text-only: `export` skips file secrets with a warning, and `load` warns if you explicitly name one.
 
 **Q: What's the difference between `--override` and `--with-global`?**
 
