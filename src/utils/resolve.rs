@@ -53,6 +53,28 @@ pub fn load_token(cli_token: Option<&str>) -> Result<Option<String>> {
     Ok(None)
 }
 
+/// Returns the current Git branch when it has a matching tag in the vault
+pub fn auto_tag(vault: &Vault, group: Option<&str>, tag: Option<&str>) -> Option<String> {
+    if tag.is_some() {
+        return tag.map(str::to_string);
+    }
+    let out = std::process::Command::new("git")
+        .args(["rev-parse", "--abbrev-ref", "HEAD"])
+        .output()
+        .ok()?;
+    if !out.status.success() {
+        return None;
+    }
+    let branch = String::from_utf8_lossy(&out.stdout).trim().to_string();
+    let grp = vault.resolve_group_name(group).ok()?;
+    vault
+        .entries
+        .get(&grp)?
+        .tags
+        .contains_key(&branch)
+        .then_some(branch)
+}
+
 /// Universally resolves variables, seamlessly switching between Token and Age
 pub fn resolve_environment(
     vault: &Vault,

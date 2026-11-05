@@ -39,5 +39,4 @@ predicates = "3.1"
 opt-level = "z"          # Optimize strictly for size
 lto = "fat"              # Full cross-crate link-time optimization
 codegen-units = 1        # Single codegen unit for maximum dead-code elimination
-panic = "abort"          # Strip landing pads and unwinding tables
 strip = true             # Strip all symbols and debuginfo directly

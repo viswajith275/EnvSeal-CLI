@@ -25,20 +25,7 @@ pub fn cmd_run(
     let token_str = resolve::load_token(token)?;
     let vault = Vault::load(global, pref)?;
 
-    let auto_tag = tag.map(String::from).or_else(|| {
-        let out = Command::new("git")
-            .args(["rev-parse", "--abbrev-ref", "HEAD"])
-            .output()
-            .ok()?;
-        let branch = String::from_utf8_lossy(&out.stdout).trim().to_string();
-        let grp = vault.resolve_group_name(group).ok()?;
-        vault
-            .entries
-            .get(&grp)?
-            .tags
-            .contains_key(&branch)
-            .then_some(branch)
-    });
+    let auto_tag = resolve::auto_tag(&vault, group, tag);
 
     let override_val = resolve::OverrideVals {
         keys: &overrides.r#override,

@@ -800,8 +800,25 @@ export EXPORTED_VAR='exported value'
         assert_eq!(parsed.get("EXPORTED_VAR").unwrap(), "exported value");
     }
 
+    fn fixture_path(name: &str) -> PathBuf {
+        PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("tests")
+            .join("fixtures")
+            .join(name)
+    }
+
+    fn fixture_identity(index: usize) -> String {
+        fs::read_to_string(fixture_path("v6_test_identities.txt"))
+            .expect("missing v6 test identities")
+            .lines()
+            .nth(index)
+            .expect("missing v6 test identity")
+            .trim()
+            .to_string()
+    }
+
     #[test]
-    fn test_backward_compatibility_v6_0_0_local_vault() {
+    fn test_text_vault_uses_v6_string_entry_format() {
         let env = TestEnv::new(".envseal");
         Vault::init(vec![env.recipient.clone()], true, false, None).unwrap();
         let mut vault = Vault::load(false, None).unwrap();
@@ -814,143 +831,57 @@ export EXPORTED_VAR='exported value'
         let raw = fs::read_to_string(&env.vault_path).unwrap();
         assert!(raw.contains("V6_BASE_KEY = \""));
         assert!(!raw.contains("[entries.project.base.V6_BASE_KEY]"));
-
-        let loaded = Vault::load(false, None).unwrap();
-        assert!(loaded.verify_integrity().is_ok());
-        let unlocked = loaded.unlock(true).unwrap();
-        let val = loaded
-            .get_entry(&unlocked.master_dek, None, None, "V6_BASE_KEY")
-            .unwrap();
-        assert_eq!(val.as_str(), "v6.0.0-value");
     }
 
     #[test]
-    fn test_backward_compatibility_v6_1_0_tag_overlays() {
-        let env = TestEnv::new(".envseal");
-        Vault::init(vec![env.recipient.clone()], true, false, None).unwrap();
-        let mut vault = Vault::load(false, None).unwrap();
+    fn test_v6_0_0_fixture_loads_and_decrypts() {
+        let _env = TestEnv::new(".envseal");
+        env::set_var("ENVSEAL_IDENTITY", fixture_identity(0));
+
+        let path = fixture_path("v6_0_0.envseal");
+        let raw = fs::read_to_string(&path).unwrap();
+        assert!(raw.contains("V6_BASE_KEY = \""));
+        assert!(!raw.contains("[entries.project.base.V6_BASE_KEY]"));
+
+        let vault = Vault::load_from_file(&path).unwrap();
+        vault.verify_integrity().unwrap();
         let keys = vault.unlock(true).unwrap();
-        vault
-            .set_entry(&keys, None, None, "API_HOST", "default.host")
-            .unwrap();
-        vault
-            .set_entry(&keys, None, Some("staging"), "API_HOST", "staging.host")
-            .unwrap();
-        vault
-            .set_entry(&keys, None, Some("staging"), "EXTRA_TAG_KEY", "tag-only")
-            .unwrap();
-        vault.save().unwrap();
-
-        let raw = fs::read_to_string(&env.vault_path).unwrap();
-        assert!(raw.contains("API_HOST = \""));
-        assert!(raw.contains("[entries.project.tags.staging.entries]"));
-        assert!(raw.contains("EXTRA_TAG_KEY = \""));
-
-        let loaded = Vault::load(false, None).unwrap();
-        assert!(loaded.verify_integrity().is_ok());
-        let unlocked = loaded.unlock(true).unwrap();
         assert_eq!(
-            loaded
-                .get_entry(&unlocked.master_dek, None, Some("staging"), "API_HOST")
+            vault
+                .get_entry(&keys.master_dek, None, None, "V6_BASE_KEY")
+                .unwrap()
+                .as_str(),
+            "v6.0.0-value"
+        );
+        assert_eq!(
+            vault
+                .get_entry(&keys.master_dek, None, Some("staging"), "API_HOST")
                 .unwrap()
                 .as_str(),
             "staging.host"
         );
-        assert_eq!(
-            loaded
-                .get_entry(&unlocked.master_dek, None, None, "API_HOST")
-                .unwrap()
-                .as_str(),
-            "default.host"
-        );
-        assert_eq!(
-            loaded
-                .get_entry(&unlocked.master_dek, None, Some("staging"), "EXTRA_TAG_KEY")
-                .unwrap()
-                .as_str(),
-            "tag-only"
-        );
     }
 
     #[test]
-    fn test_backward_compatibility_v6_2_0_global_vault_and_links() {
-        let env = TestEnv::new(".envseal_global");
-        Vault::init(vec![env.recipient.clone()], false, false, None).unwrap();
-        let mut vault = Vault::load(true, None).unwrap();
-        let keys = vault.unlock(true).unwrap();
+    fn test_v6_2_1_fixture_loads_and_decrypts_for_each_recipient() {
+        let _env = TestEnv::new(".envseal");
+        let path = fixture_path("v6_2_1.envseal");
+        let raw = fs::read_to_string(&path).unwrap();
+        assert!(raw.contains("V6_BASE_KEY = \""));
+        assert!(!raw.contains("[entries.project.base.V6_BASE_KEY]"));
 
-        let target_dir = env._temp_dir.path().join("linked_service");
-        fs::create_dir_all(&target_dir).unwrap();
-        vault.link_group(&keys.signing_key, "service_a").unwrap();
-        vault
-            .link_index
-            .insert(target_dir.clone(), "service_a".to_string());
-        vault.seal_integrity(&keys.signing_key).unwrap();
-        vault
-            .set_entry(&keys, Some("service_a"), None, "DB_PASS", "global_secret")
-            .unwrap();
-        vault.save().unwrap();
-
-        let raw = fs::read_to_string(&env.vault_path).unwrap();
-        assert!(raw.contains("[entries.service_a.base]"));
-        assert!(raw.contains("DB_PASS = \""));
-        assert!(raw.contains(&target_dir.to_string_lossy().to_string()));
-
-        let loaded = Vault::load(true, None).unwrap();
-        assert!(loaded.verify_integrity().is_ok());
-        let unlocked = loaded.unlock(true).unwrap();
-        assert_eq!(
-            loaded
-                .get_entry(&unlocked.master_dek, Some("service_a"), None, "DB_PASS")
-                .unwrap()
-                .as_str(),
-            "global_secret"
-        );
-    }
-
-    #[test]
-    fn test_backward_compatibility_v6_2_1_multi_recipient() {
-        let env = TestEnv::new(".envseal");
-        let id2 = age::x25519::Identity::generate();
-        let recip2 = id2.to_public().to_string();
-        let id2_sec = id2.to_string().expose_secret().to_string();
-
-        Vault::init(
-            vec![env.recipient.clone(), recip2.clone()],
-            true,
-            false,
-            None,
-        )
-        .unwrap();
-        let mut vault = Vault::load(false, None).unwrap();
-        let keys = vault.unlock(true).unwrap();
-        vault
-            .set_entry(
-                &keys,
-                None,
-                None,
-                "MULTI_RECIP_SECRET",
-                "accessible_by_both",
-            )
-            .unwrap();
-        vault.save().unwrap();
-
-        let raw = fs::read_to_string(&env.vault_path).unwrap();
-        assert!(raw.contains(&env.recipient));
-        assert!(raw.contains(&recip2));
-        assert!(raw.contains("MULTI_RECIP_SECRET = \""));
-
-        // Verify decrypting with the second recipient identity
-        env::set_var("ENVSEAL_IDENTITY", &id2_sec);
-        let loaded = Vault::load(false, None).unwrap();
-        assert!(loaded.verify_integrity().is_ok());
-        let unlocked = loaded.unlock(true).unwrap();
-        assert_eq!(
-            loaded
-                .get_entry(&unlocked.master_dek, None, None, "MULTI_RECIP_SECRET")
-                .unwrap()
-                .as_str(),
-            "accessible_by_both"
-        );
+        for index in 0..2 {
+            env::set_var("ENVSEAL_IDENTITY", fixture_identity(index));
+            let vault = Vault::load_from_file(&path).unwrap();
+            vault.verify_integrity().unwrap();
+            let keys = vault.unlock(true).unwrap();
+            assert_eq!(
+                vault
+                    .get_entry(&keys.master_dek, None, None, "V6_BASE_KEY")
+                    .unwrap()
+                    .as_str(),
+                "v6.2.1-value"
+            );
+        }
     }
 }

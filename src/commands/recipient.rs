@@ -34,7 +34,9 @@ fn read_recipient_input(target: &str) -> Result<String> {
     let mut buffer = String::new();
     const MAX_INPUT_SIZE: usize = 64 * 1024;
     if target == "-" {
-        io::stdin().take((MAX_INPUT_SIZE + 1) as u64).read_to_string(&mut buffer)?;
+        io::stdin()
+            .take((MAX_INPUT_SIZE + 1) as u64)
+            .read_to_string(&mut buffer)?;
         if buffer.len() > MAX_INPUT_SIZE {
             anyhow::bail!("Recipient input exceeds maximum supported size of 64 KB");
         }
@@ -89,6 +91,7 @@ pub fn cmd_add(target: &str, global: bool, pref: Option<&str>, allow_env: bool) 
 
     // Unlock and verify existing envelope integrity before mutating recipients
     let keys = vault.unlock(allow_env)?;
+    let old_scope = vault.master_scope();
     let added = to_add.len();
     vault.recipients.extend(to_add);
 
@@ -99,6 +102,9 @@ pub fn cmd_add(target: &str, global: bool, pref: Option<&str>, allow_env: bool) 
     vault.envelope = envelope::wrap_envelope(&payload, &vault.recipients)?;
     vault.seal_integrity(&keys.signing_key)?;
     vault.save()?;
+
+    let _ = crate::utils::session::SessionManager::clear_session(&old_scope);
+    let _ = crate::utils::session::SessionManager::clear_session(&vault.legacy_master_scope()); // removing legacy scope
 
     eprintln!("added {added} recipient(s). Vault re-encrypted.");
     Ok(())
@@ -154,6 +160,7 @@ pub fn cmd_remove(target: &str, global: bool, pref: Option<&str>, allow_env: boo
     }
 
     let keys = vault.unlock(allow_env)?;
+    let old_scope = vault.master_scope();
     let removed = vault.recipients.remove(target_idx);
 
     let mut payload = [0u8; 64];
@@ -162,7 +169,8 @@ pub fn cmd_remove(target: &str, global: bool, pref: Option<&str>, allow_env: boo
     vault.envelope = envelope::wrap_envelope(&payload, &vault.recipients)?;
     vault.seal_integrity(&keys.signing_key)?;
     vault.save()?;
-    let _ = crate::utils::session::SessionManager::clear_session(&vault.master_scope());
+    let _ = crate::utils::session::SessionManager::clear_session(&old_scope);
+    let _ = crate::utils::session::SessionManager::clear_session(&vault.legacy_master_scope());
 
     eprintln!("Removed recipient '{removed}'. Vault re-encrypted.");
     Ok(())

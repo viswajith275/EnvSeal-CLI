@@ -22,8 +22,15 @@ pub fn cmd_get(
 ) -> Result<()> {
     let vault = Vault::load(global, pref)?;
     let token_str = resolve::load_token(token)?;
-    let mut decrypted_envs =
-        resolve::resolve_environment(&vault, group, tag, token_str.as_deref(), allow_env, None)?;
+    let auto_tag = resolve::auto_tag(&vault, group, tag);
+    let mut decrypted_envs = resolve::resolve_environment(
+        &vault,
+        group,
+        auto_tag.as_deref(),
+        token_str.as_deref(),
+        allow_env,
+        None,
+    )?;
 
     match decrypted_envs.remove(key) {
         Some(DecryptedValue::Text(val)) => {

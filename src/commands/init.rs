@@ -48,7 +48,10 @@ pub fn cmd_init(
     );
 
     if !global {
-        let _ = sync_repo_git_conf(init_git);
+        // Warn git setup prblms
+        if let Err(e) = sync_repo_git_conf(init_git) {
+            eprintln!("[git] warning: {e:#}");
+        }
     }
     Ok(())
 }

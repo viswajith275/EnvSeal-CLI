@@ -21,6 +21,7 @@ pub fn cmd_export(
     overrides: &OverrideArgs,
 ) -> Result<()> {
     let vault = Vault::load(global, pref)?;
+    let auto_tag = resolve::auto_tag(&vault, group, tag);
 
     // outputs as stdout if path == "_"
     let is_stdout = output_path == Path::new("-");
@@ -28,7 +29,7 @@ pub fn cmd_export(
     if !is_stdout {
         let group_name = vault.resolve_group_name(group)?;
         let location = if vault.is_local() { "local" } else { "global" };
-        let target = match tag {
+        let target = match auto_tag.as_deref() {
             Some(t) => format!("tag '{t}' inside group '{group_name}'"),
             None => format!("group '{group_name}'"),
         };
@@ -51,7 +52,7 @@ pub fn cmd_export(
     let mut decrypted_envs = resolve::resolve_environment(
         &vault,
         group,
-        tag,
+        auto_tag.as_deref(),
         token_str.as_deref(),
         allow_env,
         Some(&override_val),

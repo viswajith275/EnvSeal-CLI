@@ -1,0 +1,31 @@
+recipients = [
+    "age107aaq80p49h62calewfhz0nlueah5f4h0py6vzrk8e3k2d7j4quq7czgxw",
+    "age1rt7n520x83hv5ftnnpxr8hn59jxspk2ajrewu0myyucgg7kmfcuq45khq3",
+]
+envelope = """
+-----BEGIN AGE ENCRYPTED FILE-----
+YWdlLWVuY3J5cHRpb24ub3JnL3YxCi0+IFgyNTUxOSAyeGZkRUo2UGNGa1NYc3ZM
+cEpkM2hqaUwrbDhibkVXbGdpZjJJd2ZnelI4CkVoZGxLYko3SjFwUGcvdlpxc213
+c000N1hWWFIydDk1bUxhSTE3TEhLZ28KLT4gWDI1NTE5IGdVTkJoS2tQTFN6RVhU
+TWsxK2tXZUROckt6Q0VyR01IVTcrRDFSNGJzSFkKWWExRUpnNjZTMlB5V3c1dnF5
+OUlJTXpnclhLQ0Q2TGhuOVNLek02eUoyUQotPiBLVSkpNyZuLWdyZWFzZQpUMm9V
+eTgwSGFJUUNJcEFoSG84WHFZVGxWTFREVytUYzd6aTVQZCtmSGJBYWRDRkIxVzJI
+REZtaQotLS0gOS9MMzhEU1Zzc2c0TkkrV2VNNUV2cVgvTDBoNjFCOUhwZ1hQbzY3
+bHVVVQrwBD5tJPpwJcEQPnYnp94DVZnujdGRjrmQMWHhDF0CUhfdQQoNCULZY1Jw
+l/+nmfW2rtMhL8C14CZGISqO5Wd6+EbJGtcsnadTY9IacX0+dAV8di2/iiMmWepY
+bcR1c+E=
+-----END AGE ENCRYPTED FILE-----
+"""
+public_key = "254ab49a8d5e9d41c3905e6041f4d3a535340901e043b0ef681a48a63cc7c7d2"
+signature = "aa613eaf174a15a6b7ebc52ad1bfe5b7c560021f1825a098560e3cdbf824c7638b93203e708728142876ad47363e485b15ca00b54c899002fcde06c17998880e"
+
+[link_index]
+
+[entries.project]
+link = ""
+
+[entries.project.base]
+V6_BASE_KEY = "0a91654ead98b12cfde91988:84d9847f4df1b04639f9c986ea9bf9564097e101c14b0e5613966d61"
+
+[entries.project.tags.staging.entries]
+API_HOST = "ad36a8d4b3a1f2593b54d65f:2973c331574f3e0bad92b6128faf84f892ae25385f044dce175aa2b3"

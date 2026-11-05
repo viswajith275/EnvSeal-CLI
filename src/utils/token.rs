@@ -4,8 +4,11 @@ use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine as _};
 use ed25519_dalek::{Signature, Signer, SigningKey, Verifier, VerifyingKey};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
+use std::io::Read;
 use std::time::{SystemTime, UNIX_EPOCH};
 use zeroize::Zeroizing;
+
+const MAX_TOKEN_PAYLOAD_SIZE: u64 = 4 * 1024 * 1024; // 4 MB
 
 #[derive(Serialize, Deserialize, Debug)]
 pub enum TokenKeyMaterial {
@@ -93,8 +96,20 @@ impl TokenManager {
 
         let compressed_payload = URL_SAFE_NO_PAD.decode(payload_b64)?;
 
-        let json_bytes = zstd::decode_all(compressed_payload.as_slice())
+        let mut decoder = zstd::stream::read::Decoder::new(compressed_payload.as_slice())
             .map_err(|_| anyhow!("Failed to decompress token payload!"))?;
+        let mut json_bytes = Vec::new();
+        decoder
+            .by_ref()
+            .take(MAX_TOKEN_PAYLOAD_SIZE + 1)
+            .read_to_end(&mut json_bytes)
+            .map_err(|_| anyhow!("Failed to decompress token payload!"))?;
+        if json_bytes.len() as u64 > MAX_TOKEN_PAYLOAD_SIZE {
+            anyhow::bail!(
+                "Token payload exceeds the maximum supported size of {} MB",
+                MAX_TOKEN_PAYLOAD_SIZE / (1024 * 1024)
+            );
+        }
 
         let payload: TokenPayload = serde_json::from_slice(&json_bytes)?;
 

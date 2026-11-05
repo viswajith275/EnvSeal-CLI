@@ -427,7 +427,7 @@ fn test_file_secret_type_collision_guards() {
     // 3. Remove text secret and set as file secret
     harness
         .cmd()
-        .args(["remove", "CONFIG_ITEM"])
+        .args(["remove", "CONFIG_ITEM", "--force"])
         .assert()
         .success();
 

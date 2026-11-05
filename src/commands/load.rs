@@ -40,8 +40,9 @@ pub fn cmd_load(
 ) -> Result<()> {
     let vault = Vault::load(global, pref)?;
     let group_name = vault.resolve_group_name(group)?;
+    let auto_tag = resolve::auto_tag(&vault, group, tag);
     let location_label = if vault.is_local() { "local" } else { "global" };
-    let message = if let Some(t) = tag {
+    let message = if let Some(t) = auto_tag.as_deref() {
         match keys.is_empty() {
             true => format!(
                 "loading envs from tag '{}' inside group '{}' {} seal!",
@@ -71,7 +72,7 @@ pub fn cmd_load(
     let mut resolved_entries = resolve::resolve_environment(
         &vault,
         group,
-        tag,
+        auto_tag.as_deref(),
         token_str.as_deref(),
         allow_env,
         Some(&override_val),

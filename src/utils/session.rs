@@ -45,10 +45,11 @@ impl SessionManager {
 
     /// Removes the cached keys
     pub fn clear_session(scope: &str) -> Result<()> {
-        if let Ok(entry) = Self::get_entry(scope) {
-            let _ = entry.delete_credential();
+        let entry = Self::get_entry(scope)?;
+        match entry.delete_credential() {
+            Ok(()) | Err(keyring::Error::NoEntry) => Ok(()),
+            Err(e) => Err(e.into()),
         }
-        Ok(())
     }
 
     /// Retrieves the keys if it hasn't expired

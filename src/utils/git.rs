@@ -2,8 +2,23 @@ use anyhow::{Context, Result};
 use std::env;
 use std::fs::{self, OpenOptions};
 use std::io::Write;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::process::Command;
+
+fn set_git_config(repo_root: &Path, key: &str, value: &str) -> Result<()> {
+    let output = Command::new("git")
+        .current_dir(repo_root)
+        .args(["config", "--local", key, value])
+        .output()
+        .context("Failed to execute 'git config'")?;
+    if !output.status.success() {
+        anyhow::bail!(
+            "'git config {key}' failed: {}",
+            String::from_utf8_lossy(&output.stderr).trim()
+        );
+    }
+    Ok(())
+}
 
 fn find_repo_root() -> Option<PathBuf> {
     // path from git binary
@@ -69,24 +84,16 @@ pub fn sync_repo_git_conf(init_git: bool) -> Result<()> {
     };
 
     // merge driver
-    let _ = Command::new("git")
-        .current_dir(&repo_root)
-        .args([
-            "config",
-            "--local",
-            "merge.envseal.name",
-            "envseal 3-way cryptographic merge driver",
-        ])
-        .output();
-    let _ = Command::new("git")
-        .current_dir(&repo_root)
-        .args([
-            "config",
-            "--local",
-            "merge.envseal.driver",
-            "envseal merge --base %O --ours %A --theirs %B",
-        ])
-        .output();
+    set_git_config(
+        &repo_root,
+        "merge.envseal.name",
+        "envseal 3-way cryptographic merge driver",
+    )?;
+    set_git_config(
+        &repo_root,
+        "merge.envseal.driver",
+        "envseal merge --base %O --ours %A --theirs %B",
+    )?;
 
     let attributes_path = repo_root.join(".gitattributes");
 
@@ -140,7 +147,20 @@ pub fn sync_repo_git_conf(init_git: bool) -> Result<()> {
         .unwrap_or_else(|| repo_root.join(".git").join("hooks"));
     let hook_path = hooks_dir.join("pre-commit");
 
-    let existing_hook = fs::read_to_string(&hook_path).unwrap_or_default();
+    let existing_hook = if hook_path.exists() {
+        match fs::read_to_string(&hook_path) {
+            Ok(content) => content,
+            Err(_) => {
+                eprintln!(
+                    "[git] Existing pre-commit hook at '{}' is not a text hook; leaving it untouched. Add the envseal guard manually.",
+                    hook_path.display()
+                );
+                return Ok(());
+            }
+        }
+    } else {
+        String::new()
+    };
 
     if !existing_hook.contains("envseal pre-commit hook") {
         fs::create_dir_all(&hooks_dir)?;
@@ -155,14 +175,43 @@ pub fn sync_repo_git_conf(init_git: bool) -> Result<()> {
             exit 1
         fi
         "#;
-        if existing_hook.is_empty() || existing_hook.contains("envseal pre-commit hook") {
+        let snippet = hook_content
+            .strip_prefix("#!/bin/sh\n")
+            .unwrap_or(hook_content);
+
+        let first_line = existing_hook.lines().next().unwrap_or("").trim();
+        let is_shell_hook = first_line
+            .strip_prefix("#!")
+            .map(|rest| {
+                let interp = rest.split_whitespace().next().unwrap_or("");
+                let name = Path::new(interp)
+                    .file_name()
+                    .and_then(|n| n.to_str())
+                    .unwrap_or("");
+                matches!(name, "sh" | "bash" | "dash" | "zsh" | "ksh")
+            })
+            .unwrap_or(false);
+        let ends_with_exit = existing_hook
+            .lines()
+            .rev()
+            .find(|line| {
+                let line = line.trim();
+                !line.is_empty() && !line.starts_with('#')
+            })
+            .is_some_and(|line| line == "exit" || line.starts_with("exit "));
+
+        if existing_hook.trim().is_empty() {
             fs::write(&hook_path, hook_content)?;
-        } else {
+        } else if is_shell_hook && !ends_with_exit {
             let mut file = OpenOptions::new().append(true).open(&hook_path)?;
-            let snippet = hook_content
-                .strip_prefix("#!/bin/sh\n")
-                .unwrap_or(hook_content);
             file.write_all(format!("\n{snippet}").as_bytes())?;
+        } else {
+            eprintln!(
+                "[git] Existing pre-commit hook at '{}' is not a POSIX shell hook or exits early; leaving it untouched. Add this guard manually:\n\n{}",
+                hook_path.display(),
+                snippet
+            );
+            return Ok(());
         }
         #[cfg(unix)]
         {

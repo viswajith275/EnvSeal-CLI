@@ -18,6 +18,7 @@ use zeroize::{Zeroize, ZeroizeOnDrop, Zeroizing};
 pub const BASE_TAG: &str = "base";
 pub const LOCAL_GROUP_NAME: &str = "project";
 pub const MAX_SECRET_FILE_SIZE: u64 = 10 * 1024 * 1024; // 10 MB
+pub const MAX_VAULT_SIZE: u64 = 64 * 1024 * 1024; // 64 MB
 pub const ZSTD_MAGIC: [u8; 4] = [0x28, 0xB5, 0x2F, 0xFD];
 
 #[derive(Zeroize, ZeroizeOnDrop)]
@@ -237,11 +238,7 @@ pub struct SecretInfo {
 
 impl Entry {
     pub fn decrypt(&self, entry_key: &[u8; crypto::KEY_LEN]) -> Result<DecryptedValue> {
-        let pt_bytes = Zeroizing::new(crypto::decrypt(
-            entry_key,
-            &self.nonce,
-            &self.ciphertext,
-        )?);
+        let pt_bytes = Zeroizing::new(crypto::decrypt(entry_key, &self.nonce, &self.ciphertext)?);
 
         if let Some(env_name) = &self.file_env {
             let is_zstd = pt_bytes.len() >= 4 && pt_bytes[0..4] == ZSTD_MAGIC;
@@ -254,7 +251,7 @@ impl Entry {
                 env_name: env_name.clone(),
                 bytes: final_bytes,
                 file_name: self.file_name.clone(),
-                file_mode: self.file_mode,
+                file_mode: self.file_mode.map(|m| (m & 0o700) | 0o600),
             })
         } else {
             let text = String::from_utf8(pt_bytes.to_vec())
@@ -398,6 +395,13 @@ impl Vault {
         format!("master_{}", hex::encode(hasher.finalize()))
     }
 
+    /// v6 legacy socpes
+    pub fn legacy_master_scope(&self) -> String {
+        let mut hasher = Sha256::new();
+        hasher.update(&self.public_key);
+        format!("master_{}", hex::encode(hasher.finalize()))
+    }
+
     pub fn tag_scope(&self, group: Option<&str>, tag: &str) -> Result<String> {
         let group_name = self.resolve_group_name(group)?;
         Ok(format!(
@@ -439,8 +443,11 @@ impl Vault {
         force_global: bool,
         pref: Option<&str>,
     ) -> Result<PathBuf> {
-        if let Ok(override_path) = std::env::var("ENVSEAL_TEST_PATH") {
-            return Ok(PathBuf::from(override_path));
+        #[cfg(debug_assertions)]
+        {
+            if let Ok(override_path) = std::env::var("ENVSEAL_TEST_PATH") {
+                return Ok(PathBuf::from(override_path));
+            }
         }
         let filename = match pref {
             Some(name) => format!(".{name}.envseal"),
@@ -533,11 +540,19 @@ impl Vault {
             .lock_shared()
             .with_context(|| format!("Failed to acquire read lock on '{}'", lock_path.display()))?;
 
-        let mut file = File::open(&path)
+        let file = File::open(&path)
             .with_context(|| format!("Failed to open vault at '{}'", path.display()))?;
         let mut data = String::new();
-        file.read_to_string(&mut data)
+        file.take(MAX_VAULT_SIZE + 1)
+            .read_to_string(&mut data)
             .with_context(|| format!("Failed to read vault data from '{}'", path.display()))?;
+        if data.len() as u64 > MAX_VAULT_SIZE {
+            anyhow::bail!(
+                "Vault at '{}' exceeds the maximum supported size of {} MB",
+                path.display(),
+                MAX_VAULT_SIZE / (1024 * 1024)
+            );
+        }
         lock_file.unlock()?;
 
         let mut vault: Vault = toml::from_str(&data)
@@ -550,9 +565,16 @@ impl Vault {
         if !path.exists() {
             anyhow::bail!("Vault file does not exist: {}", path.display());
         }
-        let mut file = File::open(path)?;
+        let file = File::open(path)?;
         let mut data = String::new();
-        file.read_to_string(&mut data)?;
+        file.take(MAX_VAULT_SIZE + 1).read_to_string(&mut data)?;
+        if data.len() as u64 > MAX_VAULT_SIZE {
+            anyhow::bail!(
+                "Vault at '{}' exceeds the maximum supported size of {} MB",
+                path.display(),
+                MAX_VAULT_SIZE / (1024 * 1024)
+            );
+        }
         let mut vault: Vault = toml::from_str(&data)?;
         vault.file_path = Some(path.clone());
         Ok(vault)
@@ -569,11 +591,18 @@ impl Vault {
             .open(&lock_path)?;
         lock_file.lock_exclusive()?;
 
+        // Drop legacy .lock file
+        let legacy_lock = path.with_extension("lock");
+        if legacy_lock != lock_path {
+            let _ = fs::remove_file(&legacy_lock);
+        }
+
         let parent_dir = path.parent().unwrap_or_else(|| Path::new("."));
         let mut temp_file = NamedTempFile::new_in(parent_dir)?;
         let toml_data = toml::to_string_pretty(self)?;
         temp_file.write_all(toml_data.as_bytes())?;
         temp_file.flush()?;
+        temp_file.as_file().sync_all()?;
         temp_file.persist(path)?;
         lock_file.unlock()?;
         Ok(())
@@ -860,16 +889,18 @@ impl Vault {
         let entry_key = crypto::derive_entry_key(&scope_dek, name);
         let (nonce, ciphertext) = crypto::encrypt(&entry_key, stored_bytes.as_slice())?;
 
-        let file_name = path
-            .file_name()
-            .map(|n| n.to_string_lossy().to_string());
+        let file_name = path.file_name().map(|n| n.to_string_lossy().to_string());
 
         #[cfg(unix)]
         let file_mode = {
             use std::os::unix::fs::PermissionsExt;
-            fs::metadata(path)
-                .ok()
-                .map(|m| if m.permissions().mode() & 0o111 != 0 { 0o700 } else { 0o600 })
+            fs::metadata(path).ok().map(|m| {
+                if m.permissions().mode() & 0o111 != 0 {
+                    0o700
+                } else {
+                    0o600
+                }
+            })
         };
         #[cfg(not(unix))]
         let file_mode = None;
